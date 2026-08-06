@@ -4,11 +4,13 @@ import static org.junit.Assert.assertEquals;
 
 import org.junit.Test;
 
+import com.horizonradio.Tags;
+
 public class HorizonRadioProtocolTest {
 
     @Test
-    public void onePointZeroUsesVersionedProtocol() {
-        assertEquals("1.0.0", HorizonRadioProtocol.VERSION);
+    public void modVersionComesFromGeneratedBuildTag() {
+        assertEquals(Tags.VERSION, HorizonRadioProtocol.VERSION);
         assertEquals("horizonradio_1_0", HorizonRadioProtocol.CHANNEL_NAME);
     }
 }

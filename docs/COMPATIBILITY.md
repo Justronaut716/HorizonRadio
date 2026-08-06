@@ -7,27 +7,30 @@
 | Minecraft | 1.7.10 |
 | Forge | 10.13.4.1614 |
 | Mappings | MCP stable 12 |
-| Java development/build | 25, required by the GTNH convention plugin |
-| Portable runtime floor | Java 8-compatible; not verified by the current migration checkout |
+| Build JDK | Java 25, required by the GTNH convention plugin |
+| Ordinary Forge runtime | Java 8-compatible Forge 1.7.10 target; runtime smoke test pending |
+| GTNH runtime | Java 17 or newer; pack smoke test pending |
 | Gradle wrapper | 9.3.1 |
 | Build system | GTNH convention build |
-| GTNH integration | No hard GregTech or GTNHLib dependency; intended to coexist with GTNH |
+| Artifact | The same reobfuscated `horizonradio-<version>.jar` for both targets |
+| Hard GTNH/GregTech dependency | None |
 
-The Forge port has its own packet protocol. Install the same
-`horizonradio-1.0.0.jar` on the server and every client. Release 1.0 does not
-require GTNHLib or GregTech.
+The Forge port has its own packet protocol. Install the same plain
+reobfuscated `horizonradio-<version>.jar` on the server and every client. The
+artifact has no hard GTNH or GregTech dependency.
 
 ## Compatibility matrix and verification gates
 
 | Environment | Requirement | Evidence/status |
 |---|---|---|
-| Standalone Forge 1.7.10 | Java 8, Forge 10.13.4.1614, no GTNH mods | Dedicated-server/client smoke test — pending/unverified; not run in the migration checkout. |
-| GTNH | Java 25, same JAR, GTNHLib optional | Pinned GTNH pack smoke test — pending/unverified; no pack version recorded because the test was not run. |
-| Build | Java 25, GTNH convention wrapper | PASS. A clean Java 25 Gradle 9.3.1 build completed Spotless, Forge/MCP setup, compilation, 79 tests, JAR assembly, and reobfuscation. |
+| Standalone Forge 1.7.10 | Java 8-compatible Forge 10.13.4.1614 target, no GTNH mods, same JAR | Dedicated-server/client smoke test — pending/unverified; not run in the migration checkout. |
+| GTNH | Java 17+, same JAR, GTNHLib/GregTech optional | Pinned GTNH pack smoke test — pending/unverified; no pack version recorded because the test was not run. |
+| Build | Java 25, GTNH convention wrapper | PASS. A clean Java 25 Gradle 9.3.1 build completed Spotless, Forge/MCP setup, compilation, 76 tests, JAR assembly, and reobfuscation. |
 | Artifact inspection | Successful Java 25 build output | PASS. The built JAR contains HorizonRadio metadata/classes and GUI assets, with no shaded GTNH, GregTech, or LWJGL classes. |
 
 The Java 25 build and artifact inspection are verified. The standalone Forge
-smoke gate and GTNH smoke gate still require runnable game environments.
+smoke gate and GTNH smoke gate still require runnable game environments. The
+build result does not prove Java 8 or Java 17+ game-launch compatibility.
 
 ## Measured evidence
 
@@ -37,13 +40,11 @@ smoke gate and GTNH smoke gate still require runnable game environments.
 - Java 25 wrapper verification: `./gradlew --version` downloaded Gradle
   `9.3.1` successfully with `JAVA_HOME=/home/benjamin/.jdks/ms-25.0.4` and
   `GRADLE_USER_HOME=/tmp/horizonradio-wrapper-gradle`.
-- Clean Java 25 build: the direct Gradle 9.3.1 binary completed
-  `clean test build --no-daemon` successfully; the wrapper sequence
-  `clean --no-daemon` followed by `test build --no-daemon` also completed
-  successfully.
-- Test result: all 79 JUnit tests passed under Java 25.
-- Artifact result: `build/libs/horizonradio-5ca3dc4.jar` (`SHA-256
-  df91f3c16ae550ebcfcfea0176c17e87f70b1109b32ffc07ecbdfeb95a5814be`) has
+- Clean Java 25 build: `VERSION=1.0.0 ./gradlew clean` followed by
+  `VERSION=1.0.0 ./gradlew spotlessCheck test build` completed successfully.
+- Test result: all 76 JUnit tests passed under Java 25.
+- Artifact result: `build/libs/horizonradio-1.0.0.jar` (`SHA-256
+  27e4a017f737c05abcd142e8e264b9d8e8ecf28eabb7387a8cf961f0b193104a`) has
   `mcmod.info` identifying `horizonradio`/`HorizonRadio`, targets Minecraft
   `1.7.10`, and declares no runtime dependencies. The JAR contains the
   protocol, optional-integration seam, and six GUI textures; no external
@@ -106,10 +107,10 @@ available:
 
 | Criterion | Exact measured environment/command | Result |
 |---|---|---|
-| Java 25 build | Java `25.0.4` at `/home/benjamin/.jdks/ms-25.0.4`; wrapper `9.3.1` with `GRADLE_USER_HOME=/tmp/horizonradio-wrapper-gradle`; `./gradlew clean --no-daemon` followed by `./gradlew test build --no-daemon` | PASS. The wrapper downloaded successfully, the separate clean completed, and the build finished with 79 passing tests. |
-| Artifact inspection/hash | `build/libs/horizonradio-5ca3dc4.jar` after the successful Java 25 build | PASS. `mcmod.info` identifies HorizonRadio/Minecraft 1.7.10; expected classes/assets are present; no external GTNHLib, GregTech, or LWJGL packages were found. SHA-256: `df91f3c16ae550ebcfcfea0176c17e87f70b1109b32ffc07ecbdfeb95a5814be`. |
+| Java 25 build | Java `25.0.4` at `/home/benjamin/.jdks/ms-25.0.4`; wrapper `9.3.1` with `GRADLE_USER_HOME=/tmp/horizonradio-wrapper-gradle`; `VERSION=1.0.0 ./gradlew clean` followed by `VERSION=1.0.0 ./gradlew spotlessCheck test build` | PASS. The separate clean completed, Spotless verification passed, and the build finished with 76 passing tests. |
+| Artifact inspection/hash | `build/libs/horizonradio-1.0.0.jar` after the successful Java 25 build | PASS. `mcmod.info` identifies HorizonRadio/Minecraft 1.7.10; expected classes/assets are present; no external GTNHLib, GregTech, or LWJGL packages were found. SHA-256: `27e4a017f737c05abcd142e8e264b9d8e8ecf28eabb7387a8cf961f0b193104a`. |
 | Standalone Forge Java 8 | Java `1.8.0_502` is installed; scan for Forge `1.7.10`/server artifacts found no local installation or launch harness | Pending/unverified; no Java 8 Forge server/client was launched. |
-| GTNH Java 25 | Local PrismLauncher instance `GTNH 2.9 Beta-2`; `gtnhlib-0.11.24.jar` and `gregtech-5.09.54.20.jar` are present | Pending/unverified; a built HorizonRadio JAR is now available, but no GTNH launch was performed. |
+| GTNH runtime smoke test | Local PrismLauncher instance `GTNH 2.9 Beta-2` (Java 25 environment); `gtnhlib-0.11.24.jar` and `gregtech-5.09.54.20.jar` are present | Pending/unverified; a built HorizonRadio JAR is available, but no GTNH launch was performed. The target remains Java 17+. |
 | Optional dependency absence/presence | GTNHLib/GregTech present in the GTNH instance; no standalone Forge installation was available to test physical absence | Pending/unverified for both startup comparisons. |
 | External audio dependencies | `yt-dlp` present at `/home/benjamin/.local/bin/yt-dlp`; `ffmpeg` present at `/usr/bin/ffmpeg` | Presence recorded only; functional audio smoke remains pending/unverified. |
 | Functional smoke | No local standalone or project runtime harness; no client/server launch | Pending/unverified. |
@@ -118,8 +119,8 @@ The Gradle distribution download blocker is resolved by the writable-cache and
 network setup above. Runtime blockers are the missing standalone Forge 1.7.10
 installation/harness and the lack of a completed two-environment GTNHLib
 absence/presence comparison. Required game-launch release criteria are not yet
-evidenced; no `release: prepare HorizonRadio 1.0.0` commit is authorized by
-this verification.
+evidenced; no release commit is authorized until the required runtime smoke
+gates are evidenced.
 
 ## 1.0 breaking boundary
 

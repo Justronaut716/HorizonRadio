@@ -26,12 +26,14 @@ integrations. The inactive companion service is not part of this port.
 
 ## Requirements
 
-- Java 25 for development and the GTNH convention build.
-- Java 8 is the portable runtime floor for the published mod; Java 8 runtime
-  compatibility remains unverified by the current migration checkout.
+- Java 25 for development and release builds. This is a build requirement,
+  not the game runtime requirement.
+- Ordinary Forge 1.7.10 targets a Java 8-compatible runtime. GTNH targets Java
+  17 or newer; runtime smoke tests remain pending.
 - Minecraft 1.7.10 with Forge `10.13.4.1614`.
 - Either standalone Forge 1.7.10 or a GTNH installation for deployment. The
-  1.0 release does not require GTNHLib or GregTech.
+  same plain reobfuscated JAR works for both, with no hard GTNHLib or GregTech
+  dependency.
 - `yt-dlp` and `ffmpeg` available on the server `PATH`. They are external
   prerequisites and are not bundled in the JAR.
 - A usable Java Sound line on each client for audible playback. The client
@@ -59,19 +61,25 @@ portable-runtime compatibility path. See
 [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md) for the verified local build
 and pending runtime matrix.
 
+For version bumps, remote releases, artifact selection, checksums, and recovery,
+see the [`release guide`](docs/RELEASE.md).
+
 ## Installation
 
-1. Build `build/libs/horizonradio-1.0.0.jar` with Java 25. The published
-   artifact is intended to retain Java 8 portable-runtime compatibility, which
-   still requires a successful Java 8-targeted build and runtime check.
-2. Install that same `horizonradio-1.0.0.jar` in the Forge `mods` directory on
-   the server and every connecting client.
+1. For a local development build, run `./gradlew build` with Java 25. For a
+   versioned release, use the process in [`docs/RELEASE.md`](docs/RELEASE.md);
+   it sets `VERSION=<version>` and publishes the plain reobfuscated
+   `horizonradio-<version>.jar`.
+2. Install that same `horizonradio-<version>.jar` in the Forge `mods` directory
+   on the server and every connecting client. Do not install `-dev` or
+   `-sources` outputs. This one JAR is for ordinary Forge 1.7.10 and GTNH
+   Java 17+; Java 25 is only required to build it.
 3. Install `yt-dlp` and `ffmpeg` on the server and verify both commands are on
    its `PATH`.
 4. Start the server once. HorizonRadio creates `config/horizonradio.json` defaults and
    uses `./horizonradio-downloads` for cached WAV files unless configured otherwise.
-5. Keep the server and every client on the same Forge 1.7.10 port build. Release
-   1.0 uses the versioned `horizonradio_1_0` protocol channel.
+5. Keep the server and every client on the same Forge 1.7.10 port build. The
+   current protocol uses the versioned `horizonradio_1_0` channel.
 
 ## 1.0 migration boundary
 
