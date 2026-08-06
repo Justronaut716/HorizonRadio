@@ -1,0 +1,9 @@
+/*
+ * Project dependencies. Keep GTNH and GregTech optional: the portable JAR
+ * must remain usable in a plain Forge 1.7.10 installation.
+ */
+dependencies {
+    testImplementation("junit:junit:4.13.2")
+    // Forge GUI classes reference LWJGL during static initialisation; keep it test-only.
+    testRuntimeOnly("org.lwjgl.lwjgl:lwjgl:2.9.4-nightly-20150209")
+}

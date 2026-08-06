@@ -1,0 +1,438 @@
+package com.horizonradio.core.server;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Random;
+import java.util.Set;
+import java.util.UUID;
+import java.util.concurrent.CopyOnWriteArrayList;
+
+import com.horizonradio.core.model.PlaylistEntry;
+
+/**
+ * Java-8-only playlist and late-join state. Minecraft and network side effects
+ * stay in {@link PlaylistManager}; callers mutate this state on the server
+ * thread.
+ */
+public final class PlaylistState {
+
+    private static final long DEFAULT_TRACK_DURATION_MS = 3L * 60L * 1000L;
+    private final CopyOnWriteArrayList<PlaylistEntry> playlist = new CopyOnWriteArrayList<PlaylistEntry>();
+    private final int maxPlaylistSize;
+    private final Set<UUID> pendingPlayers = new HashSet<UUID>();
+
+    private int currentIndex = -1;
+    private boolean playing;
+    private boolean paused;
+    private boolean looping;
+    private boolean shuffling;
+    private boolean previousRestarted;
+    private PlaylistEntry lastTrack;
+    private String currentVideoId;
+    private long playbackStartTime;
+    private long currentTrackDurationMs;
+
+    private boolean syncing;
+    private long pausedPositionMs;
+    private long pauseStartTime;
+
+    public PlaylistState(int maxPlaylistSize) {
+        this.maxPlaylistSize = maxPlaylistSize;
+    }
+
+    public boolean add(PlaylistEntry entry) {
+        // The active Fabric implementation reads maxPlaylistSize but never
+        // applies it. Keep that behavior for this port; changing it would
+        // silently change playlist gameplay.
+        if (entry == null) {
+            return false;
+        }
+        playlist.add(entry);
+        return true;
+    }
+
+    public List<PlaylistEntry> snapshot() {
+        return Collections.unmodifiableList(new ArrayList<PlaylistEntry>(playlist));
+    }
+
+    public PlaylistEntry get(int index) {
+        return playlist.get(index);
+    }
+
+    public int size() {
+        return playlist.size();
+    }
+
+    int findOwnedIndex(String videoId, String playerName) {
+        if (videoId == null || playerName == null) {
+            return -1;
+        }
+        for (int index = 0; index < playlist.size(); index++) {
+            PlaylistEntry entry = playlist.get(index);
+            if (videoId.equals(entry.getVideoId()) && playerName.equals(entry.getAddedBy())) {
+                return index;
+            }
+        }
+        return -1;
+    }
+
+    public int findIndex(String videoId) {
+        if (videoId == null) {
+            return -1;
+        }
+        for (int index = 0; index < playlist.size(); index++) {
+            if (videoId.equals(
+                playlist.get(index)
+                    .getVideoId())) {
+                return index;
+            }
+        }
+        return -1;
+    }
+
+    int removeOwned(String videoId, String playerName) {
+        int index = findOwnedIndex(videoId, playerName);
+        return removeAt(index);
+    }
+
+    public int remove(String videoId) {
+        return removeAt(findIndex(videoId));
+    }
+
+    private int removeAt(int index) {
+        if (index < 0) {
+            return -1;
+        }
+        PlaylistEntry removed = playlist.remove(index);
+        if (index < currentIndex) {
+            currentIndex--;
+        } else if (index == currentIndex) {
+            currentIndex--;
+            playing = false;
+            paused = false;
+            lastTrack = removed;
+            currentVideoId = null;
+            playbackStartTime = 0L;
+            currentTrackDurationMs = 0L;
+        }
+        return index;
+    }
+
+    public PlaylistEntry removeCurrent() {
+        if (currentIndex < 0 || currentIndex >= playlist.size()) {
+            return null;
+        }
+        PlaylistEntry removed = playlist.remove(currentIndex);
+        lastTrack = removed;
+        currentIndex--;
+        playing = false;
+        paused = false;
+        currentVideoId = null;
+        playbackStartTime = 0L;
+        currentTrackDurationMs = 0L;
+        return removed;
+    }
+
+    public boolean moveQueued(int fromIndex, int targetIndex) {
+        if (fromIndex < 0 || fromIndex >= playlist.size()
+            || targetIndex < 0
+            || targetIndex >= playlist.size()
+            || fromIndex == targetIndex) {
+            return false;
+        }
+        if (currentIndex >= 0 && (fromIndex <= currentIndex || targetIndex <= currentIndex)) {
+            return false;
+        }
+
+        PlaylistEntry entry = playlist.remove(fromIndex);
+        playlist.add(targetIndex, entry);
+        return true;
+    }
+
+    public PlaylistEntry advanceToNext(long durationMs) {
+        currentIndex++;
+        if (currentIndex < 0 || currentIndex >= playlist.size()) {
+            resetPlayback();
+            return null;
+        }
+
+        playing = true;
+        paused = false;
+        previousRestarted = false;
+        currentVideoId = null;
+        playbackStartTime = 0L;
+        currentTrackDurationMs = durationMs;
+        return playlist.get(currentIndex);
+    }
+
+    public void startTrack(int index, String videoId, long durationMs, long startTimeMs) {
+        currentIndex = index;
+        playing = true;
+        paused = false;
+        previousRestarted = false;
+        currentVideoId = videoId;
+        currentTrackDurationMs = durationMs;
+        playbackStartTime = startTimeMs;
+    }
+
+    public void markLoaded(String videoId, long startTimeMs) {
+        currentVideoId = videoId;
+        playbackStartTime = startTimeMs;
+    }
+
+    public long pausePlayback(long positionMs, long nowMs) {
+        if (!playing || currentVideoId == null || currentTrackDurationMs <= 0L) {
+            return -1L;
+        }
+        long maximumPosition = Math.max(0L, currentTrackDurationMs - 1L);
+        long safePosition = Math.max(0L, Math.min(maximumPosition, positionMs));
+        paused = true;
+        pausedPositionMs = safePosition;
+        pauseStartTime = nowMs;
+        return safePosition;
+    }
+
+    public long resumePlayback(long nowMs) {
+        if (!paused) {
+            return -1L;
+        }
+        long pauseDuration = Math.max(0L, nowMs - pauseStartTime);
+        playbackStartTime += pauseDuration;
+        paused = false;
+        return pausedPositionMs;
+    }
+
+    public long seek(long positionMs, long nowMs) {
+        if (!playing || currentVideoId == null || currentTrackDurationMs <= 0L) {
+            return -1L;
+        }
+        long maximumPosition = Math.max(0L, currentTrackDurationMs - 1L);
+        long safePosition = Math.max(0L, Math.min(maximumPosition, positionMs));
+        if (paused) {
+            pausedPositionMs = safePosition;
+            pauseStartTime = nowMs;
+        } else {
+            playbackStartTime = nowMs - safePosition;
+        }
+        return safePosition;
+    }
+
+    public int getCurrentIndex() {
+        return currentIndex;
+    }
+
+    public String getCurrentVideoId() {
+        return currentVideoId;
+    }
+
+    public boolean isPlaying() {
+        return playing;
+    }
+
+    public boolean isPaused() {
+        return paused;
+    }
+
+    public boolean toggleLooping() {
+        looping = !looping;
+        return looping;
+    }
+
+    public boolean isLooping() {
+        return looping;
+    }
+
+    public boolean toggleShuffling() {
+        shuffling = !shuffling;
+        return shuffling;
+    }
+
+    public boolean isShuffling() {
+        return shuffling;
+    }
+
+    public void shuffleQueued() {
+        int firstQueuedIndex = currentIndex < 0 ? 0 : currentIndex + 1;
+        if (firstQueuedIndex >= playlist.size() - 1) {
+            return;
+        }
+        List<PlaylistEntry> queued = new ArrayList<PlaylistEntry>();
+        for (int index = firstQueuedIndex; index < playlist.size(); index++) {
+            queued.add(playlist.get(index));
+        }
+        Collections.shuffle(queued, new Random());
+        for (int index = 0; index < queued.size(); index++) {
+            playlist.set(firstQueuedIndex + index, queued.get(index));
+        }
+    }
+
+    public boolean wasPreviousRestarted() {
+        return previousRestarted;
+    }
+
+    public void markPreviousRestarted() {
+        previousRestarted = true;
+    }
+
+    public void addAtFront(PlaylistEntry entry) {
+        if (entry == null) {
+            return;
+        }
+        playlist.add(0, entry);
+        if (currentIndex >= 0) {
+            currentIndex++;
+        }
+    }
+
+    public PlaylistEntry takeLastTrack() {
+        PlaylistEntry previous = lastTrack;
+        lastTrack = null;
+        return previous;
+    }
+
+    public PlaylistEntry peekLastTrack() {
+        return lastTrack;
+    }
+
+    public long getPlaybackStartTime() {
+        return playbackStartTime;
+    }
+
+    public long getCurrentTrackDurationMs() {
+        return currentTrackDurationMs;
+    }
+
+    public void resetPlayback() {
+        currentIndex = -1;
+        playing = false;
+        paused = false;
+        previousRestarted = false;
+        currentVideoId = null;
+        playbackStartTime = 0L;
+        currentTrackDurationMs = 0L;
+    }
+
+    public boolean beginLateJoin(UUID playerUuid, long elapsedMs, long nowMs) {
+        if (playerUuid == null || !playing || currentVideoId == null) {
+            return false;
+        }
+
+        boolean firstJoiner = !syncing;
+        if (firstJoiner) {
+            syncing = true;
+            pausedPositionMs = elapsedMs;
+            pauseStartTime = nowMs;
+        }
+        pendingPlayers.add(playerUuid);
+        return firstJoiner;
+    }
+
+    public boolean ready(UUID playerUuid, String videoId) {
+        if (!syncing || playerUuid == null
+            || videoId == null
+            || currentVideoId == null
+            || !currentVideoId.equals(videoId)) {
+            return false;
+        }
+        return pendingPlayers.remove(playerUuid) && pendingPlayers.isEmpty();
+    }
+
+    public boolean disconnect(UUID playerUuid) {
+        return removePending(playerUuid);
+    }
+
+    public boolean removePending(UUID playerUuid) {
+        return playerUuid != null && pendingPlayers.remove(playerUuid);
+    }
+
+    public boolean containsPending(UUID playerUuid) {
+        return playerUuid != null && pendingPlayers.contains(playerUuid);
+    }
+
+    public boolean forceResume() {
+        if (!syncing) {
+            return false;
+        }
+        syncing = false;
+        pendingPlayers.clear();
+        return true;
+    }
+
+    public boolean resume(long nowMs) {
+        if (!syncing) {
+            return false;
+        }
+        long pauseDuration = nowMs - pauseStartTime;
+        if (pauseDuration > 0L) {
+            playbackStartTime += pauseDuration;
+        }
+        syncing = false;
+        pendingPlayers.clear();
+        return true;
+    }
+
+    public boolean isSyncing() {
+        return syncing;
+    }
+
+    public long getPausedPositionMs() {
+        return pausedPositionMs;
+    }
+
+    public long getPauseStartTime() {
+        return pauseStartTime;
+    }
+
+    public int getPendingPlayerCount() {
+        return pendingPlayers.size();
+    }
+
+    public boolean hasPendingPlayers() {
+        return !pendingPlayers.isEmpty();
+    }
+
+    int getMaxPlaylistSize() {
+        return maxPlaylistSize;
+    }
+
+    public static long parseDuration(String duration) {
+        if (duration == null || duration.trim()
+            .length() == 0) {
+            return DEFAULT_TRACK_DURATION_MS;
+        }
+        try {
+            String[] parts = duration.split(":");
+            long seconds = 0L;
+            for (String part : parts) {
+                if (part == null || part.trim()
+                    .length() == 0) {
+                    return DEFAULT_TRACK_DURATION_MS;
+                }
+                long value = Long.parseLong(part.trim());
+                if (value < 0L) {
+                    return DEFAULT_TRACK_DURATION_MS;
+                }
+                seconds = seconds * 60L + value;
+                if (seconds < 0L) {
+                    return DEFAULT_TRACK_DURATION_MS;
+                }
+            }
+            long milliseconds = seconds * 1000L;
+            return milliseconds < 0L ? DEFAULT_TRACK_DURATION_MS : milliseconds;
+        } catch (NumberFormatException exception) {
+            return DEFAULT_TRACK_DURATION_MS;
+        }
+    }
+
+    public void clear() {
+        playlist.clear();
+        pendingPlayers.clear();
+        lastTrack = null;
+        looping = false;
+        shuffling = false;
+        syncing = false;
+        resetPlayback();
+    }
+}

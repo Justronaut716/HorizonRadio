@@ -1,0 +1,17 @@
+[
+  {
+    "modid": "horizonradio",
+    "name": "HorizonRadio",
+    "description": "Server-wide music player for Minecraft 1.7.10 using YouTube; compatible with GTNH without a GregTech dependency",
+    "version": "${modVersion}",
+    "mcversion": "${minecraftVersion}",
+    "url": "https://github.com/Justronaut716/HorizonRadio",
+    "updateUrl": "",
+    "authorList": ["HorizonRadio Team"],
+    "credits": "",
+    "logoFile": "",
+    "screenshots": [],
+    "dependencies": [],
+    "license": "MIT"
+  }
+]

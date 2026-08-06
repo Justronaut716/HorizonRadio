@@ -1,0 +1,47 @@
+{
+  "contents": {
+    "twoColumnSearchResultsRenderer": {
+      "primaryContents": {
+        "sectionListRenderer": {
+          "contents": [
+            {
+              "itemSectionRenderer": {
+                "contents": [
+                  {
+                    "videoRenderer": {
+                      "videoId": "complete01",
+                      "title": {"runs": [{"text": "Complete title"}]},
+                      "ownerText": {"simpleText": "Complete channel"},
+                      "lengthText": {"simpleText": "4:05"},
+                      "thumbnail": {"thumbnails": [{"url": "https://img.example/small.jpg"}, {"url": "https://img.example/large.jpg"}]}
+                    }
+                  },
+                  {
+                    "videoRenderer": {
+                      "videoId": "missing02",
+                      "title": {"simpleText": "Missing optional fields"}
+                    }
+                  },
+                  {
+                    "videoRenderer": {
+                      "title": {"simpleText": "Skipped without an ID"}
+                    }
+                  },
+                  {"videoRenderer": {"videoId": "video03", "title": {"simpleText": "Video 3"}}},
+                  {"videoRenderer": {"videoId": "video04", "title": {"simpleText": "Video 4"}}},
+                  {"videoRenderer": {"videoId": "video05", "title": {"simpleText": "Video 5"}}},
+                  {"videoRenderer": {"videoId": "video06", "title": {"simpleText": "Video 6"}}},
+                  {"videoRenderer": {"videoId": "video07", "title": {"simpleText": "Video 7"}}},
+                  {"videoRenderer": {"videoId": "video08", "title": {"simpleText": "Video 8"}}},
+                  {"videoRenderer": {"videoId": "video09", "title": {"simpleText": "Video 9"}}},
+                  {"videoRenderer": {"videoId": "video10", "title": {"simpleText": "Video 10"}}},
+                  {"videoRenderer": {"videoId": "video11", "title": {"simpleText": "Video 11"}}}
+                ]
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+}

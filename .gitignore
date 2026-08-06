@@ -1,0 +1,31 @@
+.gradle/
+build/
+run/
+eclipse/
+.idea/
+.vscode/
+out/
+*.iml
+.classpath
+.project
+.settings/
+
+# Local agent and Codex workflow data
+.agents/
+.codex/
+.superpowers/
+.worktrees/
+
+# Minecraft/Gradle runtime output
+logs/
+
+# HorizonRadio runtime data and external-tool output
+horizonradio-downloads/
+config/horizonradio.json
+config/horizonradio-charts.json
+*.wav
+*.log
+
+# Local OS/editor files
+.DS_Store
+Thumbs.db
