@@ -39,7 +39,7 @@ public class HorizonRadioClientConfigTest {
                 HorizonRadioClientConfig.load(directory)
                     .getVolume(),
                 0.0001f);
-            assertTrue(new File(directory, "horizonradio-client.json").isFile());
+            assertTrue(new File(directory, HorizonRadioClientConfig.FILE_NAME).isFile());
         } finally {
             deleteRecursively(directory);
         }
@@ -86,7 +86,7 @@ public class HorizonRadioClientConfigTest {
     }
 
     private static void write(File directory, String json) throws IOException {
-        FileOutputStream output = new FileOutputStream(new File(directory, "horizonradio-client.json"));
+        FileOutputStream output = new FileOutputStream(new File(directory, HorizonRadioClientConfig.FILE_NAME));
         try {
             output.write(json.getBytes(Charset.forName("UTF-8")));
         } finally {

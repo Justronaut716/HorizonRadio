@@ -91,6 +91,37 @@ public class GuiLayoutTest {
     }
 
     @Test
+    public void volumeSliderPersistsOnlyAfterDraggingEnds() throws IOException {
+        File directory = Files.createTempDirectory("horizonradio-volume-slider")
+            .toFile();
+        try {
+            HorizonRadioClient.loadClientConfig(directory);
+            HorizonRadioClient.setVolume(0.0f);
+            HorizonRadioVolumeSlider slider = new HorizonRadioVolumeSlider(3, 10, 10, 100, 20, 0.0f);
+
+            assertTrue(slider.mousePressed(null, 10, 15));
+            slider.mouseDragged(null, 60, 15);
+
+            assertEquals(0.5f, HorizonRadioClient.getVolume(), 0.01f);
+            assertEquals(
+                0.0f,
+                HorizonRadioClientConfig.load(directory)
+                    .getVolume(),
+                0.0001f);
+
+            slider.mouseReleased(60, 15);
+
+            assertEquals(
+                0.5f,
+                HorizonRadioClientConfig.load(directory)
+                    .getVolume(),
+                0.01f);
+        } finally {
+            deleteRecursively(directory);
+        }
+    }
+
+    @Test
     public void loadingClientConfigRestoresVolumeAtStartup() throws IOException {
         File directory = Files.createTempDirectory("horizonradio-volume-startup")
             .toFile();

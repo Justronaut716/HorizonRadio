@@ -358,12 +358,22 @@ public final class HorizonRadioClient {
             .getVolume();
     }
 
-    public static synchronized void setVolume(float value) {
-        AudioPlayer player = AudioPlayer.getInstance();
-        player.setVolume(value);
+    static synchronized void setVolumePreview(float value) {
+        AudioPlayer.getInstance()
+            .setVolume(value);
+    }
+
+    static synchronized void persistVolume() {
         if (clientConfig != null) {
-            clientConfig.save(player.getVolume());
+            clientConfig.save(
+                AudioPlayer.getInstance()
+                    .getVolume());
         }
+    }
+
+    public static synchronized void setVolume(float value) {
+        setVolumePreview(value);
+        persistVolume();
     }
 
     public static synchronized void updateSearchResults(List<HorizonRadioScreen.SearchResult> results) {
