@@ -171,6 +171,7 @@ public class HorizonRadioScreen extends GuiScreen {
             HorizonRadioClient.getVolume());
         addButton(volumeSlider);
         openCharts();
+        updateChartRefreshButtonState();
     }
 
     @Override
@@ -197,6 +198,7 @@ public class HorizonRadioScreen extends GuiScreen {
 
         searchButton.visible = currentTab == SEARCH_TAB;
         refreshChartsButton.visible = currentTab == CHARTS_TAB;
+        updateChartRefreshButtonState();
         if (currentTab == SEARCH_TAB) {
             searchField.drawTextBox();
         }
@@ -469,7 +471,7 @@ public class HorizonRadioScreen extends GuiScreen {
             currentTab = SEARCH_TAB;
         } else if (button.id == BUTTON_PLAYLIST_TAB) {
             currentTab = PLAYLIST_TAB;
-        } else if (button.id == BUTTON_REFRESH_CHARTS) {
+        } else if (button.id == BUTTON_REFRESH_CHARTS && !isChartRefreshBusy()) {
             beginChartLoading();
             HorizonRadioClient.sendChartsRequest(true);
         } else if (button.id == 6) {
@@ -730,12 +732,28 @@ public class HorizonRadioScreen extends GuiScreen {
         chartScrollOffset = 0;
         chartLoading = false;
         chartProgress = 1.0f;
+        updateChartRefreshButtonState();
     }
 
     public void beginChartLoading() {
         chartLoading = true;
         chartProgress = 0.02f;
         chartStartedAt = System.currentTimeMillis();
+        updateChartRefreshButtonState();
+    }
+
+    static boolean shouldEnableChartRefreshButton(boolean chartLoading, boolean chartRequestPending) {
+        return !chartLoading && !chartRequestPending;
+    }
+
+    private boolean isChartRefreshBusy() {
+        return !shouldEnableChartRefreshButton(chartLoading, HorizonRadioClient.isChartRequestPending());
+    }
+
+    private void updateChartRefreshButtonState() {
+        if (refreshChartsButton != null) {
+            refreshChartsButton.enabled = !isChartRefreshBusy();
+        }
     }
 
     public void updatePlaylist(List<PlaylistEntry> entries) {
@@ -1042,18 +1060,23 @@ public class HorizonRadioScreen extends GuiScreen {
             if (!visible) {
                 return;
             }
-            boolean hovered = mouseX >= xPosition && mouseX < xPosition + width
+            boolean hovered = enabled && mouseX >= xPosition
+                && mouseX < xPosition + width
                 && mouseY >= yPosition
                 && mouseY < yPosition + height;
-            int outer = active ? 0xFF6EAA6E : (hovered ? 0xFF777777 : 0xFF5F5F5F);
-            int inner = active ? 0xFF456B45 : (hovered ? 0xFF666666 : 0xFF4A4A4A);
+            int outer = !enabled ? 0xFF4A4A4A : (active ? 0xFF6EAA6E : (hovered ? 0xFF777777 : 0xFF5F5F5F));
+            int inner = !enabled ? 0xFF383838 : (active ? 0xFF456B45 : (hovered ? 0xFF666666 : 0xFF4A4A4A));
             drawRect(xPosition, yPosition, xPosition + width, yPosition + height, 0xFF111111);
             drawRect(xPosition + 1, yPosition + 1, xPosition + width - 1, yPosition + height - 1, outer);
             drawRect(xPosition + 3, yPosition + 3, xPosition + width - 3, yPosition + height - 4, inner);
             drawRect(xPosition + 2, yPosition + 2, xPosition + width - 2, yPosition + 3, 0xFF9A9A9A);
             minecraft.getTextureManager()
                 .bindTexture(iconTexture);
-            GL11.glColor4f(1.0F, 1.0F, 1.0F, 1.0F);
+            if (enabled) {
+                GL11.glColor4f(1.0F, 1.0F, 1.0F, 1.0F);
+            } else {
+                GL11.glColor4f(0.5F, 0.5F, 0.5F, 1.0F);
+            }
             Gui.func_152125_a(
                 xPosition + (width - CONTROL_ICON_SIZE) / 2,
                 yPosition + (height - CONTROL_ICON_SIZE) / 2,

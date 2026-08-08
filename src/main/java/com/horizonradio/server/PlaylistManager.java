@@ -156,22 +156,75 @@ public final class PlaylistManager {
             return;
         }
 
-        List<SearchResult> cached = chartCache.getResults();
-        if (!cached.isEmpty()) {
-            sendChartResults(player, cached, false);
-            if (!forceRefresh && chartCache.isFresh()) {
-                return;
-            }
-        }
+        final List<SearchResult> cached = chartCache.getResults();
+        boolean operator = server.getConfigurationManager()
+            .func_152596_g(player.getGameProfile());
+        processChartRequest(
+            forceRefresh,
+            operator,
+            !cached.isEmpty(),
+            !cached.isEmpty() && chartCache.isFresh(),
+            new ChartRequestActions() {
 
-        sendChat(
-            player,
+                @Override
+                public void sendChartResults() {
+                    PlaylistManager.this.sendChartResults(player, cached, false);
+                }
+
+                @Override
+                public void sendChat(EnumChatFormatting color, String message) {
+                    PlaylistManager.this.sendChat(player, color, message);
+                }
+
+                @Override
+                public void registerWaiter() {
+                    if (!chartRefreshWaiters.contains(player)) {
+                        chartRefreshWaiters.add(player);
+                    }
+                }
+
+                @Override
+                public void refresh() {
+                    refreshChartsIfNeeded();
+                }
+            });
+    }
+
+    interface ChartRequestActions {
+
+        void sendChartResults();
+
+        void sendChat(EnumChatFormatting color, String message);
+
+        void registerWaiter();
+
+        void refresh();
+    }
+
+    static void processChartRequest(boolean forceRefresh, boolean operator, boolean hasCachedCharts, boolean cacheFresh,
+        ChartRequestActions actions) {
+        if (!canRefreshCharts(forceRefresh, operator)) {
+            actions.sendChartResults();
+            actions.sendChat(EnumChatFormatting.RED, "Only server operators can refresh the charts.");
+            return;
+        }
+        if (shouldServeCachedCharts(hasCachedCharts, forceRefresh, cacheFresh)) {
+            actions.sendChartResults();
+            return;
+        }
+        actions.sendChat(
             EnumChatFormatting.YELLOW,
             forceRefresh ? "Refreshing German YouTube Music Top 50..." : "Loading German YouTube Music Top 50...");
-        if (!chartRefreshWaiters.contains(player)) {
-            chartRefreshWaiters.add(player);
-        }
-        refreshChartsIfNeeded();
+        actions.registerWaiter();
+        actions.refresh();
+    }
+
+    static boolean canRefreshCharts(boolean forceRefresh, boolean operator) {
+        return !forceRefresh || operator;
+    }
+
+    static boolean shouldServeCachedCharts(boolean hasCachedCharts, boolean forceRefresh, boolean cacheFresh) {
+        return hasCachedCharts && !forceRefresh && cacheFresh;
     }
 
     private void refreshChartsIfNeeded() {

@@ -19,6 +19,8 @@ import java.util.List;
 
 import javax.imageio.ImageIO;
 
+import net.minecraft.client.gui.GuiButton;
+
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -85,6 +87,71 @@ public class GuiLayoutTest {
 
         assertEquals(0.5f, slider.getValue(), 0.01f);
         assertEquals(0.5f, HorizonRadioClient.getVolume(), 0.01f);
+    }
+
+    @Test
+    public void chartRefreshButtonIsDisabledWhileLoadingOrRequesting() {
+        assertFalse(HorizonRadioScreen.shouldEnableChartRefreshButton(true, false));
+        assertFalse(HorizonRadioScreen.shouldEnableChartRefreshButton(false, true));
+        assertTrue(HorizonRadioScreen.shouldEnableChartRefreshButton(false, false));
+    }
+
+    @Test
+    public void refreshButtonSendsOneForceRequestWhilePendingAndReenablesOnResults() {
+        TestScreen screen = new TestScreen();
+        screen.setScreenSize(300, 285);
+        try {
+            screen.initialize();
+
+            assertEquals(1, transport.chartRequestCount);
+            assertEquals(0, transport.forceChartsRequestCount);
+            HorizonRadioClient.updateChartResults(new ArrayList<HorizonRadioScreen.SearchResult>());
+            assertFalse(HorizonRadioClient.isChartRequestPending());
+            assertTrue(screen.refreshButton().enabled);
+
+            screen.invokeRefreshAction();
+            screen.invokeRefreshAction();
+
+            assertEquals(2, transport.chartRequestCount);
+            assertEquals(1, transport.forceChartsRequestCount);
+            assertTrue(HorizonRadioClient.isChartRequestPending());
+            assertFalse(screen.refreshButton().enabled);
+
+            HorizonRadioClient.updateChartResults(new ArrayList<HorizonRadioScreen.SearchResult>());
+            assertFalse(HorizonRadioClient.isChartRequestPending());
+            assertTrue(screen.refreshButton().enabled);
+        } finally {
+            HorizonRadioScreen.clearActiveScreen(screen);
+        }
+    }
+
+    @Test
+    public void chartRequestRemainsPendingUntilTerminalResultsArrive() {
+        HorizonRadioClient.sendChartsRequest(true);
+
+        assertTrue(HorizonRadioClient.isChartRequestPending());
+        assertFalse(
+            HorizonRadioScreen.shouldEnableChartRefreshButton(false, HorizonRadioClient.isChartRequestPending()));
+
+        HorizonRadioClient.updateChartResults(new ArrayList<HorizonRadioScreen.SearchResult>());
+
+        assertFalse(HorizonRadioClient.isChartRequestPending());
+        assertTrue(
+            HorizonRadioScreen.shouldEnableChartRefreshButton(false, HorizonRadioClient.isChartRequestPending()));
+    }
+
+    @Test
+    public void initGuiDisablesRefreshButtonWhenChartRequestWasAlreadyPending() {
+        HorizonRadioClient.sendChartsRequest(false);
+        TestScreen screen = new TestScreen();
+        screen.setScreenSize(300, 285);
+        try {
+            screen.initialize();
+
+            assertFalse(screen.refreshButton().enabled);
+        } finally {
+            HorizonRadioScreen.clearActiveScreen(screen);
+        }
     }
 
     @Test
@@ -299,6 +366,24 @@ public class GuiLayoutTest {
         private void click(int mouseX, int mouseY) {
             mouseClicked(mouseX, mouseY, 0);
         }
+
+        private void initialize() {
+            initGui();
+        }
+
+        private void invokeRefreshAction() {
+            actionPerformed(refreshButton());
+        }
+
+        private GuiButton refreshButton() {
+            for (Object button : buttonList) {
+                GuiButton guiButton = (GuiButton) button;
+                if (guiButton.id == 10) {
+                    return guiButton;
+                }
+            }
+            throw new AssertionError("Refresh button was not initialized");
+        }
     }
 
     private static final class RecordingTransport implements HorizonRadioClient.ClientTransport {
@@ -306,6 +391,8 @@ public class GuiLayoutTest {
         private String searchQuery;
         private boolean chartsRequest;
         private boolean forceChartsRequest;
+        private int chartRequestCount;
+        private int forceChartsRequestCount;
         private String importPlaylistUrl;
         private String importVideoUrl;
         private String addRequest;
@@ -330,6 +417,10 @@ public class GuiLayoutTest {
         public void sendChartsRequest(boolean forceRefresh) {
             chartsRequest = true;
             forceChartsRequest = forceRefresh;
+            chartRequestCount++;
+            if (forceRefresh) {
+                forceChartsRequestCount++;
+            }
         }
 
         @Override
