@@ -1,5 +1,6 @@
 package com.horizonradio.client;
 
+import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -26,6 +27,9 @@ public class ClientProxy extends CommonProxy {
     @Override
     public void preInit(FMLPreInitializationEvent event) {
         super.preInit(event);
+        File configDirectory = event.getSuggestedConfigurationFile()
+            .getParentFile();
+        HorizonRadioClient.loadClientConfig(configDirectory);
         HorizonRadioClient.setTransport(new HorizonRadioClient.ForgeClientTransport());
     }
 

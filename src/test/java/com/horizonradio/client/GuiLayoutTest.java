@@ -14,6 +14,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.Charset;
+import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -38,6 +39,8 @@ public class GuiLayoutTest {
     @After
     public void tearDown() {
         HorizonRadioClient.clearCache();
+        HorizonRadioClient.loadClientConfig(null);
+        HorizonRadioClient.setVolume(1.0f);
         HorizonRadioClient.setTransport(new HorizonRadioClient.NoopClientTransport());
     }
 
@@ -126,6 +129,37 @@ public class GuiLayoutTest {
     }
 
     @Test
+    public void volumeSliderPersistsOnlyAfterDraggingEnds() throws IOException {
+        File directory = Files.createTempDirectory("horizonradio-volume-slider")
+            .toFile();
+        try {
+            HorizonRadioClient.loadClientConfig(directory);
+            HorizonRadioClient.setVolume(0.0f);
+            HorizonRadioVolumeSlider slider = new HorizonRadioVolumeSlider(3, 10, 10, 100, 20, 0.0f);
+
+            assertTrue(slider.mousePressed(null, 10, 15));
+            slider.mouseDragged(null, 60, 15);
+
+            assertEquals(0.5f, HorizonRadioClient.getVolume(), 0.01f);
+            assertEquals(
+                0.0f,
+                HorizonRadioClientConfig.load(directory)
+                    .getVolume(),
+                0.0001f);
+
+            slider.mouseReleased(60, 15);
+
+            assertEquals(
+                0.5f,
+                HorizonRadioClientConfig.load(directory)
+                    .getVolume(),
+                0.01f);
+        } finally {
+            deleteRecursively(directory);
+        }
+    }
+
+    @Test
     public void chartRequestRemainsPendingUntilTerminalResultsArrive() {
         HorizonRadioClient.sendChartsRequest(true);
 
@@ -152,6 +186,50 @@ public class GuiLayoutTest {
         } finally {
             HorizonRadioScreen.clearActiveScreen(screen);
         }
+    }
+
+    @Test
+    public void loadingClientConfigRestoresVolumeAtStartup() throws IOException {
+        File directory = Files.createTempDirectory("horizonradio-volume-startup")
+            .toFile();
+        try {
+            HorizonRadioClientConfig config = HorizonRadioClientConfig.load(directory);
+            config.save(0.65f);
+
+            HorizonRadioClient.loadClientConfig(directory);
+
+            assertEquals(0.65f, HorizonRadioClient.getVolume(), 0.0001f);
+        } finally {
+            deleteRecursively(directory);
+        }
+    }
+
+    @Test
+    public void clientVolumeChangesPersistToClientConfig() throws IOException {
+        File directory = Files.createTempDirectory("horizonradio-volume-api")
+            .toFile();
+        try {
+            HorizonRadioClient.loadClientConfig(directory);
+            HorizonRadioClient.setVolume(0.4f);
+
+            assertEquals(
+                0.4f,
+                HorizonRadioClientConfig.load(directory)
+                    .getVolume(),
+                0.0001f);
+        } finally {
+            deleteRecursively(directory);
+        }
+    }
+
+    @Test
+    public void clearingServerCachePreservesClientVolume() {
+        HorizonRadioClient.loadClientConfig(null);
+        HorizonRadioClient.setVolume(0.4f);
+
+        HorizonRadioClient.clearCache();
+
+        assertEquals(0.4f, HorizonRadioClient.getVolume(), 0.0001f);
     }
 
     @Test
@@ -396,6 +474,20 @@ public class GuiLayoutTest {
         screen.setScreenSize(300, 285);
         screen.updateChartResults(singleResult());
         return screen;
+    }
+
+    private static void deleteRecursively(File file) {
+        if (file.isDirectory()) {
+            File[] children = file.listFiles();
+            if (children != null) {
+                for (File child : children) {
+                    deleteRecursively(child);
+                }
+            }
+        }
+        if (!file.delete()) {
+            file.deleteOnExit();
+        }
     }
 
     private static final class TestScreen extends HorizonRadioScreen {

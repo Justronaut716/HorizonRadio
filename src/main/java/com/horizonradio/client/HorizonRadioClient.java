@@ -1,5 +1,6 @@
 package com.horizonradio.client;
 
+import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -39,6 +40,7 @@ public final class HorizonRadioClient {
     private static long cachedChartsAt;
     private static boolean chartRequestPending;
     private static ClientTransport transport = new NoopClientTransport();
+    private static HorizonRadioClientConfig clientConfig;
 
     private HorizonRadioClient() {}
 
@@ -360,14 +362,33 @@ public final class HorizonRadioClient {
         return cachedProgress;
     }
 
+    static synchronized void loadClientConfig(File configDirectory) {
+        clientConfig = HorizonRadioClientConfig.load(configDirectory);
+        AudioPlayer.getInstance()
+            .setVolume(clientConfig.getVolume());
+    }
+
     public static synchronized float getVolume() {
         return AudioPlayer.getInstance()
             .getVolume();
     }
 
-    public static synchronized void setVolume(float value) {
+    static synchronized void setVolumePreview(float value) {
         AudioPlayer.getInstance()
             .setVolume(value);
+    }
+
+    static synchronized void persistVolume() {
+        if (clientConfig != null) {
+            clientConfig.save(
+                AudioPlayer.getInstance()
+                    .getVolume());
+        }
+    }
+
+    public static synchronized void setVolume(float value) {
+        setVolumePreview(value);
+        persistVolume();
     }
 
     public static synchronized void updateSearchResults(List<HorizonRadioScreen.SearchResult> results) {
