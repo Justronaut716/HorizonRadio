@@ -452,7 +452,7 @@ public final class PlaylistManager {
             sendChat(
                 player,
                 EnumChatFormatting.YELLOW,
-                "This song is too long for the server search limit and cannot be added.");
+                "This song is too long for the server search limit and cannot be played now.");
             return;
         }
 
