@@ -12,6 +12,7 @@ import com.horizonradio.network.packets.AudioChunkPacket;
 import com.horizonradio.network.packets.ClearPlaylistPacket;
 import com.horizonradio.network.packets.ImportPlaylistPacket;
 import com.horizonradio.network.packets.ImportVideoPacket;
+import com.horizonradio.network.packets.PlayNowPacket;
 import com.horizonradio.network.packets.PreviousTrackPacket;
 import com.horizonradio.network.packets.ReadyPacket;
 import com.horizonradio.network.packets.RemoveFromPlaylistPacket;
@@ -52,6 +53,8 @@ public final class HorizonRadioClient {
         void sendImportVideo(String videoUrl);
 
         void sendAdd(String videoId, String title, String duration);
+
+        void sendPlayNow(String videoId, String title, String duration);
 
         void sendAddChartsToPlaylist(List<HorizonRadioScreen.SearchResult> results);
 
@@ -106,6 +109,11 @@ public final class HorizonRadioClient {
         @Override
         public void sendAdd(String videoId, String title, String duration) {
             HorizonRadioNetwork.CHANNEL.sendToServer(new AddToPlaylistPacket(videoId, title, duration));
+        }
+
+        @Override
+        public void sendPlayNow(String videoId, String title, String duration) {
+            HorizonRadioNetwork.CHANNEL.sendToServer(new PlayNowPacket(videoId, title, duration));
         }
 
         @Override
@@ -194,6 +202,9 @@ public final class HorizonRadioClient {
         public void sendAdd(String videoId, String title, String duration) {}
 
         @Override
+        public void sendPlayNow(String videoId, String title, String duration) {}
+
+        @Override
         public void sendAddChartsToPlaylist(List<HorizonRadioScreen.SearchResult> results) {}
 
         @Override
@@ -265,6 +276,10 @@ public final class HorizonRadioClient {
 
     public static synchronized void sendAdd(String videoId, String title, String duration) {
         transport.sendAdd(videoId, title, duration);
+    }
+
+    public static synchronized void sendPlayNow(String videoId, String title, String duration) {
+        transport.sendPlayNow(videoId, title, duration);
     }
 
     public static synchronized void sendAddChartsToPlaylist(List<HorizonRadioScreen.SearchResult> results) {

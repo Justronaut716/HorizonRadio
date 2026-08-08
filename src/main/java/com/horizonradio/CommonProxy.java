@@ -102,6 +102,11 @@ public class CommonProxy {
             }
 
             @Override
+            public void handlePlayNow(EntityPlayerMP player, String videoId, String title, String duration) {
+                manager.handlePlayNow(player, videoId, title, duration);
+            }
+
+            @Override
             public void handleAddCharts(EntityPlayerMP player, List<AddChartsToPlaylistPacket.Entry> entries,
                 boolean remove) {
                 manager.handleAddChartsToPlaylist(player, entries, remove);

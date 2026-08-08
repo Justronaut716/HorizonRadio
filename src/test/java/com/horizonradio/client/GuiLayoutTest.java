@@ -19,6 +19,8 @@ import java.util.List;
 
 import javax.imageio.ImageIO;
 
+import net.minecraft.client.gui.GuiButton;
+
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -96,6 +98,7 @@ public class GuiLayoutTest {
         HorizonRadioClient.sendImportPlaylist("https://youtu.be/video?list=PLtest");
         HorizonRadioClient.sendImportVideo("https://youtu.be/video");
         HorizonRadioClient.sendAdd("abc", "Song", "3:21");
+        HorizonRadioClient.sendPlayNow("abc", "Song", "3:21");
         HorizonRadioClient.sendRemove("abc");
         HorizonRadioClient.sendClearPlaylist();
         HorizonRadioClient.sendReady("abc");
@@ -113,6 +116,7 @@ public class GuiLayoutTest {
         assertEquals("https://youtu.be/video?list=PLtest", transport.importPlaylistUrl);
         assertEquals("https://youtu.be/video", transport.importVideoUrl);
         assertEquals("abc|Song|3:21", transport.addRequest);
+        assertEquals("abc|Song|3:21", transport.playNowRequest);
         assertTrue(transport.addChartsRequest);
         assertEquals("abc", transport.removedVideoId);
         assertTrue(transport.clearPlaylist);
@@ -171,6 +175,7 @@ public class GuiLayoutTest {
         assertTrue(transport.addChartsRequest);
         assertNull(transport.addRequest);
         assertNull(transport.removedVideoId);
+        assertFalse(screen.isPlaylistTab());
 
         List<HorizonRadioScreen.PlaylistEntry> playlist = new ArrayList<HorizonRadioScreen.PlaylistEntry>();
         playlist.add(new HorizonRadioScreen.PlaylistEntry("video", "Song", "2:00", "Alice"));
@@ -181,6 +186,32 @@ public class GuiLayoutTest {
 
         assertNull(transport.addRequest);
         assertEquals("video", transport.removedVideoId);
+        assertFalse(screen.isPlaylistTab());
+    }
+
+    @Test
+    public void directChartClickPlaysNowAndSwitchesToPlaylist() {
+        TestScreen screen = resultScreen();
+
+        screen.click(50, 62);
+
+        assertEquals("video|Song|2:00", transport.playNowRequest);
+        assertTrue(screen.isPlaylistTab());
+        assertNull(transport.addRequest);
+        assertFalse(transport.addChartsRequest);
+    }
+
+    @Test
+    public void directSearchClickPlaysNowAndSwitchesToPlaylist() {
+        TestScreen screen = new TestScreen();
+        screen.setScreenSize(300, 285);
+        screen.selectSearchTab();
+        screen.updateSearchResults(singleResult());
+
+        screen.click(50, 75);
+
+        assertEquals("video|Song|2:00", transport.playNowRequest);
+        assertTrue(screen.isPlaylistTab());
     }
 
     @Test
@@ -289,7 +320,24 @@ public class GuiLayoutTest {
         return source.toString();
     }
 
+    private static List<HorizonRadioScreen.SearchResult> singleResult() {
+        List<HorizonRadioScreen.SearchResult> results = new ArrayList<HorizonRadioScreen.SearchResult>();
+        results.add(new HorizonRadioScreen.SearchResult("video", "Song", "Channel", "2:00", ""));
+        return results;
+    }
+
+    private static TestScreen resultScreen() {
+        TestScreen screen = new TestScreen();
+        screen.setScreenSize(300, 285);
+        screen.updateChartResults(singleResult());
+        return screen;
+    }
+
     private static final class TestScreen extends HorizonRadioScreen {
+
+        private void selectSearchTab() {
+            actionPerformed(new GuiButton(9, 0, 0, "Search"));
+        }
 
         private void setScreenSize(int width, int height) {
             this.width = width;
@@ -309,6 +357,7 @@ public class GuiLayoutTest {
         private String importPlaylistUrl;
         private String importVideoUrl;
         private String addRequest;
+        private String playNowRequest;
         private boolean addChartsRequest;
         private String removedVideoId;
         private boolean clearPlaylist;
@@ -345,6 +394,11 @@ public class GuiLayoutTest {
         @Override
         public void sendAdd(String videoId, String title, String duration) {
             addRequest = videoId + "|" + title + "|" + duration;
+        }
+
+        @Override
+        public void sendPlayNow(String videoId, String title, String duration) {
+            playNowRequest = videoId + "|" + title + "|" + duration;
         }
 
         @Override

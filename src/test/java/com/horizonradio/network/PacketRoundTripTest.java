@@ -22,6 +22,7 @@ import com.horizonradio.network.packets.ImportVideoPacket;
 import com.horizonradio.network.packets.LoopStatePacket;
 import com.horizonradio.network.packets.NowPlayingPacket;
 import com.horizonradio.network.packets.PausePacket;
+import com.horizonradio.network.packets.PlayNowPacket;
 import com.horizonradio.network.packets.PlaylistSyncPacket;
 import com.horizonradio.network.packets.PreviousTrackPacket;
 import com.horizonradio.network.packets.ReadyPacket;
@@ -52,6 +53,11 @@ public class PacketRoundTripTest {
         assertEquals("id", add.getVideoId());
         assertEquals("title", add.getTitle());
         assertEquals("3:21", add.getDuration());
+
+        PlayNowPacket playNow = roundTrip(new PlayNowPacket("id", "title", "3:21"), new PlayNowPacket());
+        assertEquals("id", playNow.getVideoId());
+        assertEquals("title", playNow.getTitle());
+        assertEquals("3:21", playNow.getDuration());
         AddChartsToPlaylistPacket addCharts = roundTrip(
             new AddChartsToPlaylistPacket(
                 Arrays.asList(
@@ -204,6 +210,9 @@ public class PacketRoundTripTest {
         assertTrue(
             source.contains(
                 "registerMessage(ServerMessageHandlers.AddToPlaylistHandler.class, AddToPlaylistPacket.class, 1, Side.SERVER)"));
+        assertTrue(
+            source.contains(
+                "registerMessage(ServerMessageHandlers.PlayNowHandler.class, PlayNowPacket.class, 24, Side.SERVER)"));
         assertTrue(source.contains("registerMessage(ServerMessageHandlers.AddChartsToPlaylistHandler.class"));
         assertTrue(
             source.contains(
@@ -275,6 +284,7 @@ public class PacketRoundTripTest {
         String source = readSource("src/main/java/com/horizonradio/client/HorizonRadioClient.java");
         assertTrue(source.contains("CHANNEL.sendToServer(new SearchRequestPacket(query))"));
         assertTrue(source.contains("CHANNEL.sendToServer(new AddToPlaylistPacket(videoId, title, duration))"));
+        assertTrue(source.contains("CHANNEL.sendToServer(new PlayNowPacket(videoId, title, duration))"));
         assertTrue(source.contains("CHANNEL.sendToServer(new RemoveFromPlaylistPacket(videoId))"));
         assertTrue(source.contains("CHANNEL.sendToServer(new ReadyPacket(videoId))"));
     }

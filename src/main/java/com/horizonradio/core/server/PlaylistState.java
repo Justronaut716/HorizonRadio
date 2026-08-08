@@ -135,6 +135,32 @@ public final class PlaylistState {
         return removed;
     }
 
+    public PlaylistEntry prepareImmediatePlayback(PlaylistEntry requested) {
+        if (requested == null) {
+            return null;
+        }
+
+        int selectedIndex = findIndex(requested.getVideoId());
+        PlaylistEntry selected = selectedIndex >= 0 ? playlist.get(selectedIndex) : requested;
+        boolean selectedCurrent = selectedIndex == currentIndex;
+
+        if (selectedIndex >= 0) {
+            playlist.remove(selectedIndex);
+            if (selectedIndex < currentIndex) {
+                currentIndex--;
+            }
+        }
+
+        if (!selectedCurrent && currentIndex >= 0 && currentIndex < playlist.size()) {
+            lastTrack = playlist.remove(currentIndex);
+            currentIndex--;
+        }
+
+        addAtFront(selected);
+        resetPlayback();
+        return selected;
+    }
+
     public boolean moveQueued(int fromIndex, int targetIndex) {
         if (fromIndex < 0 || fromIndex >= playlist.size()
             || targetIndex < 0
