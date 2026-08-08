@@ -96,6 +96,56 @@ public class PlaylistStateTest {
     }
 
     @Test
+    public void immediateSelectionMovesQueuedTrackToFrontAndPreservesOtherQueueEntries() {
+        PlaylistState state = new PlaylistState(5);
+        state.add(entry("current", "Alice"));
+        state.add(entry("next", "Bob"));
+        state.add(entry("selected", "Carol"));
+        state.add(entry("last", "Dave"));
+        state.startTrack(0, "current", 120_000L, 0L);
+
+        PlaylistEntry selected = state.prepareImmediatePlayback(state.get(2));
+
+        assertEquals(entry("selected", "Carol"), selected);
+        assertEquals(
+            Arrays.asList(entry("selected", "Carol"), entry("next", "Bob"), entry("last", "Dave")),
+            state.snapshot());
+        assertEquals(-1, state.getCurrentIndex());
+        assertFalse(state.isPlaying());
+        assertEquals(
+            "current",
+            state.takeLastTrack()
+                .getVideoId());
+    }
+
+    @Test
+    public void immediateSelectionOfCurrentTrackResetsPlaybackAndPreservesLastTrack() {
+        PlaylistState state = new PlaylistState(5);
+        state.add(entry("prior", "Alice"));
+        state.startTrack(0, "prior", 120_000L, 0L);
+        state.removeCurrent();
+
+        PlaylistEntry current = entry("current", "Bob");
+        state.add(current);
+        PlaylistEntry next = entry("next", "Carol");
+        state.add(next);
+        state.startTrack(0, "current", 120_000L, 0L);
+
+        PlaylistEntry selected = state.prepareImmediatePlayback(current);
+
+        assertEquals(current, selected);
+        assertEquals(Arrays.asList(current, next), state.snapshot());
+        assertEquals(0, state.findIndex("current"));
+        assertEquals(-1, state.getCurrentIndex());
+        assertFalse(state.isPlaying());
+        assertNull(state.getCurrentVideoId());
+        assertEquals(
+            "prior",
+            state.takeLastTrack()
+                .getVideoId());
+    }
+
+    @Test
     public void queuedEntriesCanBeMovedWithoutMovingTheCurrentTrack() {
         PlaylistState state = new PlaylistState(5);
         state.add(entry("current", "Alice"));
@@ -294,10 +344,14 @@ public class PlaylistStateTest {
         assertTrue(commonProxy.contains("ServerMessageHandlers.setHook"));
         assertTrue(commonProxy.contains("handleSearch"));
         assertTrue(commonProxy.contains("handleAdd"));
+        assertTrue(commonProxy.contains("handlePlayNow"));
         assertTrue(commonProxy.contains("handleRemove"));
         assertTrue(commonProxy.contains("handleReady"));
         assertTrue(commonProxy.contains("ServerMessageHandlers.setHook(null)"));
         assertTrue(handlers.contains("ServerThreadExecutor.execute"));
+        assertTrue(handlers.contains("PlayNowHandler"));
+        assertTrue(manager.contains("handlePlayNow"));
+        assertTrue(manager.contains("prepareImmediatePlayback"));
 
         assertTrue(network.contains("AddToPlaylistPacket.class, 1, Side.SERVER"));
         assertTrue(network.contains("RemoveFromPlaylistPacket.class, 2, Side.SERVER"));

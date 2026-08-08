@@ -542,7 +542,7 @@ public class HorizonRadioScreen extends GuiScreen {
                     }
                     return;
                 }
-                sendResultToQueue(result, charts);
+                HorizonRadioClient.sendPlayNow(result.videoId, result.title, result.duration);
                 currentTab = PLAYLIST_TAB;
                 return;
             }
@@ -1122,6 +1122,10 @@ public class HorizonRadioScreen extends GuiScreen {
 
     private boolean isResultTab(int tab) {
         return tab == CHARTS_TAB || tab == SEARCH_TAB;
+    }
+
+    boolean isPlaylistTab() {
+        return currentTab == PLAYLIST_TAB;
     }
 
     private boolean areAllChartsInQueue() {

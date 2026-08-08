@@ -10,6 +10,7 @@ import com.horizonradio.network.packets.AddToPlaylistPacket;
 import com.horizonradio.network.packets.ClearPlaylistPacket;
 import com.horizonradio.network.packets.ImportPlaylistPacket;
 import com.horizonradio.network.packets.ImportVideoPacket;
+import com.horizonradio.network.packets.PlayNowPacket;
 import com.horizonradio.network.packets.PreviousTrackPacket;
 import com.horizonradio.network.packets.ReadyPacket;
 import com.horizonradio.network.packets.RemoveFromPlaylistPacket;
@@ -65,6 +66,8 @@ public final class ServerMessageHandlers {
 
         void handleAdd(EntityPlayerMP player, String videoId, String title, String duration);
 
+        void handlePlayNow(EntityPlayerMP player, String videoId, String title, String duration);
+
         void handleAddCharts(EntityPlayerMP player, List<AddChartsToPlaylistPacket.Entry> entries, boolean remove);
 
         void handleRemove(EntityPlayerMP player, String videoId);
@@ -104,6 +107,9 @@ public final class ServerMessageHandlers {
 
         @Override
         public void handleAdd(EntityPlayerMP player, String videoId, String title, String duration) {}
+
+        @Override
+        public void handlePlayNow(EntityPlayerMP player, String videoId, String title, String duration) {}
 
         @Override
         public void handleAddCharts(EntityPlayerMP player, List<AddChartsToPlaylistPacket.Entry> entries,
@@ -223,6 +229,24 @@ public final class ServerMessageHandlers {
                     @Override
                     public void run() {
                         hook.handleAdd(player, message.getVideoId(), message.getTitle(), message.getDuration());
+                    }
+                });
+            }
+            return null;
+        }
+    }
+
+    public static final class PlayNowHandler implements IMessageHandler<PlayNowPacket, IMessage> {
+
+        @Override
+        public IMessage onMessage(final PlayNowPacket message, final MessageContext context) {
+            final EntityPlayerMP player = player(context);
+            if (player != null) {
+                schedule(new Runnable() {
+
+                    @Override
+                    public void run() {
+                        hook.handlePlayNow(player, message.getVideoId(), message.getTitle(), message.getDuration());
                     }
                 });
             }

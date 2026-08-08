@@ -43,15 +43,14 @@ that server work on server ticks and forwards player login/logout transitions.
 | `com.horizonradio.core.protocol` | Version `1.0.0` and the `horizonradio_1_0` channel contract. |
 | `com.horizonradio.core.integration` | Project-owned integration interface and context. |
 | `com.horizonradio.integration` | Optional capability detection, manager, and adapter implementation. |
-| `com.horizonradio.network` and `.network.packets` | Forge `SimpleNetworkWrapper`, handlers, codecs, and the 24 current-source packet types, including the preserved baseline contract below. |
+| `com.horizonradio.network` and `.network.packets` | Forge `SimpleNetworkWrapper`, handlers, codecs, and the 25 current-source packet types, including the preserved contract below. |
 | `com.horizonradio.server` | Forge/server-facing playlist manager, events, download, YouTube, and server-thread services. |
 | `com.horizonradio.client` and `.client.audio` | Client proxy, GUI, keybinds, client transport, and Java Sound playback. |
 
-## Forge message contract (preserved baseline: IDs 0–21)
+## Forge message contract (current source: IDs 0–24)
 
 The channel is `horizonradio_1_0`. IDs and field order are stable within the
-1.0 port. This table intentionally preserves the baseline 0–21 message
-contract:
+1.0 port. The current source contract is:
 
 | ID | Direction | Packet | Fields |
 |---:|:---:|---|---|
@@ -77,12 +76,19 @@ contract:
 | 19 | C2S | `ImportPlaylistPacket` | playlist URL |
 | 20 | C2S | `ImportVideoPacket` | video URL |
 | 21 | C2S | `RequestChartsPacket` | no fields |
+| 22 | C2S | `AddChartsToPlaylistPacket` | remove flag, count + video ID, title, duration per entry |
+| 23 | C2S | `ClearPlaylistPacket` | no fields |
+| 24 | C2S | `PlayNowPacket` | video ID, title, duration |
 
-The current source also has pre-existing registrations ID 22
-`AddChartsToPlaylistPacket` and ID 23 `ClearPlaylistPacket`, bringing the
-current source total to 24. This documentation task did not add or change
-those registrations; the source registration table is authoritative for these
-additional entries.
+The C2S handlers obtain the player, schedule each packet request on the server
+thread, and delegate to `PlaylistManager`. There, request validation,
+authoritative `PlaylistState` mutation, and broadcasts to clients occur.
+`AddChartsToPlaylistPacket` writes a leading remove boolean, then the entry
+count and each entry's video ID, title, and duration; a false flag adds valid
+chart entries and a true flag removes the matching chart entries.
+`ClearPlaylistPacket` requests that `PlaylistManager` clear the playlist, and
+`PlayNowPacket` requests immediate selection of the supplied video ID, title,
+and duration while preserving the server-owned queue and playback state.
 
 All strings, collection counts, indexes, and byte arrays are bounded before
 allocation. Audio data remains split at 30 KiB. `startOffsetMs == -1` means a
@@ -142,7 +148,7 @@ not accepted as GUI evidence.
 | Playlist/search/import/download/playback | Reimplemented | Forge events, Java 8 services, server-side `yt-dlp` metadata extraction, and SimpleNetworkWrapper preserve behavior. |
 | JSON config | Preserved | `config/horizonradio.json` keeps `downloadDir` and `maxPlaylistSize`; `maxTrackDurationMinutes` filters search results server-side. |
 | GUI and N key | Reimplemented | Same geometry and interaction, Forge 1.7.10 classes. |
-| Legacy payloads/receivers | Reimplemented | Twenty-four explicit Forge `IMessage` classes and common registrations in the current source; the preserved baseline table above covers IDs 0–21. |
+| Legacy payloads/receivers | Reimplemented | Twenty-five explicit Forge `IMessage` classes and common registrations in the current source; the preserved baseline table above covers IDs 0–21. |
 | Java 11 HTTP/process helpers | Reimplemented | `HttpURLConnection`, Java 8 stream/process handling. |
 | Items and blocks | Omitted | None exist in the active source. |
 | Recipes/GT machines | Omitted | No crafting, smelting, GregTech, or MineTweaker recipes exist. |

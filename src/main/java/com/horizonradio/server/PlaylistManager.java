@@ -493,6 +493,43 @@ public final class PlaylistManager {
         }
     }
 
+    public void handlePlayNow(EntityPlayerMP player, String videoId, String title, String duration) {
+        if (player == null) {
+            return;
+        }
+        if (isEmpty(videoId) || isEmpty(title)) {
+            sendChat(player, EnumChatFormatting.RED, "Invalid playlist entry.");
+            return;
+        }
+        if (!isSearchDurationAllowed(duration, configuredMaxTrackDurationMs())) {
+            sendChat(
+                player,
+                EnumChatFormatting.YELLOW,
+                "This song is too long for the server search limit and cannot be played now.");
+            return;
+        }
+
+        int existingIndex = state.findIndex(videoId);
+        PlaylistEntry requested = existingIndex >= 0 ? state.get(existingIndex)
+            : new PlaylistEntry(videoId, title, safe(duration), player.getCommandSenderName());
+        if (state.isSyncing()) {
+            resumePausedClientsBeforeCurrentRemoval();
+        }
+        cancelFuture(advanceFuture);
+        advanceFuture = null;
+        state.prepareImmediatePlayback(requested);
+        broadcastNowPlaying("", 0.0f);
+        syncToAll();
+        if (!audioDownloadService.isDependenciesAvailable()) {
+            sendChat(
+                player,
+                EnumChatFormatting.YELLOW,
+                "Warning: yt-dlp or ffmpeg may not be installed on the server. Downloads may fail.");
+        }
+        LOGGER.info(player.getCommandSenderName() + " selected " + requested.getTitle() + " for immediate playback");
+        playNext(false, false);
+    }
+
     public void handleAddChartsToPlaylist(final EntityPlayerMP player, List<AddChartsToPlaylistPacket.Entry> entries,
         boolean remove) {
         if (player == null) {

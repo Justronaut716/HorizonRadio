@@ -10,6 +10,7 @@ import com.horizonradio.network.packets.ImportVideoPacket;
 import com.horizonradio.network.packets.LoopStatePacket;
 import com.horizonradio.network.packets.NowPlayingPacket;
 import com.horizonradio.network.packets.PausePacket;
+import com.horizonradio.network.packets.PlayNowPacket;
 import com.horizonradio.network.packets.PlaylistSyncPacket;
 import com.horizonradio.network.packets.PreviousTrackPacket;
 import com.horizonradio.network.packets.ReadyPacket;
@@ -80,6 +81,7 @@ public final class HorizonRadioNetwork {
             ClearPlaylistPacket.class,
             23,
             Side.SERVER);
+        CHANNEL.registerMessage(ServerMessageHandlers.PlayNowHandler.class, PlayNowPacket.class, 24, Side.SERVER);
         CHANNEL.registerMessage(ServerMessageHandlers.ReadyHandler.class, ReadyPacket.class, 3, Side.SERVER);
         CHANNEL.registerMessage(
             ServerMessageHandlers.ReorderPlaylistHandler.class,
