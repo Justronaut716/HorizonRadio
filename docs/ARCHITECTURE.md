@@ -124,8 +124,9 @@ pause/resume, loop/shuffle state, chart/search results, downloads, and audio
 cache. Clients send intent packets; server handlers validate and apply those
 requests, then broadcast authoritative state. A client may remove entries as
 allowed by the active server rules, but it cannot directly change shared state.
-Volume is client-local, and Java Sound playback is an adapter for server-directed
-audio rather than a second source of truth.
+Volume is client-local and persists in `config/horizonradio-client.json`;
+Java Sound playback is an adapter for server-directed audio rather than a
+second source of truth.
 
 ## GUI and input
 
@@ -146,7 +147,7 @@ not accepted as GUI evidence.
 | Source feature | Port status | Decision |
 |---|---|---|
 | Playlist/search/import/download/playback | Reimplemented | Forge events, Java 8 services, server-side `yt-dlp` metadata extraction, and SimpleNetworkWrapper preserve behavior. |
-| JSON config | Preserved | `config/horizonradio.json` keeps `downloadDir` and `maxPlaylistSize`; `maxTrackDurationMinutes` filters search results server-side. |
+| JSON config | Preserved | `config/horizonradio.json` keeps server/common settings such as `downloadDir` and `maxPlaylistSize`; `maxTrackDurationMinutes` filters search results server-side, while client volume is stored separately in `config/horizonradio-client.json`. |
 | GUI and N key | Reimplemented | Same geometry and interaction, Forge 1.7.10 classes. |
 | Legacy payloads/receivers | Reimplemented | Twenty-five explicit Forge `IMessage` classes and common registrations in the current source; the preserved baseline table above covers IDs 0–21. |
 | Java 11 HTTP/process helpers | Reimplemented | `HttpURLConnection`, Java 8 stream/process handling. |

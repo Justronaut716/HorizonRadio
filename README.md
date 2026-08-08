@@ -108,6 +108,10 @@ set either `youtubeCookiesFromBrowser` (for example `chrome` or `firefox`) or
 `youtubeCookiesFile` to an exported Netscape-format cookie file, then restart
 the server.
 
+The JSON above is the server/common configuration. Client audio settings are
+kept separately: the volume slider stores its value in
+`config/horizonradio-client.json` and restores it when the game starts again.
+
 ## Use
 
 Join a server or load a client world with a player, then press `N` to open the
@@ -116,7 +120,8 @@ background when a world is joined and keeps it in its seven-day cache. The
 Charts tab provides the cached results; `Refresh` forces a new server fetch and
 the `+`/`-` button adds or removes all displayed chart songs. Search remains
 separate. Each search or chart result also has a queue button. The server still
-allows every player to remove entries. The volume slider is local to the client.
+allows every player to remove entries. The volume slider is local to the client
+and persists in `config/horizonradio-client.json` across restarts and rejoins.
 The server controls ordering, playback position, and late-join synchronization.
 
 For GUI verification, the client must already have a loaded world and a

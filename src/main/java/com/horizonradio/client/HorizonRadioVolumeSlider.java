@@ -37,13 +37,17 @@ public final class HorizonRadioVolumeSlider extends GuiButton {
 
     @Override
     public void mouseReleased(int mouseX, int mouseY) {
+        boolean wasDragging = dragging;
         dragging = false;
+        if (wasDragging) {
+            HorizonRadioClient.persistVolume();
+        }
     }
 
     public void setValueFromMouse(int mouseX) {
         float fraction = (float) (mouseX - xPosition) / (float) Math.max(1, width - 1);
         value = clamp(fraction);
-        HorizonRadioClient.setVolume(value);
+        HorizonRadioClient.setVolumePreview(value);
     }
 
     @Override
