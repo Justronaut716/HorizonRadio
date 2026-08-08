@@ -264,6 +264,16 @@ public class AudioDownloadCommandTest {
         CountDownLatch release = new CountDownLatch(1);
         CountDownLatch interrupted = new CountDownLatch(1);
         CountDownLatch finished = new CountDownLatch(1);
+        CountDownLatch shutdownCompleted = new CountDownLatch(1);
+        Thread shutdownThread = new Thread(new Runnable() {
+
+            @Override
+            public void run() {
+                service.shutdown();
+                shutdownCompleted.countDown();
+            }
+        }, "HorizonRadio-Test-Shutdown");
+        shutdownThread.setDaemon(true);
 
         try {
             executor.submit(new Runnable() {
@@ -290,13 +300,20 @@ public class AudioDownloadCommandTest {
             });
             assertTrue(started.await(1L, TimeUnit.SECONDS));
 
-            service.shutdown();
+            shutdownThread.start();
 
             assertTrue(interrupted.await(1L, TimeUnit.SECONDS));
+            assertFalse(
+                "shutdown completed while the task was still blocked",
+                shutdownCompleted.await(0L, TimeUnit.MILLISECONDS));
+            release.countDown();
             assertTrue(finished.await(1L, TimeUnit.SECONDS));
+            assertTrue(shutdownCompleted.await(1L, TimeUnit.SECONDS));
+            shutdownThread.join(1000L);
             assertTrue(executor.isTerminated());
         } finally {
             release.countDown();
+            shutdownThread.join(1000L);
             service.shutdown();
             Files.deleteIfExists(directory);
         }
