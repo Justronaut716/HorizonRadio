@@ -228,6 +228,27 @@ public class RadioClientStateTest {
     }
 
     @Test
+    public void radioVolumeChangeIsNotBlockedByLiveAudioWrite() throws Exception {
+        FakeSourceDataLine line = new FakeSourceDataLine(0, true);
+        AudioPlayer player = new AudioPlayer(new RecordingSourceLineFactory(line));
+        try {
+            player.startRadio(new RadioAudioStartPacket(13L, 0L, 44100, 2, 16, false));
+            player.receiveRadioChunk(new RadioAudioChunkPacket(13L, 0L, new byte[] { 1, 2, 3, 4 }));
+            player.receiveRadioChunk(new RadioAudioChunkPacket(13L, 1L, new byte[] { 5, 6, 7, 8 }));
+            player.receiveRadioChunk(new RadioAudioChunkPacket(13L, 2L, new byte[] { 9, 10, 11, 12 }));
+
+            assertTrue(line.writeStarted.await(1L, TimeUnit.SECONDS));
+
+            player.setVolume(0.25f);
+
+            assertTrue(line.controlVolumeApplied.await(1L, TimeUnit.SECONDS));
+            assertEquals((float) (20.0d * Math.log10(0.25d)), line.gain.getValue(), 0.01f);
+        } finally {
+            player.shutdown();
+        }
+    }
+
+    @Test
     public void delayedLineCreationKeepsFourthSequentialPacketForPlayback() throws Exception {
         FakeSourceDataLine line = new FakeSourceDataLine(4);
         BlockingSourceLineFactory factory = new BlockingSourceLineFactory(line);
@@ -703,6 +724,7 @@ public class RadioClientStateTest {
         private final CountDownLatch closed = new CountDownLatch(1);
         private final CountDownLatch writeStarted = new CountDownLatch(1);
         private final CountDownLatch writeExited = new CountDownLatch(1);
+        private final CountDownLatch controlVolumeApplied = new CountDownLatch(1);
         private final List<String> threads = new java.util.ArrayList<String>();
         private final FloatControl gain = new FloatControl(
             FloatControl.Type.MASTER_GAIN,
@@ -711,7 +733,19 @@ public class RadioClientStateTest {
             0.1f,
             0,
             0.0f,
-            "dB") {};
+            "dB") {
+
+            @Override
+            public void setValue(float value) {
+                super.setValue(value);
+                FakeSourceDataLine.this.recordThread();
+                if ("HorizonRadio-Audio-Control".equals(
+                    Thread.currentThread()
+                        .getName())) {
+                    controlVolumeApplied.countDown();
+                }
+            }
+        };
         private AudioFormat format;
         private final boolean blockWrites;
         private boolean open;

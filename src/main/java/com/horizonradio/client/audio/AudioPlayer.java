@@ -349,7 +349,7 @@ public final class AudioPlayer {
         }
         final Clip clip = currentClip;
         final SourceDataLine radioLine = currentRadioLine;
-        if ((clip != null && clip.isOpen()) || radioLine != null) {
+        if (clip != null && clip.isOpen()) {
             enqueue(new Runnable() {
 
                 @Override
@@ -357,7 +357,15 @@ public final class AudioPlayer {
                     if (clip != null && clip.isOpen()) {
                         applyVolume(clip);
                     }
-                    if (radioLine != null && radioLine.isOpen()) {
+                }
+            });
+        }
+        if (radioLine != null) {
+            enqueueRadioControl(new Runnable() {
+
+                @Override
+                public void run() {
+                    if (radioLine.isOpen()) {
                         applyVolume(radioLine);
                     }
                 }
@@ -686,6 +694,19 @@ public final class AudioPlayer {
             return true;
         } catch (RuntimeException exception) {
             LOGGER.log(Level.FINE, "HorizonRadio audio task was rejected during shutdown", exception);
+            return false;
+        }
+    }
+
+    private boolean enqueueRadioControl(Runnable task) {
+        if (shuttingDown) {
+            return false;
+        }
+        try {
+            radioControlExecutor.execute(task);
+            return true;
+        } catch (RuntimeException exception) {
+            LOGGER.log(Level.FINE, "HorizonRadio radio control task was rejected during shutdown", exception);
             return false;
         }
     }
