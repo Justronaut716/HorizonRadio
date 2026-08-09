@@ -47,6 +47,17 @@ public class RadioPlaybackStateTest {
     }
 
     @Test
+    public void failedCandidateRecordsStatusWhenNoRadioIsPublished() {
+        RadioPlaybackState state = new RadioPlaybackState();
+        long failedGeneration = state.beginCandidate();
+
+        assertTrue(state.failCandidate(failedGeneration, "Stream unavailable"));
+
+        assertFalse(state.isRadioActive());
+        assertEquals("Stream unavailable", state.getStatus());
+    }
+
+    @Test
     public void stopRetainsLastStationForResumeAndInvalidatesCandidateGeneration() {
         RadioPlaybackState state = new RadioPlaybackState();
         long generation = state.beginCandidate();

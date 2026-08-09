@@ -64,6 +64,34 @@ public class PlaylistManagerTest {
     }
 
     @Test
+    public void initialRadioFailureBroadcastsFailureStatus() throws Exception {
+        FakeRadioBrowser browser = new FakeRadioBrowser(STATION_A);
+        FakeRadioStream stream = new FakeRadioStream();
+        List<RadioStatePacket> radioStates = new ArrayList<RadioStatePacket>();
+        PlaylistManager manager = new PlaylistManager(
+            new YouTubeService(),
+            new FakeAudioDownload(new ArrayList<String>()),
+            browser,
+            stream,
+            radioStates::add);
+        try {
+            manager.selectRadioStation(null, "station-a");
+            stream.fail("Stream unavailable");
+
+            assertEquals(1, radioStates.size());
+            assertFalse(
+                radioStates.get(0)
+                    .isActive());
+            assertEquals(
+                "Stream unavailable",
+                radioStates.get(0)
+                    .getStatus());
+        } finally {
+            manager.shutdown();
+        }
+    }
+
+    @Test
     public void failedReplacementCandidatePreservesPublishedRadio() {
         FakeRadioBrowser browser = new FakeRadioBrowser(STATION_A);
         FakeRadioStream stream = new FakeRadioStream();

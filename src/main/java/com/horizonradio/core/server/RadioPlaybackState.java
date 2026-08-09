@@ -46,6 +46,9 @@ public final class RadioPlaybackState {
         if (!isCandidateGeneration(candidate)) {
             return false;
         }
+        if (mode != Mode.RADIO) {
+            status = safe(failureStatus);
+        }
         candidateGeneration = 0L;
         return true;
     }

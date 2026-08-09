@@ -411,7 +411,9 @@ public final class PlaylistManager {
     private void handleRadioFailure(long request, long generation, String message) {
         if (radioState.isCandidateGeneration(generation)) {
             if (request == radioSelectionRequest) {
-                radioState.failCandidate(generation, message);
+                if (radioState.failCandidate(generation, message) && !radioState.isRadioActive()) {
+                    broadcastRadioState("");
+                }
             }
             return;
         }
