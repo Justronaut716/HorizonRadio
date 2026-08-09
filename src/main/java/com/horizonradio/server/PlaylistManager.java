@@ -9,6 +9,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -16,11 +17,13 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.logging.Level;
@@ -35,17 +38,27 @@ import com.horizonradio.HorizonRadio;
 import com.horizonradio.core.config.HorizonRadioConfig;
 import com.horizonradio.core.model.DurationParser;
 import com.horizonradio.core.model.PlaylistEntry;
+import com.horizonradio.core.model.RadioStation;
 import com.horizonradio.core.model.SearchResult;
 import com.horizonradio.core.server.ChartCache;
+import com.horizonradio.core.server.ChartRegion;
+import com.horizonradio.core.server.ChartRegionCatalog;
+import com.horizonradio.core.server.MusicSearchFilter;
 import com.horizonradio.core.server.PlaylistImportService;
 import com.horizonradio.core.server.PlaylistState;
+import com.horizonradio.core.server.RadioPlaybackState;
 import com.horizonradio.network.HorizonRadioNetwork;
+import com.horizonradio.network.PacketBufferUtil;
 import com.horizonradio.network.packets.AddChartsToPlaylistPacket;
 import com.horizonradio.network.packets.AudioChunkPacket;
 import com.horizonradio.network.packets.LoopStatePacket;
 import com.horizonradio.network.packets.NowPlayingPacket;
 import com.horizonradio.network.packets.PausePacket;
 import com.horizonradio.network.packets.PlaylistSyncPacket;
+import com.horizonradio.network.packets.RadioAudioChunkPacket;
+import com.horizonradio.network.packets.RadioAudioStartPacket;
+import com.horizonradio.network.packets.RadioSearchResultsPacket;
+import com.horizonradio.network.packets.RadioStatePacket;
 import com.horizonradio.network.packets.ResumePacket;
 import com.horizonradio.network.packets.SearchResultsPacket;
 import com.horizonradio.network.packets.ShuffleStatePacket;
@@ -57,6 +70,7 @@ public final class PlaylistManager {
     private static final long DEFAULT_TRACK_DURATION_MS = 3L * 60L * 1000L;
     private static final long NEXT_TRACK_DELAY_MS = 2000L;
     private static final long LATE_JOIN_TIMEOUT_MS = 10000L;
+    private static final int MAX_SEARCH_RESULTS = 10;
 
     private final MinecraftServer server;
     private final YouTubeService youTubeService;
@@ -64,30 +78,68 @@ public final class PlaylistManager {
     private final PlaylistState state;
     private final ScheduledExecutorService scheduler;
     private final ChartCache chartCache;
-    private final List<EntityPlayerMP> chartRefreshWaiters = new ArrayList<EntityPlayerMP>();
+    private final RadioBrowserService radioBrowserService;
+    private final RadioStreamService radioStreamService;
+    private final Consumer<RadioStatePacket> radioStateBroadcastObserver;
+    private final ConcurrentMap<UUID, Long> searchRequestGenerations = new ConcurrentHashMap<UUID, Long>();
+    private final AtomicLong searchRequestGeneration = new AtomicLong();
+    private final RadioPlaybackState radioState = new RadioPlaybackState();
+    private final Map<String, List<EntityPlayerMP>> chartRefreshWaiters = new HashMap<String, List<EntityPlayerMP>>();
     private final Set<String> preloadingAudio = Collections.newSetFromMap(new ConcurrentHashMap<String, Boolean>());
 
     private volatile boolean shuttingDown;
     private CompletableFuture<Path> activeAudioDownload;
     private String activeAudioVideoId;
-    private boolean chartRefreshInProgress;
+    private final Set<String> chartRefreshInProgress = new HashSet<String>();
     private ScheduledFuture<?> advanceFuture;
     private ScheduledFuture<?> progressFuture;
     private ScheduledFuture<?> syncTimeoutFuture;
+    private long radioSelectionRequest;
+    private long radioLastSequence = -1L;
+    private long musicGeneration;
 
     public PlaylistManager(MinecraftServer server, YouTubeService youTubeService,
         AudioDownloadService audioDownloadService) {
-        this(server, youTubeService, audioDownloadService, null);
+        this(server, youTubeService, audioDownloadService, null, new RadioBrowserService(), new RadioStreamService());
     }
 
     public PlaylistManager(MinecraftServer server, YouTubeService youTubeService,
         AudioDownloadService audioDownloadService, File configDirectory) {
-        if (server == null || youTubeService == null || audioDownloadService == null) {
+        this(
+            server,
+            youTubeService,
+            audioDownloadService,
+            configDirectory,
+            new RadioBrowserService(),
+            new RadioStreamService());
+    }
+
+    public PlaylistManager(MinecraftServer server, YouTubeService youTubeService,
+        AudioDownloadService audioDownloadService, File configDirectory, RadioBrowserService radioBrowserService,
+        RadioStreamService radioStreamService) {
+        this(
+            server,
+            youTubeService,
+            audioDownloadService,
+            configDirectory,
+            radioBrowserService,
+            radioStreamService,
+            null);
+    }
+
+    private PlaylistManager(MinecraftServer server, YouTubeService youTubeService,
+        AudioDownloadService audioDownloadService, File configDirectory, RadioBrowserService radioBrowserService,
+        RadioStreamService radioStreamService, Consumer<RadioStatePacket> radioStateBroadcastObserver) {
+        if ((server != null && (youTubeService == null || audioDownloadService == null)) || radioBrowserService == null
+            || radioStreamService == null) {
             throw new IllegalArgumentException("server and services must not be null");
         }
         this.server = server;
         this.youTubeService = youTubeService;
         this.audioDownloadService = audioDownloadService;
+        this.radioBrowserService = radioBrowserService;
+        this.radioStreamService = radioStreamService;
+        this.radioStateBroadcastObserver = radioStateBroadcastObserver;
         this.state = new PlaylistState(configuredMaxPlaylistSize());
         this.chartCache = new ChartCache(configDirectory);
         this.scheduler = Executors.newSingleThreadScheduledExecutor(new ThreadFactory() {
@@ -121,29 +173,25 @@ public final class PlaylistManager {
         }
         LOGGER.info("Player " + player.getCommandSenderName() + " searching for: " + query);
         final long maxTrackDurationMs = configuredMaxTrackDurationMs();
-        CompletableFuture<List<SearchResult>> searchFuture = youTubeService.search(query);
+        final UUID playerUuid = player.getUniqueID();
+        final long requestGeneration = searchRequestGeneration.incrementAndGet();
+        searchRequestGenerations.put(playerUuid, Long.valueOf(requestGeneration));
+        CompletableFuture<List<SearchResult>> searchFuture = youTubeService.search(query, maxTrackDurationMs);
         searchFuture.thenAccept(new Consumer<List<SearchResult>>() {
 
             @Override
             public void accept(List<SearchResult> results) {
-                final List<SearchResultsPacket.Entry> entries = new ArrayList<SearchResultsPacket.Entry>();
-                if (results != null) {
-                    for (SearchResult result : results) {
-                        if (result != null && isSearchDurationAllowed(result.getDuration(), maxTrackDurationMs)) {
-                            entries.add(
-                                new SearchResultsPacket.Entry(
-                                    safe(result.getVideoId()),
-                                    safe(result.getTitle()),
-                                    safe(result.getChannel()),
-                                    safe(result.getDuration()),
-                                    safe(result.getThumbnail())));
-                        }
-                    }
+                if (!isLatestSearchRequest(searchRequestGenerations.get(playerUuid), requestGeneration)) {
+                    return;
                 }
+                final List<SearchResultsPacket.Entry> entries = buildSearchEntries(results, maxTrackDurationMs);
                 enqueueServerTask(new Runnable() {
 
                     @Override
                     public void run() {
+                        if (!isLatestSearchRequest(searchRequestGenerations.get(playerUuid), requestGeneration)) {
+                            return;
+                        }
                         HorizonRadioNetwork.CHANNEL.sendTo(new SearchResultsPacket(entries), player);
                     }
                 });
@@ -151,15 +199,313 @@ public final class PlaylistManager {
         });
     }
 
+    static List<SearchResultsPacket.Entry> buildSearchEntries(List<SearchResult> results, long maxTrackDurationMs) {
+        List<SearchResultsPacket.Entry> entries = new ArrayList<SearchResultsPacket.Entry>();
+        if (results == null) {
+            return entries;
+        }
+        for (SearchResult result : results) {
+            if (result == null || !MusicSearchFilter.isLikelyMusic(result)
+                || !isSearchDurationAllowed(result.getDuration(), maxTrackDurationMs)) {
+                continue;
+            }
+            entries.add(
+                new SearchResultsPacket.Entry(
+                    safe(result.getVideoId()),
+                    safe(result.getTitle()),
+                    safe(result.getChannel()),
+                    safe(result.getDuration()),
+                    safe(result.getThumbnail())));
+            if (entries.size() >= MAX_SEARCH_RESULTS) {
+                break;
+            }
+        }
+        return entries;
+    }
+
+    PlaylistManager(RadioBrowserService radioBrowserService, RadioStreamService radioStreamService) {
+        this(null, null, null, null, radioBrowserService, radioStreamService);
+    }
+
+    PlaylistManager(YouTubeService youTubeService, AudioDownloadService audioDownloadService,
+        RadioBrowserService radioBrowserService, RadioStreamService radioStreamService) {
+        this(null, youTubeService, audioDownloadService, null, radioBrowserService, radioStreamService);
+    }
+
+    PlaylistManager(YouTubeService youTubeService, AudioDownloadService audioDownloadService,
+        RadioBrowserService radioBrowserService, RadioStreamService radioStreamService,
+        Consumer<RadioStatePacket> radioStateBroadcastObserver) {
+        this(
+            null,
+            youTubeService,
+            audioDownloadService,
+            null,
+            radioBrowserService,
+            radioStreamService,
+            radioStateBroadcastObserver);
+    }
+
+    public void handleRadioSearch(final EntityPlayerMP player, String query) {
+        if (player == null) {
+            return;
+        }
+        radioBrowserService.search(query)
+            .whenComplete(new BiConsumer<List<RadioStation>, Throwable>() {
+
+                @Override
+                public void accept(final List<RadioStation> stations, Throwable failure) {
+                    enqueueServerTask(new Runnable() {
+
+                        @Override
+                        public void run() {
+                            List<RadioSearchResultsPacket.Entry> entries = new ArrayList<RadioSearchResultsPacket.Entry>();
+                            if (failure == null && stations != null) {
+                                for (RadioStation station : stations) {
+                                    RadioStation publicationStation = RadioBrowserService
+                                        .sanitizeForPublication(station);
+                                    if (publicationStation != null) {
+                                        entries.add(
+                                            new RadioSearchResultsPacket.Entry(
+                                                publicationStation.getStationUuid(),
+                                                publicationStation.getName()));
+                                    }
+                                }
+                            }
+                            HorizonRadioNetwork.CHANNEL.sendTo(new RadioSearchResultsPacket(entries), player);
+                        }
+                    });
+                }
+            });
+    }
+
+    public void handleSelectRadio(final EntityPlayerMP player, final String stationUuid) {
+        if (player == null || isEmpty(stationUuid)) {
+            return;
+        }
+        selectRadioStation(player, stationUuid);
+    }
+
+    void selectRadioStation(final EntityPlayerMP player, final String stationUuid) {
+        final long request = ++radioSelectionRequest;
+        long supersededCandidate = radioState.cancelCandidate();
+        if (supersededCandidate != 0L) {
+            radioStreamService.stopGeneration(supersededCandidate);
+        }
+        radioBrowserService.lookup(stationUuid)
+            .whenComplete(new BiConsumer<RadioStation, Throwable>() {
+
+                @Override
+                public void accept(final RadioStation station, Throwable failure) {
+                    enqueueServerTask(new Runnable() {
+
+                        @Override
+                        public void run() {
+                            if (request != radioSelectionRequest) {
+                                return;
+                            }
+                            RadioStation publicationStation = RadioBrowserService.sanitizeForPublication(station);
+                            if (failure != null || publicationStation == null) {
+                                if (player != null) {
+                                    sendChat(player, EnumChatFormatting.RED, "Unable to start that radio station.");
+                                }
+                                return;
+                            }
+                            startRadioCandidate(publicationStation, request);
+                        }
+                    });
+                }
+            });
+    }
+
+    private void startRadioCandidate(final RadioStation station, final long request) {
+        final long generation = radioState.beginCandidate();
+        radioStreamService.startCandidate(station, generation, new RadioStreamService.RadioStreamListener() {
+
+            @Override
+            public void onReady(final long callbackGeneration, final RadioStation readyStation,
+                final long firstSequence, final byte[] data) {
+                enqueueServerTask(new Runnable() {
+
+                    @Override
+                    public void run() {
+                        promoteReadyRadio(request, callbackGeneration, readyStation, firstSequence, data);
+                    }
+                });
+            }
+
+            @Override
+            public void onChunk(final long callbackGeneration, final long sequence, final byte[] data) {
+                enqueueServerTask(new Runnable() {
+
+                    @Override
+                    public void run() {
+                        relayRadioChunk(callbackGeneration, sequence, data);
+                    }
+                });
+            }
+
+            @Override
+            public void onFailure(final long callbackGeneration, final String message) {
+                enqueueServerTask(new Runnable() {
+
+                    @Override
+                    public void run() {
+                        handleRadioFailure(request, callbackGeneration, message);
+                    }
+                });
+            }
+        });
+    }
+
+    private void promoteReadyRadio(long request, long generation, RadioStation station, long firstSequence,
+        byte[] data) {
+        if (request != radioSelectionRequest || !radioState.isCandidateGeneration(generation)) {
+            return;
+        }
+        RadioStation publicationStation = RadioBrowserService.sanitizeForPublication(station);
+        RadioStatePacket statePacket;
+        RadioAudioStartPacket startPacket;
+        RadioAudioChunkPacket firstChunkPacket;
+        try {
+            if (publicationStation == null) {
+                throw new IllegalArgumentException("radio station metadata cannot be published");
+            }
+            statePacket = new RadioStatePacket(
+                true,
+                generation,
+                publicationStation.getStationUuid(),
+                publicationStation.getName(),
+                "Playing " + publicationStation.getName());
+            startPacket = new RadioAudioStartPacket(generation, firstSequence, 44100, 2, 16, false);
+            firstChunkPacket = new RadioAudioChunkPacket(generation, firstSequence, data);
+        } catch (IllegalArgumentException exception) {
+            radioState.failCandidate(generation, "Radio station metadata is unavailable");
+            radioStreamService.stopGeneration(generation);
+            LOGGER.log(Level.WARNING, "Rejected radio candidate before publication", exception);
+            return;
+        }
+
+        radioBrowserService.countClick(publicationStation.getStationUuid());
+        radioStreamService.promoteCandidate(generation);
+        if (!radioState.promoteCandidate(generation, publicationStation)) {
+            radioStreamService.stopGeneration(generation);
+            return;
+        }
+        invalidateMusicWork();
+        radioLastSequence = firstSequence;
+        broadcastRadioState(statePacket);
+        broadcastRadioStart(startPacket);
+        broadcastRadioChunk(firstChunkPacket);
+    }
+
+    private void relayRadioChunk(long generation, long sequence, byte[] data) {
+        if (!radioState.isRadioActive() || generation != radioState.getGeneration()
+            || data == null
+            || data.length == 0) {
+            return;
+        }
+        radioLastSequence = sequence;
+        broadcastRadioChunk(generation, sequence, data);
+    }
+
+    private void handleRadioFailure(long request, long generation, String message) {
+        if (radioState.isCandidateGeneration(generation)) {
+            if (request == radioSelectionRequest) {
+                radioState.failCandidate(generation, message);
+            }
+            return;
+        }
+        if (!radioState.isRadioActive() || generation != radioState.getGeneration()) {
+            return;
+        }
+        long candidateGeneration = radioState.cancelCandidate();
+        String inactiveStatus = PacketBufferUtil.truncateUtf8(safe(message), RadioStatePacket.MAX_STATUS_BYTES);
+        radioState.stop(inactiveStatus);
+        radioLastSequence = -1L;
+        radioStreamService.stopGeneration(generation);
+        if (candidateGeneration != 0L && candidateGeneration != generation) {
+            radioStreamService.stopGeneration(candidateGeneration);
+        }
+        broadcastRadioState("");
+    }
+
+    public void handleStopRadio(EntityPlayerMP player) {
+        if (player == null) {
+            return;
+        }
+        stopRadio();
+    }
+
+    void stopRadio() {
+        ++radioSelectionRequest;
+        radioStreamService.stopAll();
+        radioState.stop();
+        radioLastSequence = -1L;
+        broadcastRadioState("");
+    }
+
+    void stopRadioForMusic() {
+        if (isRadioActive()) {
+            stopRadio();
+            return;
+        }
+        ++radioSelectionRequest;
+        radioStreamService.stopAll();
+        radioState.stop();
+        radioLastSequence = -1L;
+        broadcastRadioState("");
+    }
+
+    private void invalidateMusicWork() {
+        ++musicGeneration;
+        cancelFuture(advanceFuture);
+        cancelFuture(syncTimeoutFuture);
+        advanceFuture = null;
+        syncTimeoutFuture = null;
+        cancelActiveAudioDownload();
+        for (String videoId : new HashSet<String>(preloadingAudio)) {
+            audioDownloadService.cancelDownload(videoId);
+        }
+        preloadingAudio.clear();
+        state.stopPlayback();
+    }
+
+    public boolean isRadioActive() {
+        return radioState.isRadioActive();
+    }
+
+    public void syncRadioToPlayer(EntityPlayerMP player) {
+        if (player == null) {
+            return;
+        }
+        HorizonRadioNetwork.CHANNEL.sendTo(radioStatePacket(""), player);
+        if (radioState.isRadioActive()) {
+            HorizonRadioNetwork.CHANNEL.sendTo(
+                new RadioAudioStartPacket(radioState.getGeneration(), radioLastSequence + 1L, 44100, 2, 16, false),
+                player);
+        }
+    }
+
     public void handleRequestCharts(final EntityPlayerMP player, boolean forceRefresh) {
+        handleRequestCharts(player, ChartRegionCatalog.GLOBAL_CODE, forceRefresh);
+    }
+
+    public void handleRequestCharts(final EntityPlayerMP player, String regionCode, boolean forceRefresh) {
         if (player == null) {
             return;
         }
 
-        final List<SearchResult> cached = chartCache.getResults();
+        final ChartRegion region = ChartRegionCatalog.byCode(regionCode);
+        if (region == null) {
+            sendChat(player, EnumChatFormatting.RED, "Unknown chart region: " + safe(regionCode) + ".");
+            return;
+        }
+        final String canonicalRegionCode = region.getCode();
+        final List<SearchResult> cached = chartCache.getResults(canonicalRegionCode);
         boolean operator = server.getConfigurationManager()
             .func_152596_g(player.getGameProfile());
         processChartRequest(
+            region,
             forceRefresh,
             operator,
             !cached.isEmpty(),
@@ -168,7 +514,7 @@ public final class PlaylistManager {
 
                 @Override
                 public void sendChartResults() {
-                    PlaylistManager.this.sendChartResults(player, cached, false);
+                    PlaylistManager.this.sendChartResults(player, cached, region, false);
                 }
 
                 @Override
@@ -178,14 +524,19 @@ public final class PlaylistManager {
 
                 @Override
                 public void registerWaiter() {
-                    if (!chartRefreshWaiters.contains(player)) {
-                        chartRefreshWaiters.add(player);
+                    List<EntityPlayerMP> waiters = chartRefreshWaiters.get(canonicalRegionCode);
+                    if (waiters == null) {
+                        waiters = new ArrayList<EntityPlayerMP>();
+                        chartRefreshWaiters.put(canonicalRegionCode, waiters);
+                    }
+                    if (!waiters.contains(player)) {
+                        waiters.add(player);
                     }
                 }
 
                 @Override
                 public void refresh() {
-                    refreshChartsIfNeeded();
+                    refreshChartsIfNeeded(region);
                 }
             });
     }
@@ -203,6 +554,14 @@ public final class PlaylistManager {
 
     static void processChartRequest(boolean forceRefresh, boolean operator, boolean hasCachedCharts, boolean cacheFresh,
         ChartRequestActions actions) {
+        processChartRequest(ChartRegionCatalog.global(), forceRefresh, operator, hasCachedCharts, cacheFresh, actions);
+    }
+
+    static void processChartRequest(ChartRegion region, boolean forceRefresh, boolean operator, boolean hasCachedCharts,
+        boolean cacheFresh, ChartRequestActions actions) {
+        if (region == null) {
+            throw new IllegalArgumentException("chart region must not be null");
+        }
         if (!canRefreshCharts(forceRefresh, operator)) {
             actions.sendChartResults();
             actions.sendChat(EnumChatFormatting.RED, "Only server operators can refresh the charts.");
@@ -214,7 +573,8 @@ public final class PlaylistManager {
         }
         actions.sendChat(
             EnumChatFormatting.YELLOW,
-            forceRefresh ? "Refreshing German YouTube Music Top 50..." : "Loading German YouTube Music Top 50...");
+            forceRefresh ? "Refreshing " + region.getDisplayName() + " YouTube Music Top 50..."
+                : "Loading " + region.getDisplayName() + " YouTube Music Top 50...");
         actions.registerWaiter();
         actions.refresh();
     }
@@ -227,104 +587,104 @@ public final class PlaylistManager {
         return hasCachedCharts && !forceRefresh && cacheFresh;
     }
 
-    private void refreshChartsIfNeeded() {
-        if (chartRefreshInProgress) {
+    private void refreshChartsIfNeeded(final ChartRegion region) {
+        final String regionCode = region.getCode();
+        if (!chartRefreshInProgress.add(regionCode)) {
             return;
         }
-        chartRefreshInProgress = true;
-        youTubeService.fetchGermanTopCharts()
-            .thenAccept(new Consumer<List<SearchResult>>() {
+        CompletableFuture<List<SearchResult>> chartFuture;
+        try {
+            chartFuture = youTubeService.fetchTopCharts(region);
+        } catch (RuntimeException exception) {
+            finishChartRefreshAsync(region, new ArrayList<SearchResult>(), exception);
+            return;
+        }
+        chartFuture.whenComplete(new BiConsumer<List<SearchResult>, Throwable>() {
 
-                @Override
-                public void accept(final List<SearchResult> charts) {
-                    if (charts == null || charts.isEmpty()) {
-                        enqueueServerTask(new Runnable() {
-
-                            @Override
-                            public void run() {
-                                finishChartRefresh(new ArrayList<SearchResult>());
-                            }
-                        });
-                        return;
-                    }
-                    final List<String> videoIds = new ArrayList<String>();
-                    for (SearchResult chartEntry : charts) {
-                        videoIds.add(chartEntry.getVideoId());
-                    }
-                    audioDownloadService.extractVideoDurationOutput(videoIds)
-                        .whenComplete(new BiConsumer<String, Throwable>() {
-
-                            @Override
-                            public void accept(final String durationOutput, Throwable failure) {
-                                enqueueServerTask(new Runnable() {
-
-                                    @Override
-                                    public void run() {
-                                        finishChartRefresh(withDurations(charts, durationOutput));
-                                    }
-                                });
-                            }
-                        });
+            @Override
+            public void accept(final List<SearchResult> charts, final Throwable failure) {
+                if (failure != null || charts == null || charts.isEmpty()) {
+                    finishChartRefreshAsync(region, new ArrayList<SearchResult>(), failure);
+                    return;
                 }
-            });
-    }
-
-    private List<SearchResult> withDurations(List<SearchResult> charts, String durationOutput) {
-        Map<String, String> durations = PlaylistImportService.parseDurationOutput(durationOutput);
-        List<SearchResult> completed = new ArrayList<SearchResult>();
-        for (SearchResult chartEntry : charts) {
-            String duration = durations.get(chartEntry.getVideoId());
-            if (duration != null && duration.length() > 0) {
-                completed.add(
-                    new SearchResult(
-                        chartEntry.getVideoId(),
-                        chartEntry.getTitle(),
-                        chartEntry.getChannel(),
-                        duration,
-                        chartEntry.getThumbnail()));
+                finishChartRefreshAsync(region, charts, null);
             }
-        }
-        return completed;
+        });
     }
 
-    private void finishChartRefresh(List<SearchResult> refreshed) {
+    private void finishChartRefreshAsync(final ChartRegion region, final List<SearchResult> refreshed,
+        final Throwable failure) {
+        enqueueServerTask(new Runnable() {
+
+            @Override
+            public void run() {
+                finishChartRefresh(region, refreshed, failure);
+            }
+        });
+    }
+
+    private void finishChartRefresh(ChartRegion region, List<SearchResult> refreshed, Throwable failure) {
+        String regionCode = region.getCode();
         if (refreshed != null && !refreshed.isEmpty()) {
-            chartCache.store(refreshed);
+            chartCache.store(regionCode, refreshed);
         }
-        List<SearchResult> results = chartCache.getResults();
-        List<EntityPlayerMP> waiters = new ArrayList<EntityPlayerMP>(chartRefreshWaiters);
-        chartRefreshWaiters.clear();
-        chartRefreshInProgress = false;
+        List<SearchResult> results = chartCache.getResults(regionCode);
+        List<EntityPlayerMP> waiters = chartRefreshWaiters.remove(regionCode);
+        chartRefreshInProgress.remove(regionCode);
+        if (waiters == null) {
+            waiters = new ArrayList<EntityPlayerMP>();
+        }
         for (EntityPlayerMP player : waiters) {
-            sendChartResults(player, results, true);
+            if (failure != null) {
+                sendChartResults(player, results, region, false);
+                sendChat(
+                    player,
+                    EnumChatFormatting.YELLOW,
+                    "Could not refresh " + region.getDisplayName() + " charts; showing cached results.");
+            } else {
+                sendChartResults(player, results, region, true);
+            }
         }
     }
 
-    private void sendChartResults(EntityPlayerMP player, List<SearchResult> charts, boolean announce) {
-        List<SearchResultsPacket.Entry> entries = new ArrayList<SearchResultsPacket.Entry>();
-        for (SearchResult chartEntry : charts) {
-            if (!isSearchDurationAllowed(chartEntry.getDuration(), configuredMaxTrackDurationMs())) {
-                continue;
-            }
-            entries.add(
-                new SearchResultsPacket.Entry(
-                    chartEntry.getVideoId(),
-                    chartEntry.getTitle(),
-                    chartEntry.getChannel(),
-                    chartEntry.getDuration(),
-                    chartEntry.getThumbnail()));
-        }
-        HorizonRadioNetwork.CHANNEL.sendTo(new SearchResultsPacket(entries, true), player);
+    private void sendChartResults(EntityPlayerMP player, List<SearchResult> charts, ChartRegion region,
+        boolean announce) {
+        List<SearchResultsPacket.Entry> entries = buildChartEntries(charts, configuredMaxTrackDurationMs());
+        HorizonRadioNetwork.CHANNEL.sendTo(new SearchResultsPacket(entries, true, region.getCode()), player);
         if (announce) {
             sendChat(
                 player,
                 entries.isEmpty() ? EnumChatFormatting.YELLOW : EnumChatFormatting.GREEN,
-                "Loaded " + entries.size() + " German chart songs.");
+                "Loaded " + entries.size() + " " + region.getDisplayName() + " chart songs.");
         }
     }
 
+    static List<SearchResultsPacket.Entry> buildChartEntries(List<SearchResult> charts, long maxDurationMs) {
+        List<SearchResultsPacket.Entry> entries = new ArrayList<SearchResultsPacket.Entry>();
+        if (charts == null) {
+            return entries;
+        }
+        for (SearchResult chartEntry : charts) {
+            if (chartEntry == null) {
+                continue;
+            }
+            String duration = safe(chartEntry.getDuration());
+            if (!isEmpty(duration) && !isSearchDurationAllowed(duration, maxDurationMs)) {
+                continue;
+            }
+            entries.add(
+                new SearchResultsPacket.Entry(
+                    safe(chartEntry.getVideoId()),
+                    safe(chartEntry.getTitle()),
+                    safe(chartEntry.getChannel()),
+                    duration,
+                    safe(chartEntry.getThumbnail())));
+        }
+        return entries;
+    }
+
     public void handleImportPlaylist(final EntityPlayerMP player, String playlistUrl) {
-        if (player == null || !PlaylistImportService.isPlaylistUrl(playlistUrl)) {
+        if (!acceptsPlayer(player) || !PlaylistImportService.isPlaylistUrl(playlistUrl)) {
             if (player != null) {
                 clearSearchResults(player);
                 sendChat(player, EnumChatFormatting.RED, "Invalid YouTube playlist URL.");
@@ -349,7 +709,7 @@ public final class PlaylistManager {
     }
 
     public void handleImportVideo(final EntityPlayerMP player, String videoUrl) {
-        if (player == null || !PlaylistImportService.isVideoUrl(videoUrl)) {
+        if (!acceptsPlayer(player) || !PlaylistImportService.isVideoUrl(videoUrl)) {
             if (player != null) {
                 clearSearchResults(player);
                 sendChat(player, EnumChatFormatting.RED, "Invalid YouTube video URL.");
@@ -394,17 +754,12 @@ public final class PlaylistManager {
             }
         }
 
-        state.add(
-            new PlaylistEntry(
-                result.getVideoId(),
-                result.getTitle(),
-                result.getDuration(),
-                player.getCommandSenderName()));
+        state.add(new PlaylistEntry(result.getVideoId(), result.getTitle(), result.getDuration(), playerName(player)));
         if (state.isShuffling()) {
             state.shuffleQueued();
         }
         syncToAll();
-        if (!state.isPlaying()) {
+        if (shouldStartPlaylistPlayback(isRadioActive(), state.isPlaying())) {
             playNext();
         }
         clearSearchResults(player);
@@ -431,11 +786,7 @@ public final class PlaylistManager {
                 continue;
             }
             state.add(
-                new PlaylistEntry(
-                    result.getVideoId(),
-                    result.getTitle(),
-                    result.getDuration(),
-                    player.getCommandSenderName()));
+                new PlaylistEntry(result.getVideoId(), result.getTitle(), result.getDuration(), playerName(player)));
             added++;
         }
         if (state.isShuffling()) {
@@ -443,7 +794,7 @@ public final class PlaylistManager {
         }
         if (added > 0) {
             syncToAll();
-            if (!state.isPlaying()) {
+            if (shouldStartPlaylistPlayback(isRadioActive(), state.isPlaying())) {
                 playNext();
             }
         }
@@ -455,11 +806,14 @@ public final class PlaylistManager {
     }
 
     private void clearSearchResults(EntityPlayerMP player) {
+        if (player == null) {
+            return;
+        }
         HorizonRadioNetwork.CHANNEL.sendTo(new SearchResultsPacket(new ArrayList<SearchResultsPacket.Entry>()), player);
     }
 
     public void handleAddToPlaylist(EntityPlayerMP player, String videoId, String title, String duration) {
-        if (player == null) {
+        if (!acceptsPlayer(player)) {
             return;
         }
         if (isEmpty(videoId) || isEmpty(title)) {
@@ -473,7 +827,7 @@ public final class PlaylistManager {
                 "This song is too long for the server search limit and cannot be added.");
             return;
         }
-        if (!state.add(new PlaylistEntry(videoId, title, safe(duration), player.getCommandSenderName()))) {
+        if (!state.add(new PlaylistEntry(videoId, title, safe(duration), playerName(player)))) {
             return;
         }
         if (state.isShuffling()) {
@@ -486,19 +840,23 @@ public final class PlaylistManager {
                 EnumChatFormatting.YELLOW,
                 "Warning: yt-dlp or ffmpeg may not be installed on the server. Downloads may fail.");
         }
-        LOGGER.info(player.getCommandSenderName() + " added " + title + " to the playlist");
+        LOGGER.info(playerName(player) + " added " + title + " to the playlist");
         syncToAll();
-        if (!state.isPlaying()) {
+        if (shouldStartPlaylistPlayback(isRadioActive(), state.isPlaying())) {
             playNext();
         }
     }
 
     public void handlePlayNow(EntityPlayerMP player, String videoId, String title, String duration) {
-        if (player == null) {
+        if (!acceptsPlayer(player)) {
             return;
         }
         if (isEmpty(videoId) || isEmpty(title)) {
             sendChat(player, EnumChatFormatting.RED, "Invalid playlist entry.");
+            return;
+        }
+        if (isEmpty(duration)) {
+            resolveDurationBeforePlayNow(player, videoId, title);
             return;
         }
         if (!isSearchDurationAllowed(duration, configuredMaxTrackDurationMs())) {
@@ -509,9 +867,42 @@ public final class PlaylistManager {
             return;
         }
 
+        playNowWithValidatedDuration(player, videoId, title, duration);
+    }
+
+    private void resolveDurationBeforePlayNow(final EntityPlayerMP player, final String videoId, final String title) {
+        audioDownloadService.extractVideoDurationOutput(Collections.singletonList(videoId))
+            .whenComplete(new BiConsumer<String, Throwable>() {
+
+                @Override
+                public void accept(final String durationOutput, final Throwable failure) {
+                    enqueueServerTask(new Runnable() {
+
+                        @Override
+                        public void run() {
+                            String duration = PlaylistImportService.parseDurationOutput(durationOutput)
+                                .get(videoId);
+                            if (failure != null || isEmpty(duration)) {
+                                sendChat(
+                                    player,
+                                    EnumChatFormatting.YELLOW,
+                                    "Could not determine the song duration; it cannot be played now.");
+                                return;
+                            }
+                            handlePlayNow(player, videoId, title, duration);
+                        }
+                    });
+                }
+            });
+    }
+
+    private void playNowWithValidatedDuration(EntityPlayerMP player, String videoId, String title, String duration) {
+        stopRadioForMusic();
+        invalidateMusicWork();
+
         int existingIndex = state.findIndex(videoId);
         PlaylistEntry requested = existingIndex >= 0 ? state.get(existingIndex)
-            : new PlaylistEntry(videoId, title, safe(duration), player.getCommandSenderName());
+            : new PlaylistEntry(videoId, title, safe(duration), playerName(player));
         if (state.isSyncing()) {
             resumePausedClientsBeforeCurrentRemoval();
         }
@@ -526,7 +917,7 @@ public final class PlaylistManager {
                 EnumChatFormatting.YELLOW,
                 "Warning: yt-dlp or ffmpeg may not be installed on the server. Downloads may fail.");
         }
-        LOGGER.info(player.getCommandSenderName() + " selected " + requested.getTitle() + " for immediate playback");
+        LOGGER.info(playerName(player) + " selected " + requested.getTitle() + " for immediate playback");
         playNext(false, false);
     }
 
@@ -600,7 +991,7 @@ public final class PlaylistManager {
                     "Warning: yt-dlp or ffmpeg may not be installed on the server. Downloads may fail.");
             }
             syncToAll();
-            if (!state.isPlaying()) {
+            if (shouldStartPlaylistPlayback(isRadioActive(), state.isPlaying())) {
                 playNext();
             }
         }
@@ -611,14 +1002,14 @@ public final class PlaylistManager {
     }
 
     public void handleRemoveFromPlaylist(EntityPlayerMP player, String videoId) {
-        if (player == null || isEmpty(videoId)) {
+        if (!acceptsPlayer(player) || isEmpty(videoId)) {
             if (player != null) {
                 sendChat(player, EnumChatFormatting.RED, "Invalid playlist entry.");
             }
             return;
         }
 
-        String playerName = player.getCommandSenderName();
+        String playerName = playerName(player);
         int oldCurrentIndex = state.getCurrentIndex();
         int entryIndex = state.findIndex(videoId);
         if (entryIndex < 0) {
@@ -626,7 +1017,7 @@ public final class PlaylistManager {
             sendChat(player, EnumChatFormatting.YELLOW, "That song is no longer in the queue.");
             return;
         }
-        if (entryIndex == oldCurrentIndex && state.isSyncing()) {
+        if (!isRadioActive() && entryIndex == oldCurrentIndex && state.isSyncing()) {
             resumePausedClientsBeforeCurrentRemoval();
         }
         int removeIndex = state.remove(videoId);
@@ -638,7 +1029,7 @@ public final class PlaylistManager {
 
         audioDownloadService.delete(videoId);
         LOGGER.info(playerName + " removed " + videoId + " from the playlist");
-        if (removeIndex == oldCurrentIndex) {
+        if (!isRadioActive() && removeIndex == oldCurrentIndex) {
             cancelFuture(advanceFuture);
             broadcastNowPlaying("", 0.0f);
             playNext(false);
@@ -647,7 +1038,7 @@ public final class PlaylistManager {
     }
 
     public void handleClearPlaylist(EntityPlayerMP player) {
-        if (player == null) {
+        if (!acceptsPlayer(player)) {
             return;
         }
         List<PlaylistEntry> entries = state.snapshot();
@@ -655,7 +1046,7 @@ public final class PlaylistManager {
             sendChat(player, EnumChatFormatting.YELLOW, "The queue is already empty.");
             return;
         }
-        if (state.isSyncing()) {
+        if (!isRadioActive() && state.isSyncing()) {
             resumePausedClientsBeforeCurrentRemoval();
         }
         cancelFuture(advanceFuture);
@@ -671,7 +1062,9 @@ public final class PlaylistManager {
         for (PlaylistEntry entry : entries) {
             audioDownloadService.delete(entry.getVideoId());
         }
-        broadcastNowPlaying("", 0.0f);
+        if (!isRadioActive()) {
+            broadcastNowPlaying("", 0.0f);
+        }
         broadcastLoopState(false);
         broadcastShuffleState(false);
         syncToAll();
@@ -679,10 +1072,10 @@ public final class PlaylistManager {
     }
 
     public void handleReorder(EntityPlayerMP player, int fromIndex, int targetIndex) {
-        if (player == null || !state.moveQueued(fromIndex, targetIndex)) {
+        if (!acceptsPlayer(player) || !state.moveQueued(fromIndex, targetIndex)) {
             return;
         }
-        LOGGER.info(player.getCommandSenderName() + " moved playlist entry from " + fromIndex + " to " + targetIndex);
+        LOGGER.info(playerName(player) + " moved playlist entry from " + fromIndex + " to " + targetIndex);
         syncToAll();
     }
 
@@ -690,6 +1083,7 @@ public final class PlaylistManager {
         if (player == null || Float.isNaN(progress)
             || Float.isInfinite(progress)
             || state.isSyncing()
+            || isRadioActive()
             || !state.isPlaying()) {
             return;
         }
@@ -729,7 +1123,7 @@ public final class PlaylistManager {
     }
 
     public void handleTogglePlayback(EntityPlayerMP player) {
-        if (player == null || state.isSyncing() || !state.isPlaying()) {
+        if (player == null || state.isSyncing() || isRadioActive() || !state.isPlaying()) {
             return;
         }
 
@@ -769,7 +1163,7 @@ public final class PlaylistManager {
     }
 
     public void handleSkipTrack(EntityPlayerMP player) {
-        if (player == null || state.isSyncing() || !state.isPlaying()) {
+        if (player == null || state.isSyncing() || isRadioActive() || !state.isPlaying()) {
             return;
         }
         cancelFuture(advanceFuture);
@@ -779,7 +1173,7 @@ public final class PlaylistManager {
     }
 
     public void handleToggleLoop(EntityPlayerMP player) {
-        if (player == null || state.isSyncing()) {
+        if (player == null || state.isSyncing() || isRadioActive()) {
             return;
         }
         boolean looping = state.toggleLooping();
@@ -788,7 +1182,7 @@ public final class PlaylistManager {
     }
 
     public void handleToggleShuffle(EntityPlayerMP player) {
-        if (player == null || state.isSyncing()) {
+        if (player == null || state.isSyncing() || isRadioActive()) {
             return;
         }
         boolean shuffling = state.toggleShuffling();
@@ -802,7 +1196,7 @@ public final class PlaylistManager {
     }
 
     public void handlePreviousTrack(EntityPlayerMP player) {
-        if (player == null || state.isSyncing() || !state.isPlaying()) {
+        if (player == null || state.isSyncing() || isRadioActive() || !state.isPlaying()) {
             return;
         }
 
@@ -838,6 +1232,10 @@ public final class PlaylistManager {
         HorizonRadioNetwork.CHANNEL.sendTo(new ShuffleStatePacket(state.isShuffling()), player);
         HorizonRadioNetwork.CHANNEL.sendTo(new LoopStatePacket(state.isLooping()), player);
         HorizonRadioNetwork.CHANNEL.sendTo(new PlaylistSyncPacket(toPacketEntries(state.snapshot())), player);
+        syncRadioToPlayer(player);
+        if (isRadioActive()) {
+            return;
+        }
 
         int currentIndex = state.getCurrentIndex();
         if (!state.isPlaying() || currentIndex < 0 || currentIndex >= state.size()) {
@@ -889,7 +1287,11 @@ public final class PlaylistManager {
     }
 
     public void handleDisconnect(EntityPlayerMP player) {
-        if (player == null || !state.isSyncing()) {
+        if (player == null) {
+            return;
+        }
+        searchRequestGenerations.remove(player.getUniqueID());
+        if (!state.isSyncing()) {
             return;
         }
         if (state.disconnect(player.getUniqueID())) {
@@ -921,6 +1323,9 @@ public final class PlaylistManager {
     }
 
     private void playNext() {
+        if (isRadioActive()) {
+            return;
+        }
         if (state.isLooping()) {
             replayCurrent();
             return;
@@ -929,6 +1334,9 @@ public final class PlaylistManager {
     }
 
     private void replayCurrent() {
+        if (isRadioActive()) {
+            return;
+        }
         int currentIndex = state.getCurrentIndex();
         if (currentIndex < 0 || currentIndex >= state.size()) {
             playNext(true);
@@ -947,6 +1355,10 @@ public final class PlaylistManager {
     }
 
     private void playNext(boolean removeCurrentFromQueue, boolean shuffleQueue) {
+        if (isRadioActive()) {
+            return;
+        }
+        final long generation = ++musicGeneration;
         cancelActiveAudioDownload();
         PlaylistEntry previousLastTrack = state.peekLastTrack();
         boolean queueChanged = false;
@@ -1017,7 +1429,7 @@ public final class PlaylistManager {
 
                         @Override
                         public void run() {
-                            downloadFailed(selectedEntry, selectedIndex);
+                            downloadFailed(generation, selectedEntry, selectedIndex);
                         }
                     });
                     return;
@@ -1029,7 +1441,7 @@ public final class PlaylistManager {
 
                             @Override
                             public void run() {
-                                downloadFailed(selectedEntry, selectedIndex);
+                                downloadFailed(generation, selectedEntry, selectedIndex);
                             }
                         });
                         return;
@@ -1041,7 +1453,7 @@ public final class PlaylistManager {
 
                             @Override
                             public void run() {
-                                audioTooLarge(selectedEntry, selectedIndex, audioFileSize);
+                                audioTooLarge(generation, selectedEntry, selectedIndex, audioFileSize);
                             }
                         });
                         return;
@@ -1051,7 +1463,7 @@ public final class PlaylistManager {
 
                         @Override
                         public void run() {
-                            downloadedAudioReady(selectedEntry, selectedIndex, audioBytes);
+                            downloadedAudioReady(generation, selectedEntry, selectedIndex, audioBytes);
                         }
                     });
                 } catch (IOException exception) {
@@ -1063,7 +1475,7 @@ public final class PlaylistManager {
 
                         @Override
                         public void run() {
-                            downloadFailed(selectedEntry, selectedIndex);
+                            downloadFailed(generation, selectedEntry, selectedIndex);
                         }
                     });
                     return;
@@ -1076,7 +1488,7 @@ public final class PlaylistManager {
 
                         @Override
                         public void run() {
-                            downloadFailed(selectedEntry, selectedIndex);
+                            downloadFailed(generation, selectedEntry, selectedIndex);
                         }
                     });
                     return;
@@ -1142,7 +1554,7 @@ public final class PlaylistManager {
             if (chart.getVideoId()
                 .equals(currentVideoId)) {
                 removingCurrent = true;
-                if (state.isSyncing()) {
+                if (!isRadioActive() && state.isSyncing()) {
                     resumePausedClientsBeforeCurrentRemoval();
                 }
             }
@@ -1153,7 +1565,7 @@ public final class PlaylistManager {
         for (String videoId : removedIds) {
             audioDownloadService.delete(videoId);
         }
-        if (removingCurrent) {
+        if (!isRadioActive() && removingCurrent) {
             cancelFuture(advanceFuture);
             broadcastNowPlaying("", 0.0f);
             playNext(false);
@@ -1167,8 +1579,8 @@ public final class PlaylistManager {
             "Removed " + removedIds.size() + " chart songs from the playlist.");
     }
 
-    private void downloadFailed(PlaylistEntry entry, int index) {
-        if (!isCurrentEntry(entry, index)) {
+    private void downloadFailed(long generation, PlaylistEntry entry, int index) {
+        if (!isCurrentMusicEntry(generation, entry, index)) {
             return;
         }
         LOGGER.warning("Download failed for: " + entry.getTitle());
@@ -1181,8 +1593,8 @@ public final class PlaylistManager {
         playNext(true);
     }
 
-    private void audioTooLarge(PlaylistEntry entry, int index, long audioLength) {
-        if (!isCurrentEntry(entry, index)) {
+    private void audioTooLarge(long generation, PlaylistEntry entry, int index, long audioLength) {
+        if (!isCurrentMusicEntry(generation, entry, index)) {
             return;
         }
         LOGGER.warning(
@@ -1194,8 +1606,8 @@ public final class PlaylistManager {
         playNext(true);
     }
 
-    private void downloadedAudioReady(PlaylistEntry entry, int index, byte[] audioBytes) {
-        if (!isCurrentEntry(entry, index)) {
+    private void downloadedAudioReady(final long generation, PlaylistEntry entry, int index, byte[] audioBytes) {
+        if (!isCurrentMusicEntry(generation, entry, index)) {
             return;
         }
         if (audioBytes == null || audioBytes.length == 0) {
@@ -1205,9 +1617,10 @@ public final class PlaylistManager {
         }
 
         state.markLoaded(entry.getVideoId(), System.currentTimeMillis());
+        radioState.startMusic();
         for (EntityPlayerMP player : onlinePlayersSnapshot()) {
             if (!sendAudioChunks(player, entry.getVideoId(), entry.getTitle(), audioBytes, 0L)) {
-                audioTooLarge(entry, index, audioBytes.length);
+                audioTooLarge(generation, entry, index, audioBytes.length);
                 return;
             }
         }
@@ -1219,13 +1632,16 @@ public final class PlaylistManager {
 
             @Override
             public void run() {
-                playNext();
+                if (generation == musicGeneration) {
+                    playNext();
+                }
             }
         }, delay, TimeUnit.MILLISECONDS);
     }
 
     private void requestLateJoinAudio(final EntityPlayerMP player, final UUID playerUuid, final PlaylistEntry entry,
         final String videoId) {
+        final long generation = musicGeneration;
         scheduler.submit(new Runnable() {
 
             @Override
@@ -1241,7 +1657,8 @@ public final class PlaylistManager {
 
                         @Override
                         public void run() {
-                            if (!state.isSyncing() || !videoId.equals(state.getCurrentVideoId())
+                            if (generation != musicGeneration || !state.isSyncing()
+                                || !videoId.equals(state.getCurrentVideoId())
                                 || !state.containsPending(playerUuid)) {
                                 return;
                             }
@@ -1295,22 +1712,27 @@ public final class PlaylistManager {
         if (syncTimeoutFuture != null) {
             return;
         }
+        final long generation = musicGeneration;
         syncTimeoutFuture = scheduleServerTask(new Runnable() {
 
             @Override
             public void run() {
-                if (state.isSyncing()) {
+                if (generation == musicGeneration && state.isSyncing()) {
                     LOGGER.warning(
                         "Late-join synchronization timed out with " + state.getPendingPlayerCount()
                             + " pending players");
-                    doResume();
+                    doResume(generation);
                 }
             }
         }, LATE_JOIN_TIMEOUT_MS, TimeUnit.MILLISECONDS);
     }
 
     private void doResume() {
-        if (!state.isSyncing()) {
+        doResume(musicGeneration);
+    }
+
+    private void doResume(final long generation) {
+        if (generation != musicGeneration || !state.isSyncing()) {
             return;
         }
         long pausedPositionMs = state.getPausedPositionMs();
@@ -1334,7 +1756,9 @@ public final class PlaylistManager {
 
                 @Override
                 public void run() {
-                    playNext();
+                    if (generation == musicGeneration) {
+                        playNext();
+                    }
                 }
             }, remaining, TimeUnit.MILLISECONDS);
         }
@@ -1343,12 +1767,15 @@ public final class PlaylistManager {
     private void scheduleNextTrack(long positionMs, long durationMs) {
         cancelFuture(advanceFuture);
         long remaining = durationMs - positionMs + NEXT_TRACK_DELAY_MS;
+        final long generation = musicGeneration;
         if (remaining > 0L && state.isPlaying() && !state.isPaused()) {
             advanceFuture = scheduleServerTask(new Runnable() {
 
                 @Override
                 public void run() {
-                    playNext();
+                    if (generation == musicGeneration) {
+                        playNext();
+                    }
                 }
             }, remaining, TimeUnit.MILLISECONDS);
         }
@@ -1361,7 +1788,8 @@ public final class PlaylistManager {
 
     private void broadcastProgress() {
         int currentIndex = state.getCurrentIndex();
-        if (!state.isPlaying() || state.isPaused()
+        if (isRadioActive() || !state.isPlaying()
+            || state.isPaused()
             || state.isSyncing()
             || currentIndex < 0
             || currentIndex >= state.size()
@@ -1373,8 +1801,10 @@ public final class PlaylistManager {
         broadcastNowPlaying(entry.getTitle(), progressFor(elapsed, state.getCurrentTrackDurationMs()));
     }
 
-    private boolean isCurrentEntry(PlaylistEntry entry, int index) {
-        return entry != null && state.isPlaying()
+    private boolean isCurrentMusicEntry(long generation, PlaylistEntry entry, int index) {
+        return generation == musicGeneration && !isRadioActive()
+            && entry != null
+            && state.isPlaying()
             && state.getCurrentIndex() == index
             && index >= 0
             && index < state.size()
@@ -1433,6 +1863,50 @@ public final class PlaylistManager {
         }
     }
 
+    private RadioStatePacket radioStatePacket(String inactiveStatus) {
+        String status = radioState.isRadioActive() ? radioState.getStatus()
+            : (isEmpty(inactiveStatus) ? radioState.getStatus() : inactiveStatus);
+        return new RadioStatePacket(
+            radioState.isRadioActive(),
+            radioState.getGeneration(),
+            radioState.getStationUuid(),
+            radioState.getStationName(),
+            PacketBufferUtil.truncateUtf8(safe(status), RadioStatePacket.MAX_STATUS_BYTES));
+    }
+
+    private void broadcastRadioState(String inactiveStatus) {
+        broadcastRadioState(radioStatePacket(inactiveStatus));
+    }
+
+    private void broadcastRadioState(RadioStatePacket packet) {
+        if (radioStateBroadcastObserver != null) {
+            radioStateBroadcastObserver.accept(packet);
+        }
+        for (EntityPlayerMP player : onlinePlayersSnapshot()) {
+            HorizonRadioNetwork.CHANNEL.sendTo(packet, player);
+        }
+    }
+
+    private void broadcastRadioStart(long generation, long firstSequence) {
+        broadcastRadioStart(new RadioAudioStartPacket(generation, firstSequence, 44100, 2, 16, false));
+    }
+
+    private void broadcastRadioStart(RadioAudioStartPacket packet) {
+        for (EntityPlayerMP player : onlinePlayersSnapshot()) {
+            HorizonRadioNetwork.CHANNEL.sendTo(packet, player);
+        }
+    }
+
+    private void broadcastRadioChunk(long generation, long sequence, byte[] data) {
+        broadcastRadioChunk(new RadioAudioChunkPacket(generation, sequence, data));
+    }
+
+    private void broadcastRadioChunk(RadioAudioChunkPacket packet) {
+        for (EntityPlayerMP player : onlinePlayersSnapshot()) {
+            HorizonRadioNetwork.CHANNEL.sendTo(packet, player);
+        }
+    }
+
     private List<PlaylistSyncPacket.Entry> toPacketEntries(List<PlaylistEntry> entries) {
         List<PlaylistSyncPacket.Entry> packetEntries = new ArrayList<PlaylistSyncPacket.Entry>();
         for (PlaylistEntry entry : entries) {
@@ -1448,6 +1922,9 @@ public final class PlaylistManager {
 
     private List<EntityPlayerMP> onlinePlayersSnapshot() {
         List<EntityPlayerMP> players = new ArrayList<EntityPlayerMP>();
+        if (server == null) {
+            return players;
+        }
         for (Object candidate : server.getConfigurationManager().playerEntityList) {
             if (candidate instanceof EntityPlayerMP) {
                 players.add((EntityPlayerMP) candidate);
@@ -1467,6 +1944,12 @@ public final class PlaylistManager {
     }
 
     private void enqueueServerTask(final Runnable task) {
+        if (server == null) {
+            if (!shuttingDown) {
+                task.run();
+            }
+            return;
+        }
         ServerThreadExecutor.execute(server, new Runnable() {
 
             @Override
@@ -1485,7 +1968,18 @@ public final class PlaylistManager {
     }
 
     private void sendChat(EntityPlayerMP player, EnumChatFormatting color, String message) {
+        if (player == null) {
+            return;
+        }
         player.addChatMessage(new ChatComponentText(EnumChatFormatting.YELLOW + "[HorizonRadio] " + color + message));
+    }
+
+    private boolean acceptsPlayer(EntityPlayerMP player) {
+        return player != null || server == null;
+    }
+
+    private static String playerName(EntityPlayerMP player) {
+        return player == null ? "test" : player.getCommandSenderName();
     }
 
     private static int configuredMaxPlaylistSize() {
@@ -1512,6 +2006,10 @@ public final class PlaylistManager {
     public static boolean isSearchDurationAllowed(String duration, long maxDurationMs) {
         long durationMs = DurationParser.parseMillisStrict(duration);
         return durationMs >= 0L && durationMs < maxDurationMs;
+    }
+
+    static boolean shouldStartPlaylistPlayback(boolean radioActive, boolean musicPlaying) {
+        return !radioActive && !musicPlaying;
     }
 
     /** Java 8 replacement for the newer read-all-bytes convenience APIs. */
@@ -1548,6 +2046,10 @@ public final class PlaylistManager {
             .length() == 0;
     }
 
+    static boolean isLatestSearchRequest(Long currentRequest, long requestGeneration) {
+        return currentRequest != null && currentRequest.longValue() == requestGeneration;
+    }
+
     /** Parses values such as {@code 3:45} and {@code 1:02:30}. */
     static long parseDuration(String duration) {
         return PlaylistState.parseDuration(duration);
@@ -1555,6 +2057,11 @@ public final class PlaylistManager {
 
     public void shutdown() {
         shuttingDown = true;
+        searchRequestGenerations.clear();
+        ++radioSelectionRequest;
+        radioState.stop();
+        radioLastSequence = -1L;
+        radioStreamService.shutdown();
         cancelActiveAudioDownload();
         for (String videoId : new HashSet<String>(preloadingAudio)) {
             audioDownloadService.cancelDownload(videoId);

@@ -57,13 +57,22 @@ build result does not prove Java 8 or Java 17+ game-launch compatibility.
 - Static common/server/network scope scan: PASS. No modern Java HTTP,
   modern text, client GUI, LWJGL, or Java Sound imports appear in common,
   server, or network code.
-- Network source audit: the current source registers 24 messages, IDs 0-23,
-  once from common code; IDs 0-3, 10-15, 17, and 19-23 use `Side.SERVER`, IDs
-  4-9, 16, and 18 use `Side.CLIENT`, and S2C handlers forward only through the
-  sided proxy. The preserved architecture table documents the baseline IDs
-  0-21 contract; pre-existing IDs 22 `AddChartsToPlaylistPacket` and 23
-  `ClearPlaylistPacket` are authoritative in the source registration table.
+- Network source audit: the current source registers 32 messages, IDs 0-31,
+  once from common code; IDs 0-3, 10-15, 17, and 19-27 use `Side.SERVER`, IDs
+  4-9, 16, 18, and 28-31 use `Side.CLIENT`, and S2C handlers forward only
+  through the sided proxy. Chart request ID 21 now carries a canonical region
+  and force-refresh flag; chart result ID 4 carries chart-region metadata.
+  Packet IDs remain unchanged, so no new discriminator is required.
 - `git diff --check`: PASS for the implementation changes.
+
+## Chart region compatibility
+
+The Charts tab starts empty and accepts ISO codes plus normalized country and
+region names from the shared multilingual catalog. A successful country search
+becomes the selected region for that client. Chart data is loaded only by the
+server and cached independently for each canonical region for seven days. The
+legacy single-region `horizonradio-charts.json` shape is loaded as `DE`, never
+as Global, so an existing German cache cannot be shown as the wrong region.
 
 ## Task 6 audit results (2026-08-06)
 
@@ -71,6 +80,23 @@ build result does not prove Java 8 or Java 17+ game-launch compatibility.
 - Dependency declaration audit: PASS for runtime isolation. The exact scan of `gradle.properties`, `repositories.gradle`, `dependencies.gradle`, `build.gradle.kts`, and `settings.gradle.kts` found no GTNHLib or GregTech dependency. `dependencies.gradle` declares JUnit plus a test-runtime-only LWJGL dependency so Forge GUI classes can initialize during tests; no production runtime, shadow, compile-only, or dev-only dependency is declared.
 - `gradle.properties` remains unchanged. `dependencies.gradle` adds only the test-runtime LWJGL bridge required by the existing GUI tests; it is not packaged in the mod JAR.
 - `.github/workflows/build.yml` checks out the repository, provisions Temurin Java 25, enables Gradle caching, makes `gradlew` executable, runs `./gradlew clean --no-daemon` separately, and then runs `./gradlew test build --no-daemon` to avoid the fresh-cache clean/download race.
+
+## Task 7 audit results (2026-08-09)
+
+- Focused Java 25 verification passed with `RadioBrowserServiceTest`,
+  `PacketRoundTripTest`, `RadioStreamBufferTest`, `RadioStreamServiceTest`,
+  `RadioPlaybackStateTest`, `RadioClientStateTest`, and `GuiLayoutTest`.
+- The complete Java 25 `./gradlew test --no-daemon` suite passed. Its XML
+  reports contain 168 tests with 0 failures, 0 errors, and 0 skipped tests;
+  this is newer evidence than the historical 76-test build record above.
+- Source audit: 32 packet registrations use every discriminator from 0 through
+  31 exactly once. IDs 25–27 are C2S and IDs 28–31 are S2C. No client-only
+  imports appear in common, core, network, or server code, and radio
+  client-facing models carry station UUID/name data rather than stream URLs.
+- Dependency audit: no Gradle dependency declaration changed. Radio Browser uses
+  server-side JDK HTTP APIs, while FFmpeg remains an external server `PATH`
+  requirement for both finite conversion and the live PCM relay.
+- `git diff --check`: PASS.
 
 ## Environment and runtime verification limits
 

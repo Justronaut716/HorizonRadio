@@ -2,9 +2,14 @@ package com.horizonradio.client.audio;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.util.ArrayDeque;
+import java.util.Arrays;
+import java.util.Deque;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -15,10 +20,14 @@ import javax.sound.sampled.AudioSystem;
 import javax.sound.sampled.Clip;
 import javax.sound.sampled.LineEvent;
 import javax.sound.sampled.LineListener;
+import javax.sound.sampled.SourceDataLine;
 
 import com.horizonradio.client.HorizonRadioClient;
 import com.horizonradio.core.audio.AudioChunkAssembler;
+import com.horizonradio.core.audio.RadioStreamBuffer;
 import com.horizonradio.network.packets.AudioChunkPacket;
+import com.horizonradio.network.packets.RadioAudioChunkPacket;
+import com.horizonradio.network.packets.RadioAudioStartPacket;
 
 /**
  * Client-only Java Sound playback for the Forge 1.7.10 port.
@@ -32,22 +41,42 @@ import com.horizonradio.network.packets.AudioChunkPacket;
 public final class AudioPlayer {
 
     private static final Logger LOGGER = Logger.getLogger(AudioPlayer.class.getName());
+    private static final int LIVE_FRAME_SIZE = 4;
+    /** Keeps roughly five seconds of live PCM available while Java Sound catches up. */
+    private static final int MAX_LIVE_HANDOFF_PACKETS = 32;
     private static AudioPlayer instance;
 
-    private final ExecutorService executor = Executors.newSingleThreadExecutor(new ThreadFactory() {
+    public interface SourceLineFactory {
+
+        SourceDataLine create(AudioFormat format) throws Exception;
+    }
+
+    private static final class JavaSoundSourceLineFactory implements SourceLineFactory {
 
         @Override
-        public Thread newThread(Runnable runnable) {
-            Thread thread = new Thread(runnable, "HorizonRadio-Audio");
-            thread.setDaemon(true);
-            return thread;
+        public SourceDataLine create(AudioFormat format) throws Exception {
+            return AudioSystem.getSourceDataLine(format);
         }
-    });
+    }
+
+    private final ExecutorService executor;
+    private final ExecutorService radioControlExecutor;
+    private final SourceLineFactory sourceLineFactory;
+    private final RadioStreamBuffer radioBuffer = new RadioStreamBuffer();
+    private final Deque<byte[]> radioHandoff = new ArrayDeque<byte[]>(MAX_LIVE_HANDOFF_PACKETS);
+    private final Object radioHandoffLock = new Object();
+    private final AtomicBoolean radioDrainScheduled = new AtomicBoolean();
+    private final AtomicLong radioEpoch = new AtomicLong();
     private final AudioChunkAssembler assembler = new AudioChunkAssembler();
     private final AtomicLong generation = new AtomicLong();
     private final Object stateLock = new Object();
+    private final Object radioLineLock = new Object();
 
+    private int radioHandoffDiscardBytes;
     private volatile Clip currentClip;
+    private volatile SourceDataLine currentRadioLine;
+    private volatile AudioFormat currentRadioFormat;
+    private byte[] radioFrameRemainder = new byte[0];
     private volatile String currentTitle = "";
     private volatile boolean playing;
     private volatile boolean awaitingResume;
@@ -55,7 +84,29 @@ public final class AudioPlayer {
     private volatile long resumePositionMs;
     private volatile float volume = 1.0f;
 
-    private AudioPlayer() {}
+    private AudioPlayer() {
+        this(new JavaSoundSourceLineFactory());
+    }
+
+    public AudioPlayer(SourceLineFactory sourceLineFactory) {
+        this(sourceLineFactory, newAudioExecutor(), newRadioControlExecutor());
+    }
+
+    public AudioPlayer(SourceLineFactory sourceLineFactory, ExecutorService executor) {
+        this(sourceLineFactory, executor, newRadioControlExecutor());
+    }
+
+    AudioPlayer(SourceLineFactory sourceLineFactory, ExecutorService executor, ExecutorService radioControlExecutor) {
+        if (sourceLineFactory == null) {
+            throw new IllegalArgumentException("source line factory is required");
+        }
+        if (executor == null || radioControlExecutor == null) {
+            throw new IllegalArgumentException("audio executors are required");
+        }
+        this.sourceLineFactory = sourceLineFactory;
+        this.executor = executor;
+        this.radioControlExecutor = radioControlExecutor;
+    }
 
     public static synchronized AudioPlayer getInstance() {
         if (instance == null) {
@@ -75,6 +126,7 @@ public final class AudioPlayer {
             // A new zero supersedes work for the previous track. The assembler
             // still rejects duplicate zeros for the same in-flight transfer.
             generation.incrementAndGet();
+            stopRadio();
         }
 
         AudioChunkAssembler.CompletedTrack completed = assembler.accept(
@@ -160,6 +212,104 @@ public final class AudioPlayer {
         });
     }
 
+    /** Starts a bounded live PCM generation and invalidates finite playback. */
+    public boolean startRadio(RadioAudioStartPacket packet) {
+        if (packet == null || shuttingDown
+            || !radioBuffer.begin(
+                packet.getGeneration(),
+                packet.getFirstSequence(),
+                packet.getSampleRate(),
+                packet.getChannels(),
+                packet.getSampleSizeInBits(),
+                packet.isBigEndian())) {
+            return false;
+        }
+
+        final long requestEpoch = radioEpoch.incrementAndGet();
+        clearRadioHandoff();
+        abortCurrentRadioLine();
+        currentRadioFormat = new AudioFormat(
+            AudioFormat.Encoding.PCM_SIGNED,
+            packet.getSampleRate(),
+            packet.getSampleSizeInBits(),
+            packet.getChannels(),
+            packet.getChannels() * (packet.getSampleSizeInBits() / 8),
+            packet.getSampleRate(),
+            packet.isBigEndian());
+        synchronized (stateLock) {
+            generation.incrementAndGet();
+            assembler.clear();
+            awaitingResume = false;
+            resumePositionMs = 0L;
+            playing = false;
+            currentTitle = "";
+        }
+        enqueue(new Runnable() {
+
+            @Override
+            public void run() {
+                if (!isRadioCurrent(requestEpoch)) {
+                    return;
+                }
+                closeCurrentClip();
+            }
+        });
+        return true;
+    }
+
+    /** Buffers ordered live PCM and schedules line writes after startup readiness. */
+    public void receiveRadioChunk(RadioAudioChunkPacket packet) {
+        if (packet == null || shuttingDown
+            || !radioBuffer.accept(packet.getGeneration(), packet.getSequence(), packet.getData())
+            || !radioBuffer.isReady()) {
+            return;
+        }
+        handoffReadyRadioPackets();
+        requestRadioDrain();
+    }
+
+    private void requestRadioDrain() {
+        final long requestEpoch = radioEpoch.get();
+        final AudioFormat format = currentRadioFormat;
+        if (shuttingDown || format == null || !hasRadioHandoff() || !radioDrainScheduled.compareAndSet(false, true)) {
+            return;
+        }
+        if (!enqueue(new Runnable() {
+
+            @Override
+            public void run() {
+                try {
+                    drainRadio(requestEpoch, format);
+                } finally {
+                    radioDrainScheduled.set(false);
+                    // A producer may have handed off data after drainRadio saw
+                    // an empty queue but before the guard was released.
+                    requestRadioDrain();
+                }
+            }
+        })) {
+            radioDrainScheduled.set(false);
+        }
+    }
+
+    /** Stops the live source without altering finite music state or volume. */
+    public void stopRadio() {
+        radioEpoch.incrementAndGet();
+        radioBuffer.clear();
+        clearRadioHandoff();
+        currentRadioFormat = null;
+        abortCurrentRadioLine();
+    }
+
+    /** Stops radio and forgets generation history after the server connection ends. */
+    public void resetRadio() {
+        radioEpoch.incrementAndGet();
+        radioBuffer.reset();
+        clearRadioHandoff();
+        currentRadioFormat = null;
+        abortCurrentRadioLine();
+    }
+
     public boolean isPlaying() {
         return playing;
     }
@@ -198,12 +348,18 @@ public final class AudioPlayer {
             volume = value;
         }
         final Clip clip = currentClip;
-        if (clip != null && clip.isOpen()) {
+        final SourceDataLine radioLine = currentRadioLine;
+        if ((clip != null && clip.isOpen()) || radioLine != null) {
             enqueue(new Runnable() {
 
                 @Override
                 public void run() {
-                    applyVolume(clip);
+                    if (clip != null && clip.isOpen()) {
+                        applyVolume(clip);
+                    }
+                    if (radioLine != null && radioLine.isOpen()) {
+                        applyVolume(radioLine);
+                    }
                 }
             });
         }
@@ -217,13 +373,177 @@ public final class AudioPlayer {
             }
             shuttingDown = true;
             generation.incrementAndGet();
+            radioEpoch.incrementAndGet();
             assembler.clear();
+            radioBuffer.reset();
+            clearRadioHandoff();
+            currentRadioFormat = null;
             awaitingResume = false;
             playing = false;
             currentTitle = "";
         }
-        closeCurrentClip();
-        executor.shutdownNow();
+        abortCurrentRadioLine();
+        try {
+            executor.execute(new Runnable() {
+
+                @Override
+                public void run() {
+                    closeCurrentClip();
+                    closeCurrentRadioLine();
+                }
+            });
+        } catch (RuntimeException exception) {
+            LOGGER.log(Level.FINE, "HorizonRadio audio cleanup task was rejected during shutdown", exception);
+        }
+        executor.shutdown();
+        try {
+            if (!executor.awaitTermination(1L, TimeUnit.SECONDS)) {
+                executor.shutdownNow();
+            }
+        } catch (InterruptedException exception) {
+            Thread.currentThread()
+                .interrupt();
+            executor.shutdownNow();
+        }
+        radioControlExecutor.shutdown();
+        try {
+            if (!radioControlExecutor.awaitTermination(1L, TimeUnit.SECONDS)) {
+                radioControlExecutor.shutdownNow();
+            }
+        } catch (InterruptedException exception) {
+            Thread.currentThread()
+                .interrupt();
+            radioControlExecutor.shutdownNow();
+        }
+    }
+
+    private void drainRadio(long requestEpoch, AudioFormat format) {
+        if (!isRadioCurrent(requestEpoch) || format == null) {
+            return;
+        }
+
+        SourceDataLine line = currentRadioLine;
+        SourceDataLine candidate = null;
+        try {
+            if (line == null) {
+                candidate = sourceLineFactory.create(format);
+                candidate.open(format);
+                applyVolume(candidate);
+                candidate.start();
+                if (!isRadioCurrent(requestEpoch)) {
+                    closeSourceLine(candidate);
+                    return;
+                }
+                synchronized (radioLineLock) {
+                    if (isRadioCurrent(requestEpoch) && currentRadioLine == null) {
+                        currentRadioLine = candidate;
+                        line = candidate;
+                        candidate = null;
+                    }
+                }
+                if (candidate != null) {
+                    closeSourceLine(candidate);
+                    return;
+                }
+            }
+
+            while (isRadioCurrent(requestEpoch)) {
+                byte[] frames = pollRadioFrames(format);
+                if (frames == null) {
+                    return;
+                }
+                writeRadioFrames(line, frames, requestEpoch);
+            }
+        } catch (Exception exception) {
+            closeSourceLine(candidate);
+            if (isRadioCurrent(requestEpoch)) {
+                radioBuffer.clear();
+                clearRadioHandoff();
+                closeCurrentRadioLine();
+                LOGGER.log(Level.WARNING, "HorizonRadio live playback is unavailable", exception);
+            }
+        }
+    }
+
+    private void handoffReadyRadioPackets() {
+        byte[] data;
+        while ((data = radioBuffer.poll()) != null) {
+            synchronized (radioHandoffLock) {
+                if (radioHandoff.size() == MAX_LIVE_HANDOFF_PACKETS) {
+                    byte[] removed = radioHandoff.removeFirst();
+                    int discardedPrefixBytes = radioFrameRemainder.length + removed.length;
+                    radioFrameRemainder = new byte[0];
+                    radioHandoffDiscardBytes += (LIVE_FRAME_SIZE - discardedPrefixBytes % LIVE_FRAME_SIZE)
+                        % LIVE_FRAME_SIZE;
+                    discardRadioHandoffPrefixLocked();
+                }
+                if (radioHandoffDiscardBytes > 0) {
+                    int discarded = Math.min(radioHandoffDiscardBytes, data.length);
+                    radioHandoffDiscardBytes -= discarded;
+                    data = Arrays.copyOfRange(data, discarded, data.length);
+                }
+                if (data.length > 0) {
+                    radioHandoff.addLast(data);
+                }
+            }
+        }
+    }
+
+    private void discardRadioHandoffPrefixLocked() {
+        while (radioHandoffDiscardBytes > 0 && !radioHandoff.isEmpty()) {
+            byte[] first = radioHandoff.removeFirst();
+            if (first.length <= radioHandoffDiscardBytes) {
+                radioHandoffDiscardBytes -= first.length;
+            } else {
+                radioHandoff.addFirst(Arrays.copyOfRange(first, radioHandoffDiscardBytes, first.length));
+                radioHandoffDiscardBytes = 0;
+            }
+        }
+    }
+
+    private byte[] pollRadioFrames(AudioFormat format) {
+        synchronized (radioHandoffLock) {
+            byte[] data = radioHandoff.pollFirst();
+            if (data == null) {
+                return null;
+            }
+
+            byte[] framed = data;
+            if (radioFrameRemainder.length > 0) {
+                framed = new byte[radioFrameRemainder.length + data.length];
+                System.arraycopy(radioFrameRemainder, 0, framed, 0, radioFrameRemainder.length);
+                System.arraycopy(data, 0, framed, radioFrameRemainder.length, data.length);
+            }
+
+            int writableBytes = framed.length - framed.length % format.getFrameSize();
+            radioFrameRemainder = Arrays.copyOfRange(framed, writableBytes, framed.length);
+            return Arrays.copyOf(framed, writableBytes);
+        }
+    }
+
+    private boolean hasRadioHandoff() {
+        synchronized (radioHandoffLock) {
+            return !radioHandoff.isEmpty();
+        }
+    }
+
+    private void clearRadioHandoff() {
+        synchronized (radioHandoffLock) {
+            radioHandoff.clear();
+            radioHandoffDiscardBytes = 0;
+            radioFrameRemainder = new byte[0];
+        }
+    }
+
+    private void writeRadioFrames(SourceDataLine line, byte[] frames, long requestEpoch) {
+        int offset = 0;
+        while (offset < frames.length && isRadioCurrent(requestEpoch)) {
+            int written = line.write(frames, offset, frames.length - offset);
+            if (written <= 0 || written % LIVE_FRAME_SIZE != 0) {
+                throw new IllegalStateException("live audio line did not consume complete PCM frames");
+            }
+            offset += written;
+        }
     }
 
     private void loadTrack(AudioChunkAssembler.CompletedTrack track, boolean lateJoin, long requestGeneration) {
@@ -357,14 +677,16 @@ public final class AudioPlayer {
         return data != null && data.length <= AudioChunkPacket.CHUNK_SIZE;
     }
 
-    private void enqueue(Runnable task) {
+    private boolean enqueue(Runnable task) {
         if (shuttingDown) {
-            return;
+            return false;
         }
         try {
             executor.execute(task);
+            return true;
         } catch (RuntimeException exception) {
             LOGGER.log(Level.FINE, "HorizonRadio audio task was rejected during shutdown", exception);
+            return false;
         }
     }
 
@@ -372,10 +694,66 @@ public final class AudioPlayer {
         return !shuttingDown && generation.get() == requestGeneration;
     }
 
+    private boolean isRadioCurrent(long requestEpoch) {
+        return !shuttingDown && radioEpoch.get() == requestEpoch;
+    }
+
     private void closeCurrentClip() {
         Clip clip = currentClip;
         currentClip = null;
         closeClip(clip);
+    }
+
+    private void closeCurrentRadioLine() {
+        SourceDataLine line = detachCurrentRadioLine();
+        closeSourceLine(line);
+    }
+
+    private SourceDataLine detachCurrentRadioLine() {
+        synchronized (radioLineLock) {
+            SourceDataLine line = currentRadioLine;
+            currentRadioLine = null;
+            return line;
+        }
+    }
+
+    private void abortCurrentRadioLine() {
+        final SourceDataLine line = detachCurrentRadioLine();
+        if (line == null) {
+            return;
+        }
+        try {
+            radioControlExecutor.execute(new Runnable() {
+
+                @Override
+                public void run() {
+                    closeSourceLine(line);
+                }
+            });
+        } catch (RuntimeException exception) {
+            closeSourceLine(line);
+        }
+    }
+
+    private static void closeSourceLine(SourceDataLine line) {
+        if (line == null) {
+            return;
+        }
+        try {
+            line.stop();
+        } catch (RuntimeException ignored) {
+            // A provider may already have closed the line.
+        }
+        try {
+            line.flush();
+        } catch (RuntimeException ignored) {
+            // Cleanup must not crash the client.
+        }
+        try {
+            line.close();
+        } catch (RuntimeException ignored) {
+            // Cleanup must not crash the client.
+        }
     }
 
     private static void closeClip(Clip clip) {
@@ -416,9 +794,9 @@ public final class AudioPlayer {
         clip.setMicrosecondPosition(safePosition * 1000L);
     }
 
-    private void applyVolume(Clip clip) {
+    private void applyVolume(javax.sound.sampled.Line line) {
         try {
-            javax.sound.sampled.FloatControl control = (javax.sound.sampled.FloatControl) clip
+            javax.sound.sampled.FloatControl control = (javax.sound.sampled.FloatControl) line
                 .getControl(javax.sound.sampled.FloatControl.Type.MASTER_GAIN);
             float decibels = (float) (20.0d * Math.log10(Math.max(volume, 0.0001f)));
             decibels = Math.max(control.getMinimum(), Math.min(control.getMaximum(), decibels));
@@ -428,5 +806,25 @@ public final class AudioPlayer {
         } catch (IllegalStateException exception) {
             // The line may have closed while the volume was being applied.
         }
+    }
+
+    private static ExecutorService newAudioExecutor() {
+        return newSingleDaemonExecutor("HorizonRadio-Audio");
+    }
+
+    private static ExecutorService newRadioControlExecutor() {
+        return newSingleDaemonExecutor("HorizonRadio-Audio-Control");
+    }
+
+    private static ExecutorService newSingleDaemonExecutor(final String name) {
+        return Executors.newSingleThreadExecutor(new ThreadFactory() {
+
+            @Override
+            public Thread newThread(Runnable runnable) {
+                Thread thread = new Thread(runnable, name);
+                thread.setDaemon(true);
+                return thread;
+            }
+        });
     }
 }

@@ -43,11 +43,11 @@ that server work on server ticks and forwards player login/logout transitions.
 | `com.horizonradio.core.protocol` | Version `1.0.0` and the `horizonradio_1_0` channel contract. |
 | `com.horizonradio.core.integration` | Project-owned integration interface and context. |
 | `com.horizonradio.integration` | Optional capability detection, manager, and adapter implementation. |
-| `com.horizonradio.network` and `.network.packets` | Forge `SimpleNetworkWrapper`, handlers, codecs, and the 25 current-source packet types, including the preserved contract below. |
-| `com.horizonradio.server` | Forge/server-facing playlist manager, events, download, YouTube, and server-thread services. |
+| `com.horizonradio.network` and `.network.packets` | Forge `SimpleNetworkWrapper`, handlers, codecs, and the 32 current-source packet types, including the contract below. |
+| `com.horizonradio.server` | Forge/server-facing playlist manager, events, download, YouTube, Radio Browser, FFmpeg relay, and server-thread services. |
 | `com.horizonradio.client` and `.client.audio` | Client proxy, GUI, keybinds, client transport, and Java Sound playback. |
 
-## Forge message contract (current source: IDs 0–24)
+## Forge message contract (current source: IDs 0–31)
 
 The channel is `horizonradio_1_0`. IDs and field order are stable within the
 1.0 port. The current source contract is:
@@ -58,7 +58,7 @@ The channel is `horizonradio_1_0`. IDs and field order are stable within the
 | 1 | C2S | `AddToPlaylistPacket` | video ID, title, duration |
 | 2 | C2S | `RemoveFromPlaylistPacket` | video ID |
 | 3 | C2S | `ReadyPacket` | video ID |
-| 4 | S2C | `SearchResultsPacket` | count + five strings per result |
+| 4 | S2C | `SearchResultsPacket` | charts flag, chart region code, count + five strings per result |
 | 5 | S2C | `PlaylistSyncPacket` | count + four strings per entry |
 | 6 | S2C | `AudioChunkPacket` | video ID, title, index, count, offset, bytes |
 | 7 | S2C | `NowPlayingPacket` | title, progress |
@@ -75,10 +75,17 @@ The channel is `horizonradio_1_0`. IDs and field order are stable within the
 | 18 | S2C | `ShuffleStatePacket` | enabled flag |
 | 19 | C2S | `ImportPlaylistPacket` | playlist URL |
 | 20 | C2S | `ImportVideoPacket` | video URL |
-| 21 | C2S | `RequestChartsPacket` | no fields |
+| 21 | C2S | `RequestChartsPacket` | canonical region code, force-refresh flag |
 | 22 | C2S | `AddChartsToPlaylistPacket` | remove flag, count + video ID, title, duration per entry |
 | 23 | C2S | `ClearPlaylistPacket` | no fields |
 | 24 | C2S | `PlayNowPacket` | video ID, title, duration |
+| 25 | C2S | `RadioSearchRequestPacket` | query |
+| 26 | C2S | `SelectRadioStationPacket` | station UUID |
+| 27 | C2S | `StopRadioPacket` | no fields |
+| 28 | S2C | `RadioSearchResultsPacket` | count + station UUID and name per entry |
+| 29 | S2C | `RadioStatePacket` | active flag, generation, station UUID, station name, status |
+| 30 | S2C | `RadioAudioStartPacket` | generation, first sequence, PCM format |
+| 31 | S2C | `RadioAudioChunkPacket` | generation, sequence, PCM bytes |
 
 The C2S handlers obtain the player, schedule each packet request on the server
 thread, and delegate to `PlaylistManager`. There, request validation,
@@ -90,9 +97,57 @@ chart entries and a true flag removes the matching chart entries.
 `PlayNowPacket` requests immediate selection of the supplied video ID, title,
 and duration while preserving the server-owned queue and playback state.
 
+Chart requests are validated against the common `ChartRegionCatalog`, which
+contains every ISO-3166-1 country plus locale-derived aliases. The internal
+legacy `GLOBAL` code remains available for packet compatibility, but the GUI
+does not request or display global charts.
+The server fetches only weekly `TRACKS` charts from YouTube and stores each
+canonical region independently in the seven-day `ChartCache`; the old single
+German cache format migrates to `DE`. Chart result packets include the
+canonical region so a client can discard stale responses after switching
+regions. The Charts tab starts empty and only shows a country after a successful
+country search; unknown or ambiguous local input leaves the current results
+visible.
+
 All strings, collection counts, indexes, and byte arrays are bounded before
 allocation. Audio data remains split at 30 KiB. `startOffsetMs == -1` means a
-late-join client should load the clip without starting it.
+late-join client should load the clip without starting it. Radio queries are at
+most 100 characters; station UUIDs are at most 64 UTF-8 bytes; station names are
+at most 200 UTF-8 bytes; a search response has at most 50 entries; radio status
+is at most 160 UTF-8 bytes; and each radio PCM chunk is at most 30 KiB.
+
+Radio result and state packets deliberately contain only a station UUID, display
+name, status, and relay metadata. A stream URL is neither a client-facing model
+field nor a packet field. The client can request a UUID, but the server performs
+the authoritative lookup and starts the external stream.
+
+## Radio directory, relay, and source switching
+
+`RadioBrowserService` resolves Radio Browser directory mirrors and makes the
+HTTP(S) directory requests on the server. An empty query requests up to 50
+popular stations; a non-empty query is bounded to 100 characters and searches
+by name. Before a result is exposed, the service rejects duplicate UUIDs,
+unnamed or broken records, and streams that are not valid HTTP(S) URLs. Selecting
+a result performs a fresh server-side lookup by UUID and records the directory
+click only after the candidate becomes active.
+
+`RadioStreamService` starts FFmpeg with the selected server-only URL and relays
+44.1 kHz, stereo, signed 16-bit little-endian PCM from stdout in chunks no
+larger than 30 KiB. It drains FFmpeg stderr, requires first PCM data within 15
+seconds, and owns the process/stream cleanup. Station changes use a candidate
+handover: the published relay remains audible until the candidate produces its
+first PCM chunk; only then does the manager promote it, send state/start/chunk
+packets, and close the previous relay. A failed or superseded candidate leaves
+the published station intact.
+
+`PlaylistManager` owns the single shared source. Promoting a radio candidate
+cancels finite-track download/preload/synchronization work and stops finite
+playback while preserving the queue. A radio stop clears the live source but
+does not auto-resume the queue. Playlist additions use the radio-active guard,
+so adding a track while radio is active does not start it. Play Now explicitly
+stops radio before selecting finite playback. Server-side seek, play/pause,
+previous/next, repeat, shuffle, automatic advance, and progress broadcasts are
+also guarded while radio is active.
 
 ## Audio state machine
 
@@ -117,24 +172,38 @@ chunks are assembled in index order and buffers are cleared.
 `AudioPlayerState` supplies a sound-device-independent model for state tests;
 the real `Clip` remains optional at test time.
 
+For radio, `RadioStreamBuffer` accepts only the fixed relay format and strictly
+ordered packets for one generation. It bounds startup buffering to three 30 KiB
+packets before playback begins. `AudioPlayer` moves those packets through a
+bounded handoff, preserves complete PCM frames, and writes them to one
+`SourceDataLine`; it applies the same local volume and closes the line on a
+source change, failure, disconnect, or shutdown. This is a live adapter, not a
+seekable `Clip`, and stale generations are ignored.
+
 ## Server authority rules
 
-The server owns the shared playlist, ordering, current track, playback position,
-pause/resume, loop/shuffle state, chart/search results, downloads, and audio
-cache. Clients send intent packets; server handlers validate and apply those
-requests, then broadcast authoritative state. A client may remove entries as
-allowed by the active server rules, but it cannot directly change shared state.
-Volume is client-local and persists in `config/horizonradio-client.json`;
-Java Sound playback is an adapter for server-directed audio rather than a
-second source of truth.
+The server owns the shared playlist, ordering, current source, playback
+position, pause/resume, loop/shuffle state, chart/search/radio results,
+downloads, radio stream URLs, and audio cache. Clients send intent packets;
+server handlers validate and apply those requests, then broadcast authoritative
+state. A client may remove entries as allowed by the active server rules, but it
+cannot directly change shared state. Volume is client-local and persists in
+`config/horizonradio-client.json`; Java Sound playback is an adapter for
+server-directed audio rather than a second source of truth.
 
 ## GUI and input
 
-`HorizonRadioScreen` preserves the active 300x285 immediate-mode panel: search and
-playlist tabs, six visible rows, scroll offsets, shared `X` removal, drag-and-drop
-reordering for queued entries, empty states, now-playing/progress bar, and local
-volume control. The currently playing entry remains fixed at the head of the
-queue. The port uses Forge 1.7.10
+`HorizonRadioScreen` preserves the active 300x285 immediate-mode panel: Charts,
+Search, Playlist, and Radio tabs; six visible rows; scroll offsets; shared `X`
+removal; drag-and-drop reordering for queued entries; empty states; now-playing
+status; and local volume control. The Charts tab exposes the existing search
+field for multilingual country/region lookup and displays the selected
+canonical region. The currently playing entry remains fixed at the head of the
+queue. The Radio tab requests popular stations on first open or
+searches station names, displays a `LIVE` marker, and sends only the selected
+station UUID. During live radio it keeps the standard control center but
+disables shuffle, previous, next, and repeat; the center play/stop control
+stops and restarts the selected station. The port uses Forge 1.7.10
 `GuiScreen`, `GuiButton`, `GuiTextField`, LWJGL mouse/keyboard input, and
 `drawRect`/`drawString`. No thumbnail HTTP or texture pipeline was added.
 
@@ -149,8 +218,9 @@ not accepted as GUI evidence.
 | Playlist/search/import/download/playback | Reimplemented | Forge events, Java 8 services, server-side `yt-dlp` metadata extraction, and SimpleNetworkWrapper preserve behavior. |
 | JSON config | Preserved | `config/horizonradio.json` keeps server/common settings such as `downloadDir` and `maxPlaylistSize`; `maxTrackDurationMinutes` filters search results server-side, while client volume is stored separately in `config/horizonradio-client.json`. |
 | GUI and N key | Reimplemented | Same geometry and interaction, Forge 1.7.10 classes. |
-| Legacy payloads/receivers | Reimplemented | Twenty-five explicit Forge `IMessage` classes and common registrations in the current source; the preserved baseline table above covers IDs 0–21. |
+| Legacy payloads/receivers and Radio protocol | Reimplemented | Thirty-two explicit Forge `IMessage` classes and common registrations; IDs 25–31 add server-authoritative radio search, source selection, state, and PCM relay. |
 | Java 11 HTTP/process helpers | Reimplemented | `HttpURLConnection`, Java 8 stream/process handling. |
+| Live radio | Reimplemented | Server-only Radio Browser lookup and FFmpeg PCM relay; client-side `SourceDataLine` adapter. |
 | Items and blocks | Omitted | None exist in the active source. |
 | Recipes/GT machines | Omitted | No crafting, smelting, GregTech, or MineTweaker recipes exist. |
 | TileEntities/NBT persistence | Omitted | No world object or persistent playlist exists. |

@@ -340,6 +340,15 @@ public final class PlaylistState {
         currentTrackDurationMs = 0L;
     }
 
+    /** Stops music and discards late-join state without changing the queued entries. */
+    public void stopPlayback() {
+        syncing = false;
+        pendingPlayers.clear();
+        pausedPositionMs = 0L;
+        pauseStartTime = 0L;
+        resetPlayback();
+    }
+
     public boolean beginLateJoin(UUID playerUuid, long elapsedMs, long nowMs) {
         if (playerUuid == null || !playing || currentVideoId == null) {
             return false;

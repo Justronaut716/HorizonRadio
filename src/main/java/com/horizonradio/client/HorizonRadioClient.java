@@ -5,6 +5,8 @@ import java.util.ArrayList;
 import java.util.List;
 
 import com.horizonradio.client.audio.AudioPlayer;
+import com.horizonradio.core.server.ChartRegion;
+import com.horizonradio.core.server.ChartRegionCatalog;
 import com.horizonradio.network.HorizonRadioNetwork;
 import com.horizonradio.network.packets.AddChartsToPlaylistPacket;
 import com.horizonradio.network.packets.AddChartsToPlaylistPacket.Entry;
@@ -15,13 +17,20 @@ import com.horizonradio.network.packets.ImportPlaylistPacket;
 import com.horizonradio.network.packets.ImportVideoPacket;
 import com.horizonradio.network.packets.PlayNowPacket;
 import com.horizonradio.network.packets.PreviousTrackPacket;
+import com.horizonradio.network.packets.RadioAudioChunkPacket;
+import com.horizonradio.network.packets.RadioAudioStartPacket;
+import com.horizonradio.network.packets.RadioSearchRequestPacket;
+import com.horizonradio.network.packets.RadioSearchResultsPacket;
+import com.horizonradio.network.packets.RadioStatePacket;
 import com.horizonradio.network.packets.ReadyPacket;
 import com.horizonradio.network.packets.RemoveFromPlaylistPacket;
 import com.horizonradio.network.packets.ReorderPlaylistPacket;
 import com.horizonradio.network.packets.RequestChartsPacket;
 import com.horizonradio.network.packets.SearchRequestPacket;
 import com.horizonradio.network.packets.SeekRequestPacket;
+import com.horizonradio.network.packets.SelectRadioStationPacket;
 import com.horizonradio.network.packets.SkipTrackPacket;
+import com.horizonradio.network.packets.StopRadioPacket;
 import com.horizonradio.network.packets.ToggleLoopPacket;
 import com.horizonradio.network.packets.TogglePlaybackPacket;
 import com.horizonradio.network.packets.ToggleShufflePacket;
@@ -31,14 +40,20 @@ public final class HorizonRadioClient {
 
     private static final List<HorizonRadioScreen.PlaylistEntry> CACHED_PLAYLIST = new ArrayList<HorizonRadioScreen.PlaylistEntry>();
     private static final List<HorizonRadioScreen.SearchResult> CACHED_CHARTS = new ArrayList<HorizonRadioScreen.SearchResult>();
+    private static final List<RadioSearchResultsPacket.Entry> CACHED_RADIO_RESULTS = new ArrayList<RadioSearchResultsPacket.Entry>();
     private static final long CHART_CACHE_TTL_MILLIS = 7L * 24L * 60L * 60L * 1000L;
     private static String cachedNowPlaying;
     private static float cachedProgress;
     private static boolean cachedPaused;
     private static boolean cachedLooping;
     private static boolean cachedShuffling;
+    private static boolean cachedRadioActive;
+    private static RadioStatePacket cachedRadioState;
     private static long cachedChartsAt;
     private static boolean chartRequestPending;
+    private static String cachedChartRegionCode = "";
+    private static String pendingChartRegionCode = "";
+    private static String lastRequestedChartRegionCode;
     private static ClientTransport transport = new NoopClientTransport();
     private static HorizonRadioClientConfig clientConfig;
 
@@ -49,6 +64,10 @@ public final class HorizonRadioClient {
         void sendSearch(String query);
 
         void sendChartsRequest(boolean forceRefresh);
+
+        default void sendChartsRequest(String regionCode, boolean forceRefresh) {
+            sendChartsRequest(forceRefresh);
+        }
 
         void sendImportPlaylist(String playlistUrl);
 
@@ -83,6 +102,12 @@ public final class HorizonRadioClient {
         void sendToggleLoop();
 
         void sendToggleShuffle();
+
+        void sendRadioSearch(String query);
+
+        void sendSelectRadio(String stationUuid);
+
+        void sendStopRadio();
     }
 
     /** Forge transport for the four client-to-server protocol messages. */
@@ -95,7 +120,12 @@ public final class HorizonRadioClient {
 
         @Override
         public void sendChartsRequest(boolean forceRefresh) {
-            HorizonRadioNetwork.CHANNEL.sendToServer(new RequestChartsPacket(forceRefresh));
+            sendChartsRequest(ChartRegionCatalog.GLOBAL_CODE, forceRefresh);
+        }
+
+        @Override
+        public void sendChartsRequest(String regionCode, boolean forceRefresh) {
+            HorizonRadioNetwork.CHANNEL.sendToServer(new RequestChartsPacket(regionCode, forceRefresh));
         }
 
         @Override
@@ -183,6 +213,21 @@ public final class HorizonRadioClient {
         public void sendToggleShuffle() {
             HorizonRadioNetwork.CHANNEL.sendToServer(new ToggleShufflePacket());
         }
+
+        @Override
+        public void sendRadioSearch(String query) {
+            HorizonRadioNetwork.CHANNEL.sendToServer(new RadioSearchRequestPacket(query));
+        }
+
+        @Override
+        public void sendSelectRadio(String stationUuid) {
+            HorizonRadioNetwork.CHANNEL.sendToServer(new SelectRadioStationPacket(stationUuid));
+        }
+
+        @Override
+        public void sendStopRadio() {
+            HorizonRadioNetwork.CHANNEL.sendToServer(new StopRadioPacket());
+        }
     }
 
     /** No-op transport retained for common tests and before client initialization. */
@@ -238,6 +283,15 @@ public final class HorizonRadioClient {
 
         @Override
         public void sendToggleShuffle() {}
+
+        @Override
+        public void sendRadioSearch(String query) {}
+
+        @Override
+        public void sendSelectRadio(String stationUuid) {}
+
+        @Override
+        public void sendStopRadio() {}
     }
 
     public static synchronized void setTransport(ClientTransport clientTransport) {
@@ -253,8 +307,15 @@ public final class HorizonRadioClient {
     }
 
     public static synchronized void sendChartsRequest(boolean forceRefresh) {
+        sendChartsRequest(ChartRegionCatalog.GLOBAL_CODE, forceRefresh);
+    }
+
+    public static synchronized void sendChartsRequest(String regionCode, boolean forceRefresh) {
+        String canonicalRegionCode = canonicalChartRegionCode(regionCode, ChartRegionCatalog.GLOBAL_CODE);
+        pendingChartRegionCode = canonicalRegionCode;
+        lastRequestedChartRegionCode = canonicalRegionCode;
         chartRequestPending = true;
-        transport.sendChartsRequest(forceRefresh);
+        transport.sendChartsRequest(canonicalRegionCode, forceRefresh);
     }
 
     public static synchronized boolean isChartRequestPending() {
@@ -341,12 +402,36 @@ public final class HorizonRadioClient {
         transport.sendToggleShuffle();
     }
 
+    public static synchronized void sendRadioSearch(String query) {
+        transport.sendRadioSearch(query);
+    }
+
+    public static synchronized void sendSelectRadio(String stationUuid) {
+        transport.sendSelectRadio(stationUuid);
+    }
+
+    public static synchronized void sendStopRadio() {
+        transport.sendStopRadio();
+    }
+
     public static synchronized List<HorizonRadioScreen.PlaylistEntry> getCachedPlaylist() {
         return new ArrayList<HorizonRadioScreen.PlaylistEntry>(CACHED_PLAYLIST);
     }
 
     public static synchronized List<HorizonRadioScreen.SearchResult> getCachedCharts() {
         return new ArrayList<HorizonRadioScreen.SearchResult>(CACHED_CHARTS);
+    }
+
+    public static synchronized String getCachedChartRegionCode() {
+        return cachedChartRegionCode;
+    }
+
+    public static synchronized List<RadioSearchResultsPacket.Entry> getCachedRadioResults() {
+        return new ArrayList<RadioSearchResultsPacket.Entry>(CACHED_RADIO_RESULTS);
+    }
+
+    public static synchronized RadioStatePacket getCachedRadioState() {
+        return cachedRadioState;
     }
 
     public static synchronized boolean hasFreshCachedCharts() {
@@ -399,15 +484,29 @@ public final class HorizonRadioClient {
     }
 
     public static synchronized void updateChartResults(List<HorizonRadioScreen.SearchResult> results) {
+        updateChartResults(results, pendingChartRegionCode);
+    }
+
+    public static synchronized void updateChartResults(List<HorizonRadioScreen.SearchResult> results,
+        String regionCode) {
+        String responseRegionCode = canonicalChartRegionCode(regionCode, pendingChartRegionCode);
+        if (lastRequestedChartRegionCode != null && !lastRequestedChartRegionCode.equals(responseRegionCode)) {
+            return;
+        }
+        if (chartRequestPending && !pendingChartRegionCode.equals(responseRegionCode)) {
+            return;
+        }
         CACHED_CHARTS.clear();
         if (results != null) {
             CACHED_CHARTS.addAll(results);
         }
+        cachedChartRegionCode = responseRegionCode;
+        pendingChartRegionCode = responseRegionCode;
         cachedChartsAt = System.currentTimeMillis();
         chartRequestPending = false;
         HorizonRadioScreen screen = getOpenScreen();
         if (screen != null) {
-            screen.updateChartResults(CACHED_CHARTS);
+            screen.updateChartResults(CACHED_CHARTS, cachedChartRegionCode);
         }
     }
 
@@ -422,7 +521,58 @@ public final class HorizonRadioClient {
         }
     }
 
+    public static synchronized void updateRadioSearchResults(RadioSearchResultsPacket packet) {
+        CACHED_RADIO_RESULTS.clear();
+        if (packet != null) {
+            CACHED_RADIO_RESULTS.addAll(packet.getEntries());
+        }
+        HorizonRadioScreen screen = getOpenScreen();
+        if (screen != null) {
+            screen.updateRadioResultsFromPacketEntries(CACHED_RADIO_RESULTS);
+        }
+    }
+
+    public static synchronized void updateRadioState(RadioStatePacket packet) {
+        boolean wasRadioActive = cachedRadioActive;
+        cachedRadioState = packet;
+        cachedRadioActive = packet != null && packet.isActive();
+        if (cachedRadioActive || wasRadioActive || hasRadioStatus(packet)) {
+            clearCachedMusicState();
+        }
+        if (cachedRadioActive) {
+            AudioPlayer.getInstance()
+                .stop();
+        } else {
+            AudioPlayer.getInstance()
+                .stopRadio();
+        }
+        HorizonRadioScreen screen = getOpenScreen();
+        if (screen != null) {
+            screen.updateRadioState(packet);
+        }
+    }
+
+    public static synchronized boolean handleRadioAudioStart(RadioAudioStartPacket packet) {
+        if (!shouldAcceptRadioAudioStart(cachedRadioState, packet)) {
+            return false;
+        }
+        return AudioPlayer.getInstance()
+            .startRadio(packet);
+    }
+
+    static boolean shouldAcceptRadioAudioStart(RadioStatePacket state, RadioAudioStartPacket packet) {
+        return state != null && state.isActive() && packet != null && state.getGeneration() == packet.getGeneration();
+    }
+
+    public static synchronized void handleRadioAudioChunk(RadioAudioChunkPacket packet) {
+        AudioPlayer.getInstance()
+            .receiveRadioChunk(packet);
+    }
+
     public static synchronized void updateNowPlaying(String title, float progress) {
+        if (cachedRadioActive) {
+            return;
+        }
         cachedNowPlaying = title == null || title.length() == 0 ? null : title;
         cachedProgress = Math.max(0.0f, Math.min(1.0f, progress));
         if (cachedNowPlaying == null) {
@@ -464,15 +614,23 @@ public final class HorizonRadioClient {
     public static synchronized void clearCache() {
         CACHED_PLAYLIST.clear();
         CACHED_CHARTS.clear();
+        CACHED_RADIO_RESULTS.clear();
         cachedChartsAt = 0L;
         chartRequestPending = false;
+        cachedChartRegionCode = "";
+        pendingChartRegionCode = "";
+        lastRequestedChartRegionCode = null;
         cachedNowPlaying = null;
         cachedProgress = 0.0f;
         cachedPaused = false;
         cachedLooping = false;
         cachedShuffling = false;
+        cachedRadioActive = false;
+        cachedRadioState = null;
         AudioPlayer.getInstance()
             .stop();
+        AudioPlayer.getInstance()
+            .resetRadio();
     }
 
     public static synchronized boolean isPaused() {
@@ -495,7 +653,32 @@ public final class HorizonRadioClient {
         return cachedShuffling;
     }
 
+    public static synchronized boolean isRadioActive() {
+        return cachedRadioActive;
+    }
+
     private static HorizonRadioScreen getOpenScreen() {
         return HorizonRadioScreen.getActiveScreen();
+    }
+
+    private static boolean hasRadioStatus(RadioStatePacket packet) {
+        return packet != null && packet.getStatus() != null
+            && packet.getStatus()
+                .length() > 0;
+    }
+
+    private static void clearCachedMusicState() {
+        cachedNowPlaying = null;
+        cachedProgress = 0.0f;
+        cachedPaused = false;
+    }
+
+    private static String canonicalChartRegionCode(String value, String fallback) {
+        if (value == null || value.trim()
+            .length() == 0) {
+            return fallback;
+        }
+        ChartRegion region = ChartRegionCatalog.byCode(value.trim());
+        return region == null ? fallback : region.getCode();
     }
 }

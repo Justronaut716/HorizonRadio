@@ -303,6 +303,24 @@ public class PlaylistStateTest {
     }
 
     @Test
+    public void stoppingPlaybackPreservesPlaylistButClearsLateJoinState() {
+        PlaylistState state = new PlaylistState(5);
+        state.add(entry("one", "Alice"));
+        state.startTrack(0, "one", 10_000L, 1_000L);
+        UUID player = UUID.fromString("00000000-0000-0000-0000-000000000003");
+        assertTrue(state.beginLateJoin(player, 2_500L, 2_000L));
+
+        state.stopPlayback();
+
+        assertEquals(1, state.size());
+        assertFalse(state.isPlaying());
+        assertFalse(state.isSyncing());
+        assertEquals(0, state.getPendingPlayerCount());
+        assertEquals(-1, state.getCurrentIndex());
+        assertEquals(null, state.getCurrentVideoId());
+    }
+
+    @Test
     public void strictForgeAndJavaEightScopeIsVisibleInTheStepThreeSources() throws IOException {
         String manager = read("src/main/java/com/horizonradio/server/PlaylistManager.java");
         String state = read("src/main/java/com/horizonradio/core/server/PlaylistState.java");
@@ -369,7 +387,7 @@ public class PlaylistStateTest {
 
         assertTrue(manager.contains("whenComplete(new BiConsumer<Path, Throwable>()"));
         assertTrue(manager.contains("downloadFailure"));
-        assertTrue(manager.contains("downloadFailed(selectedEntry, selectedIndex)"));
+        assertTrue(manager.contains("downloadFailed(generation, selectedEntry, selectedIndex)"));
     }
 
     @Test
@@ -392,7 +410,7 @@ public class PlaylistStateTest {
         assertTrue(runtimeCatchIndex > readIndex);
         String runtimeFailureBody = callbackBody.substring(runtimeCatchIndex);
         assertTrue(runtimeFailureBody.contains("enqueueServerTask(new Runnable()"));
-        assertTrue(runtimeFailureBody.contains("downloadFailed(selectedEntry, selectedIndex)"));
+        assertTrue(runtimeFailureBody.contains("downloadFailed(generation, selectedEntry, selectedIndex)"));
     }
 
     @Test

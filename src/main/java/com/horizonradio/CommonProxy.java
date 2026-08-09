@@ -17,10 +17,16 @@ import com.horizonradio.network.packets.AudioChunkPacket;
 import com.horizonradio.network.packets.NowPlayingPacket;
 import com.horizonradio.network.packets.PausePacket;
 import com.horizonradio.network.packets.PlaylistSyncPacket;
+import com.horizonradio.network.packets.RadioAudioChunkPacket;
+import com.horizonradio.network.packets.RadioAudioStartPacket;
+import com.horizonradio.network.packets.RadioSearchResultsPacket;
+import com.horizonradio.network.packets.RadioStatePacket;
 import com.horizonradio.network.packets.ResumePacket;
 import com.horizonradio.network.packets.SearchResultsPacket;
 import com.horizonradio.server.AudioDownloadService;
 import com.horizonradio.server.PlaylistManager;
+import com.horizonradio.server.RadioBrowserService;
+import com.horizonradio.server.RadioStreamService;
 import com.horizonradio.server.YouTubeService;
 
 import cpw.mods.fml.common.event.FMLInitializationEvent;
@@ -34,6 +40,8 @@ public class CommonProxy {
     private PlaylistManager playlistManager;
     private YouTubeService youTubeService;
     private AudioDownloadService audioDownloadService;
+    private RadioBrowserService radioBrowserService;
+    private RadioStreamService radioStreamService;
     private File configDirectory;
 
     public void preInit(FMLPreInitializationEvent event) {
@@ -72,7 +80,15 @@ public class CommonProxy {
             return;
         }
 
-        playlistManager = new PlaylistManager(server, youTubeService, audioDownloadService, configDirectory);
+        radioBrowserService = new RadioBrowserService();
+        radioStreamService = new RadioStreamService();
+        playlistManager = new PlaylistManager(
+            server,
+            youTubeService,
+            audioDownloadService,
+            configDirectory,
+            radioBrowserService,
+            radioStreamService);
         final PlaylistManager manager = playlistManager;
         ServerMessageHandlers.setHook(new ServerMessageHandlers.ServerPacketHook() {
 
@@ -92,8 +108,8 @@ public class CommonProxy {
             }
 
             @Override
-            public void handleRequestCharts(EntityPlayerMP player, boolean forceRefresh) {
-                manager.handleRequestCharts(player, forceRefresh);
+            public void handleRequestCharts(EntityPlayerMP player, String regionCode, boolean forceRefresh) {
+                manager.handleRequestCharts(player, regionCode, forceRefresh);
             }
 
             @Override
@@ -161,6 +177,21 @@ public class CommonProxy {
             public void handleToggleShuffle(EntityPlayerMP player) {
                 manager.handleToggleShuffle(player);
             }
+
+            @Override
+            public void handleRadioSearch(EntityPlayerMP player, String query) {
+                manager.handleRadioSearch(player, query);
+            }
+
+            @Override
+            public void handleSelectRadio(EntityPlayerMP player, String stationUuid) {
+                manager.handleSelectRadio(player, stationUuid);
+            }
+
+            @Override
+            public void handleStopRadio(EntityPlayerMP player) {
+                manager.handleStopRadio(player);
+            }
         });
     }
 
@@ -169,7 +200,11 @@ public class CommonProxy {
         playlistManager = null;
         if (manager != null) {
             manager.shutdown();
+        } else if (radioStreamService != null) {
+            radioStreamService.shutdown();
         }
+        radioStreamService = null;
+        radioBrowserService = null;
         if (audioDownloadService != null) {
             audioDownloadService.shutdown();
         }
@@ -207,4 +242,12 @@ public class CommonProxy {
     public void handleLoopState(boolean looping) {}
 
     public void handleShuffleState(boolean shuffling) {}
+
+    public void handleRadioSearchResults(RadioSearchResultsPacket packet) {}
+
+    public void handleRadioState(RadioStatePacket packet) {}
+
+    public void handleRadioAudioStart(RadioAudioStartPacket packet) {}
+
+    public void handleRadioAudioChunk(RadioAudioChunkPacket packet) {}
 }

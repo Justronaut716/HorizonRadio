@@ -70,7 +70,7 @@ public class YouTubeParserTest {
         assertTrue(PlaylistImportService.isVideoUrl("https://www.youtube.com/watch?v=single"));
         assertTrue(!PlaylistImportService.isVideoUrl("https://www.youtube.com/watch?v=single&list=PLtest"));
 
-        List<SearchResult> charts = YouTubeService.parseGermanTopCharts(
+        List<SearchResult> charts = YouTubeService.parseTopCharts(
             "{\"contents\":{\"sectionListRenderer\":{\"contents\":[{"
                 + "\"musicAnalyticsSectionRenderer\":{\"content\":{\"trackTypes\":[{"
                 + "\"listType\":\"TOP_VIEWS_CHART\","

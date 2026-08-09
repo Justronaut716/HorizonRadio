@@ -37,6 +37,52 @@ public class ChartCacheTest {
         }
     }
 
+    @Test
+    public void storesRegionsIndependently() throws IOException {
+        File directory = Files.createTempDirectory("horizonradio-chart-cache-regions")
+            .toFile();
+        try {
+            ChartCache cache = new ChartCache(directory);
+            List<SearchResult> german = Arrays.asList(new SearchResult("de-id", "DE", "", "2:00", ""));
+            List<SearchResult> global = Arrays.asList(new SearchResult("global-id", "Global", "", "2:00", ""));
+
+            cache.store("DE", german);
+            cache.store("GLOBAL", global);
+
+            assertEquals(german, cache.getResults("DE"));
+            assertEquals(global, cache.getResults("GLOBAL"));
+        } finally {
+            deleteRecursively(directory);
+        }
+    }
+
+    @Test
+    public void loadsLegacySingleRegionCacheAsGerman() throws IOException {
+        File directory = Files.createTempDirectory("horizonradio-chart-cache-legacy")
+            .toFile();
+        try {
+            File cacheFile = new File(directory, "horizonradio-charts.json");
+            Files.write(
+                cacheFile.toPath(),
+                ("{\"fetchedAt\":1,\"results\":[{\"videoId\":\"legacy\","
+                    + "\"title\":\"Legacy\",\"channel\":\"Channel\","
+                    + "\"duration\":\"2:00\",\"thumbnail\":\"\"}]}").getBytes(java.nio.charset.StandardCharsets.UTF_8));
+
+            ChartCache cache = new ChartCache(directory);
+
+            assertEquals(
+                "legacy",
+                cache.getResults("DE")
+                    .get(0)
+                    .getVideoId());
+            assertTrue(
+                cache.getResults("GLOBAL")
+                    .isEmpty());
+        } finally {
+            deleteRecursively(directory);
+        }
+    }
+
     private static void deleteRecursively(File file) {
         if (file.isDirectory()) {
             File[] children = file.listFiles();
