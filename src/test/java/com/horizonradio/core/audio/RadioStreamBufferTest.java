@@ -106,15 +106,16 @@ public class RadioStreamBufferTest {
     }
 
     @Test
-    public void becomesReadyAfterThreePackets() {
+    public void becomesReadyAfterEightPackets() {
         RadioStreamBuffer buffer = new RadioStreamBuffer();
         assertTrue(buffer.begin(1L, 0L, 44100, 2, 16, false));
 
-        assertTrue(buffer.accept(1L, 0L, new byte[] { 1 }));
-        assertFalse(buffer.isReady());
-        assertTrue(buffer.accept(1L, 1L, new byte[] { 2 }));
-        assertFalse(buffer.isReady());
-        assertTrue(buffer.accept(1L, 2L, new byte[] { 3 }));
+        for (long sequence = 0L; sequence < 7L; sequence++) {
+            assertTrue(buffer.accept(1L, sequence, new byte[] { (byte) sequence }));
+            assertFalse(buffer.isReady());
+        }
+
+        assertTrue(buffer.accept(1L, 7L, new byte[] { 7 }));
         assertTrue(buffer.isReady());
     }
 }

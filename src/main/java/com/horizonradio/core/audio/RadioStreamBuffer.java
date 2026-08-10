@@ -13,7 +13,8 @@ public final class RadioStreamBuffer {
     private static final int CHANNELS = 2;
     private static final int SAMPLE_SIZE_BITS = 16;
     private static final int MAX_PACKET_BYTES = 30 * 1024;
-    private static final int STARTUP_BUFFER_PACKETS = 3;
+    /** Buffers roughly 1–1.5 seconds before opening the sound line to absorb startup jitter. */
+    private static final int STARTUP_BUFFER_PACKETS = 8;
     /** Leaves room for a short packet burst while the audio line is catching up. */
     private static final int MAX_PENDING_PACKETS = 12;
 

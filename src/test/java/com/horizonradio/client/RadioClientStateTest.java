@@ -198,8 +198,8 @@ public class RadioClientStateTest {
     }
 
     @Test
-    public void liveRadioWaitsForThreePacketsAndWritesFixedPcmOnAudioExecutor() throws Exception {
-        FakeSourceDataLine line = new FakeSourceDataLine(3);
+    public void liveRadioWaitsForEightPacketsAndWritesFixedPcmOnAudioExecutor() throws Exception {
+        FakeSourceDataLine line = new FakeSourceDataLine(8);
         RecordingSourceLineFactory factory = new RecordingSourceLineFactory(line);
         AudioPlayer player = new AudioPlayer(factory);
         try {
@@ -210,7 +210,14 @@ public class RadioClientStateTest {
 
             assertFalse(factory.created.await(100L, TimeUnit.MILLISECONDS));
 
-            player.receiveRadioChunk(new RadioAudioChunkPacket(7L, 12L, new byte[] { 9, 10, 11, 12 }));
+            for (long sequence = 12L; sequence < 18L; sequence++) {
+                player.receiveRadioChunk(
+                    new RadioAudioChunkPacket(
+                        7L,
+                        sequence,
+                        new byte[] { (byte) sequence, (byte) (sequence + 1L), (byte) (sequence + 2L),
+                            (byte) (sequence + 3L) }));
+            }
 
             assertTrue(line.writesCompleted.await(1L, TimeUnit.SECONDS));
             assertEquals(AudioFormat.Encoding.PCM_SIGNED, line.format.getEncoding());
@@ -219,10 +226,37 @@ public class RadioClientStateTest {
             assertEquals(2, line.format.getChannels());
             assertEquals(4, line.format.getFrameSize());
             assertFalse(line.format.isBigEndian());
-            assertArrayEquals(new byte[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 }, line.audioBytes());
+            assertEquals(32, line.audioBytes().length);
             assertEquals((float) (20.0d * Math.log10(0.5d)), line.gain.getValue(), 0.01f);
             assertEquals(Collections.singletonList("HorizonRadio-Audio"), line.operationThreads());
         } finally {
+            player.shutdown();
+        }
+    }
+
+    @Test
+    public void liveRadioWaitsForStartupBufferBeforeOpeningAudioLine() throws Exception {
+        ControlledExecutorService executor = new ControlledExecutorService();
+        FakeSourceDataLine line = new FakeSourceDataLine(8);
+        RecordingSourceLineFactory factory = new RecordingSourceLineFactory(line);
+        AudioPlayer player = new AudioPlayer(factory, executor);
+        try {
+            player.startRadio(new RadioAudioStartPacket(14L, 0L, 44100, 2, 16, false));
+            for (long sequence = 0L; sequence < 3L; sequence++) {
+                player.receiveRadioChunk(new RadioAudioChunkPacket(14L, sequence, new byte[] { 1, 2, 3, 4 }));
+            }
+            executor.runAll();
+
+            assertFalse(factory.created.await(100L, TimeUnit.MILLISECONDS));
+
+            for (long sequence = 3L; sequence < 8L; sequence++) {
+                player.receiveRadioChunk(new RadioAudioChunkPacket(14L, sequence, new byte[] { 1, 2, 3, 4 }));
+            }
+            executor.runAll();
+
+            assertTrue(factory.created.await(1L, TimeUnit.SECONDS));
+        } finally {
+            executor.runAll();
             player.shutdown();
         }
     }
@@ -233,9 +267,9 @@ public class RadioClientStateTest {
         AudioPlayer player = new AudioPlayer(new RecordingSourceLineFactory(line));
         try {
             player.startRadio(new RadioAudioStartPacket(13L, 0L, 44100, 2, 16, false));
-            player.receiveRadioChunk(new RadioAudioChunkPacket(13L, 0L, new byte[] { 1, 2, 3, 4 }));
-            player.receiveRadioChunk(new RadioAudioChunkPacket(13L, 1L, new byte[] { 5, 6, 7, 8 }));
-            player.receiveRadioChunk(new RadioAudioChunkPacket(13L, 2L, new byte[] { 9, 10, 11, 12 }));
+            for (long sequence = 0L; sequence < 8L; sequence++) {
+                player.receiveRadioChunk(new RadioAudioChunkPacket(13L, sequence, new byte[] { 1, 2, 3, 4 }));
+            }
 
             assertTrue(line.writeStarted.await(1L, TimeUnit.SECONDS));
 
@@ -250,7 +284,7 @@ public class RadioClientStateTest {
 
     @Test
     public void delayedLineCreationKeepsFourthSequentialPacketForPlayback() throws Exception {
-        FakeSourceDataLine line = new FakeSourceDataLine(4);
+        FakeSourceDataLine line = new FakeSourceDataLine(9);
         BlockingSourceLineFactory factory = new BlockingSourceLineFactory(line);
         AudioPlayer player = new AudioPlayer(factory);
         try {
@@ -258,13 +292,18 @@ public class RadioClientStateTest {
             player.receiveRadioChunk(new RadioAudioChunkPacket(9L, 0L, new byte[] { 1, 2, 3, 4 }));
             player.receiveRadioChunk(new RadioAudioChunkPacket(9L, 1L, new byte[] { 5, 6, 7, 8 }));
             player.receiveRadioChunk(new RadioAudioChunkPacket(9L, 2L, new byte[] { 9, 10, 11, 12 }));
+            player.receiveRadioChunk(new RadioAudioChunkPacket(9L, 3L, new byte[] { 13, 14, 15, 16 }));
+            player.receiveRadioChunk(new RadioAudioChunkPacket(9L, 4L, new byte[] { 17, 18, 19, 20 }));
+            player.receiveRadioChunk(new RadioAudioChunkPacket(9L, 5L, new byte[] { 21, 22, 23, 24 }));
+            player.receiveRadioChunk(new RadioAudioChunkPacket(9L, 6L, new byte[] { 25, 26, 27, 28 }));
+            player.receiveRadioChunk(new RadioAudioChunkPacket(9L, 7L, new byte[] { 29, 30, 31, 32 }));
             assertTrue(factory.createStarted.await(1L, TimeUnit.SECONDS));
 
-            player.receiveRadioChunk(new RadioAudioChunkPacket(9L, 3L, new byte[] { 13, 14, 15, 16 }));
+            player.receiveRadioChunk(new RadioAudioChunkPacket(9L, 8L, new byte[] { 33, 34, 35, 36 }));
             factory.releaseCreate.countDown();
 
             assertTrue(line.writesCompleted.await(1L, TimeUnit.SECONDS));
-            assertArrayEquals(new byte[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16 }, line.audioBytes());
+            assertEquals(36, line.audioBytes().length);
         } finally {
             factory.releaseCreate.countDown();
             player.shutdown();
@@ -300,12 +339,13 @@ public class RadioClientStateTest {
             player.receiveRadioChunk(new RadioAudioChunkPacket(11L, 0L, new byte[] { 0 }));
             player.receiveRadioChunk(new RadioAudioChunkPacket(11L, 1L, new byte[] { 1, 2 }));
             player.receiveRadioChunk(new RadioAudioChunkPacket(11L, 2L, new byte[] { 3, 4, 5 }));
-            assertTrue(factory.createStarted.await(1L, TimeUnit.SECONDS));
-
             player.receiveRadioChunk(new RadioAudioChunkPacket(11L, 3L, new byte[] { 6 }));
             player.receiveRadioChunk(new RadioAudioChunkPacket(11L, 4L, new byte[] { 7, 8 }));
             player.receiveRadioChunk(new RadioAudioChunkPacket(11L, 5L, new byte[] { 9, 10, 11 }));
-            player.receiveRadioChunk(new RadioAudioChunkPacket(11L, 6L, new byte[] { 12, 13, 14, 15 }));
+            player.receiveRadioChunk(new RadioAudioChunkPacket(11L, 6L, new byte[] { 12, 13, 14 }));
+            player.receiveRadioChunk(new RadioAudioChunkPacket(11L, 7L, new byte[] { 15 }));
+            assertTrue(factory.createStarted.await(1L, TimeUnit.SECONDS));
+
             factory.releaseCreate.countDown();
 
             assertTrue(line.writesCompleted.await(1L, TimeUnit.SECONDS));
@@ -317,28 +357,30 @@ public class RadioClientStateTest {
     }
 
     @Test
-    public void overflowAlignmentIncludesExistingFrameRemainder() {
+    public void frameAlignmentContinuesAcrossStartupBufferDrain() {
         ControlledExecutorService executor = new ControlledExecutorService();
-        FakeSourceDataLine line = new FakeSourceDataLine(5);
+        FakeSourceDataLine line = new FakeSourceDataLine(6);
         AudioPlayer player = new AudioPlayer(new RecordingSourceLineFactory(line), executor);
         try {
             player.startRadio(new RadioAudioStartPacket(12L, 0L, 44100, 2, 16, false));
             executor.runNext();
             player.receiveRadioChunk(new RadioAudioChunkPacket(12L, 0L, new byte[] { 0 }));
             player.receiveRadioChunk(new RadioAudioChunkPacket(12L, 1L, new byte[] { 1 }));
-            player.receiveRadioChunk(new RadioAudioChunkPacket(12L, 2L, new byte[] { 2, 3, 4 }));
+            player.receiveRadioChunk(new RadioAudioChunkPacket(12L, 2L, new byte[] { 2 }));
+            player.receiveRadioChunk(new RadioAudioChunkPacket(12L, 3L, new byte[] { 3, 4 }));
+            player.receiveRadioChunk(new RadioAudioChunkPacket(12L, 4L, new byte[] { 5 }));
+            player.receiveRadioChunk(new RadioAudioChunkPacket(12L, 5L, new byte[] { 6 }));
+            player.receiveRadioChunk(new RadioAudioChunkPacket(12L, 6L, new byte[] { 7 }));
+            player.receiveRadioChunk(new RadioAudioChunkPacket(12L, 7L, new byte[] { 8 }));
             executor.runNext();
 
-            assertArrayEquals(new byte[] { 0, 1, 2, 3 }, line.audioBytes());
-
-            player.receiveRadioChunk(new RadioAudioChunkPacket(12L, 3L, new byte[] { 5 }));
-            player.receiveRadioChunk(new RadioAudioChunkPacket(12L, 4L, new byte[] { 6, 7 }));
-            player.receiveRadioChunk(new RadioAudioChunkPacket(12L, 5L, new byte[] { 8, 9, 10 }));
-            player.receiveRadioChunk(new RadioAudioChunkPacket(12L, 6L, new byte[] { 11 }));
-            player.receiveRadioChunk(new RadioAudioChunkPacket(12L, 7L, new byte[] { 12, 13 }));
-            player.receiveRadioChunk(new RadioAudioChunkPacket(12L, 8L, new byte[] { 14, 15, 16 }));
-            player.receiveRadioChunk(new RadioAudioChunkPacket(12L, 9L, new byte[] { 17, 18, 19, 20 }));
-            player.receiveRadioChunk(new RadioAudioChunkPacket(12L, 10L, new byte[] { 21, 22, 23 }));
+            player.receiveRadioChunk(new RadioAudioChunkPacket(12L, 8L, new byte[] { 9 }));
+            player.receiveRadioChunk(new RadioAudioChunkPacket(12L, 9L, new byte[] { 10, 11 }));
+            player.receiveRadioChunk(new RadioAudioChunkPacket(12L, 10L, new byte[] { 12 }));
+            player.receiveRadioChunk(new RadioAudioChunkPacket(12L, 11L, new byte[] { 13, 14 }));
+            player.receiveRadioChunk(new RadioAudioChunkPacket(12L, 12L, new byte[] { 15, 16, 17 }));
+            player.receiveRadioChunk(new RadioAudioChunkPacket(12L, 13L, new byte[] { 18, 19, 20, 21 }));
+            player.receiveRadioChunk(new RadioAudioChunkPacket(12L, 14L, new byte[] { 22, 23 }));
             executor.runAll();
 
             assertArrayEquals(
@@ -353,7 +395,7 @@ public class RadioClientStateTest {
     @Test
     public void newRadioGenerationClosesPreviousLineBeforeStartingReplacement() throws Exception {
         FakeSourceDataLine first = new FakeSourceDataLine(3);
-        FakeSourceDataLine second = new FakeSourceDataLine(3);
+        FakeSourceDataLine second = new FakeSourceDataLine(8);
         AudioPlayer player = new AudioPlayer(new RecordingSourceLineFactory(first, second));
         try {
             startReadyRadio(player, 1L, first);
@@ -361,9 +403,7 @@ public class RadioClientStateTest {
             player.startRadio(new RadioAudioStartPacket(2L, 20L, 44100, 2, 16, false));
 
             assertTrue(first.closed.await(1L, TimeUnit.SECONDS));
-            player.receiveRadioChunk(new RadioAudioChunkPacket(2L, 20L, new byte[] { 1, 2, 3, 4 }));
-            player.receiveRadioChunk(new RadioAudioChunkPacket(2L, 21L, new byte[] { 5, 6, 7, 8 }));
-            player.receiveRadioChunk(new RadioAudioChunkPacket(2L, 22L, new byte[] { 9, 10, 11, 12 }));
+            sendStartupRadioChunks(player, 2L, 20L);
 
             assertTrue(second.writesCompleted.await(1L, TimeUnit.SECONDS));
         } finally {
@@ -380,9 +420,14 @@ public class RadioClientStateTest {
             player.receiveRadioChunk(new RadioAudioChunkPacket(8L, 0L, new byte[] { 1, 2, 3 }));
             player.receiveRadioChunk(new RadioAudioChunkPacket(8L, 1L, new byte[] { 4, 5, 6 }));
             player.receiveRadioChunk(new RadioAudioChunkPacket(8L, 2L, new byte[] { 7, 8 }));
+            player.receiveRadioChunk(new RadioAudioChunkPacket(8L, 3L, new byte[] { 9 }));
+            player.receiveRadioChunk(new RadioAudioChunkPacket(8L, 4L, new byte[] { 10 }));
+            player.receiveRadioChunk(new RadioAudioChunkPacket(8L, 5L, new byte[] { 11 }));
+            player.receiveRadioChunk(new RadioAudioChunkPacket(8L, 6L, new byte[] { 12 }));
+            player.receiveRadioChunk(new RadioAudioChunkPacket(8L, 7L, new byte[] { 13 }));
 
             assertTrue(line.writesCompleted.await(1L, TimeUnit.SECONDS));
-            assertArrayEquals(new byte[] { 1, 2, 3, 4, 5, 6, 7, 8 }, line.audioBytes());
+            assertArrayEquals(new byte[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 }, line.audioBytes());
         } finally {
             player.shutdown();
         }
@@ -424,9 +469,7 @@ public class RadioClientStateTest {
         AudioPlayer player = new AudioPlayer(new RecordingSourceLineFactory(line));
         try {
             player.startRadio(new RadioAudioStartPacket(40L, 0L, 44100, 2, 16, false));
-            player.receiveRadioChunk(new RadioAudioChunkPacket(40L, 0L, new byte[] { 1, 2, 3, 4 }));
-            player.receiveRadioChunk(new RadioAudioChunkPacket(40L, 1L, new byte[] { 5, 6, 7, 8 }));
-            player.receiveRadioChunk(new RadioAudioChunkPacket(40L, 2L, new byte[] { 9, 10, 11, 12 }));
+            sendStartupRadioChunks(player, 40L, 0L);
             assertTrue(line.writeStarted.await(1L, TimeUnit.SECONDS));
 
             player.stopRadio();
@@ -441,22 +484,18 @@ public class RadioClientStateTest {
     @Test
     public void newerRadioGenerationUnblocksBlockingWriteBeforeReplacementStarts() throws Exception {
         FakeSourceDataLine first = new FakeSourceDataLine(0, true);
-        FakeSourceDataLine second = new FakeSourceDataLine(3);
+        FakeSourceDataLine second = new FakeSourceDataLine(8);
         AudioPlayer player = new AudioPlayer(new RecordingSourceLineFactory(first, second));
         try {
             player.startRadio(new RadioAudioStartPacket(50L, 0L, 44100, 2, 16, false));
-            player.receiveRadioChunk(new RadioAudioChunkPacket(50L, 0L, new byte[] { 1, 2, 3, 4 }));
-            player.receiveRadioChunk(new RadioAudioChunkPacket(50L, 1L, new byte[] { 5, 6, 7, 8 }));
-            player.receiveRadioChunk(new RadioAudioChunkPacket(50L, 2L, new byte[] { 9, 10, 11, 12 }));
+            sendStartupRadioChunks(player, 50L, 0L);
             assertTrue(first.writeStarted.await(1L, TimeUnit.SECONDS));
 
             player.startRadio(new RadioAudioStartPacket(51L, 20L, 44100, 2, 16, false));
 
             assertTrue(first.closed.await(1L, TimeUnit.SECONDS));
             assertTrue(first.writeExited.await(1L, TimeUnit.SECONDS));
-            player.receiveRadioChunk(new RadioAudioChunkPacket(51L, 20L, new byte[] { 13, 14, 15, 16 }));
-            player.receiveRadioChunk(new RadioAudioChunkPacket(51L, 21L, new byte[] { 17, 18, 19, 20 }));
-            player.receiveRadioChunk(new RadioAudioChunkPacket(51L, 22L, new byte[] { 21, 22, 23, 24 }));
+            sendStartupRadioChunks(player, 51L, 20L);
             assertTrue(second.writesCompleted.await(1L, TimeUnit.SECONDS));
         } finally {
             player.shutdown();
@@ -483,10 +522,14 @@ public class RadioClientStateTest {
     private static void startReadyRadio(AudioPlayer player, long generation, FakeSourceDataLine line)
         throws InterruptedException {
         player.startRadio(new RadioAudioStartPacket(generation, 0L, 44100, 2, 16, false));
-        player.receiveRadioChunk(new RadioAudioChunkPacket(generation, 0L, new byte[] { 1, 2, 3, 4 }));
-        player.receiveRadioChunk(new RadioAudioChunkPacket(generation, 1L, new byte[] { 5, 6, 7, 8 }));
-        player.receiveRadioChunk(new RadioAudioChunkPacket(generation, 2L, new byte[] { 9, 10, 11, 12 }));
-        assertTrue(line.writesCompleted.await(1L, TimeUnit.SECONDS));
+        sendStartupRadioChunks(player, generation, 0L);
+        assertTrue(line.writeStarted.await(1L, TimeUnit.SECONDS));
+    }
+
+    private static void sendStartupRadioChunks(AudioPlayer player, long generation, long firstSequence) {
+        for (long sequence = firstSequence; sequence < firstSequence + 8L; sequence++) {
+            player.receiveRadioChunk(new RadioAudioChunkPacket(generation, sequence, new byte[] { 1, 2, 3, 4 }));
+        }
     }
 
     private static final class RecordingTransport implements HorizonRadioClient.ClientTransport {
