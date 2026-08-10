@@ -13,6 +13,11 @@ import com.horizonradio.network.packets.PausePacket;
 import com.horizonradio.network.packets.PlayNowPacket;
 import com.horizonradio.network.packets.PlaylistSyncPacket;
 import com.horizonradio.network.packets.PreviousTrackPacket;
+import com.horizonradio.network.packets.RadioAudioChunkPacket;
+import com.horizonradio.network.packets.RadioAudioStartPacket;
+import com.horizonradio.network.packets.RadioSearchRequestPacket;
+import com.horizonradio.network.packets.RadioSearchResultsPacket;
+import com.horizonradio.network.packets.RadioStatePacket;
 import com.horizonradio.network.packets.ReadyPacket;
 import com.horizonradio.network.packets.RemoveFromPlaylistPacket;
 import com.horizonradio.network.packets.ReorderPlaylistPacket;
@@ -21,8 +26,10 @@ import com.horizonradio.network.packets.ResumePacket;
 import com.horizonradio.network.packets.SearchRequestPacket;
 import com.horizonradio.network.packets.SearchResultsPacket;
 import com.horizonradio.network.packets.SeekRequestPacket;
+import com.horizonradio.network.packets.SelectRadioStationPacket;
 import com.horizonradio.network.packets.ShuffleStatePacket;
 import com.horizonradio.network.packets.SkipTrackPacket;
+import com.horizonradio.network.packets.StopRadioPacket;
 import com.horizonradio.network.packets.ToggleLoopPacket;
 import com.horizonradio.network.packets.TogglePlaybackPacket;
 import com.horizonradio.network.packets.ToggleShufflePacket;
@@ -82,6 +89,17 @@ public final class HorizonRadioNetwork {
             23,
             Side.SERVER);
         CHANNEL.registerMessage(ServerMessageHandlers.PlayNowHandler.class, PlayNowPacket.class, 24, Side.SERVER);
+        CHANNEL.registerMessage(
+            ServerMessageHandlers.RadioSearchRequestHandler.class,
+            RadioSearchRequestPacket.class,
+            25,
+            Side.SERVER);
+        CHANNEL.registerMessage(
+            ServerMessageHandlers.SelectRadioStationHandler.class,
+            SelectRadioStationPacket.class,
+            26,
+            Side.SERVER);
+        CHANNEL.registerMessage(ServerMessageHandlers.StopRadioHandler.class, StopRadioPacket.class, 27, Side.SERVER);
         CHANNEL.registerMessage(ServerMessageHandlers.ReadyHandler.class, ReadyPacket.class, 3, Side.SERVER);
         CHANNEL.registerMessage(
             ServerMessageHandlers.ReorderPlaylistHandler.class,
@@ -136,6 +154,26 @@ public final class HorizonRadioNetwork {
             Side.CLIENT);
         CHANNEL.registerMessage(ClientboundMessageHandlers.PauseHandler.class, PausePacket.class, 8, Side.CLIENT);
         CHANNEL.registerMessage(ClientboundMessageHandlers.ResumeHandler.class, ResumePacket.class, 9, Side.CLIENT);
+        CHANNEL.registerMessage(
+            ClientboundMessageHandlers.RadioSearchResultsHandler.class,
+            RadioSearchResultsPacket.class,
+            28,
+            Side.CLIENT);
+        CHANNEL.registerMessage(
+            ClientboundMessageHandlers.RadioStateHandler.class,
+            RadioStatePacket.class,
+            29,
+            Side.CLIENT);
+        CHANNEL.registerMessage(
+            ClientboundMessageHandlers.RadioAudioStartHandler.class,
+            RadioAudioStartPacket.class,
+            30,
+            Side.CLIENT);
+        CHANNEL.registerMessage(
+            ClientboundMessageHandlers.RadioAudioChunkHandler.class,
+            RadioAudioChunkPacket.class,
+            31,
+            Side.CLIENT);
         registered = true;
     }
 }

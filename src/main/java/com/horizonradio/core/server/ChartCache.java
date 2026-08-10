@@ -15,7 +15,10 @@ import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -31,8 +34,7 @@ public final class ChartCache {
 
     private final Gson gson = new Gson();
     private final File cacheFile;
-    private List<SearchResult> results = new ArrayList<SearchResult>();
-    private long fetchedAt;
+    private final Map<String, CacheEntry> entries = new LinkedHashMap<String, CacheEntry>();
 
     public ChartCache(File configDirectory) {
         cacheFile = configDirectory == null ? null : new File(configDirectory, FILE_NAME);
@@ -40,28 +42,57 @@ public final class ChartCache {
     }
 
     public synchronized List<SearchResult> getResults() {
-        return new ArrayList<SearchResult>(results);
+        return getResults("DE");
     }
 
-    synchronized boolean hasResults() {
-        return !results.isEmpty();
+    public synchronized List<SearchResult> getResults(String regionCode) {
+        CacheEntry entry = entries.get(normalizeRegionCode(regionCode));
+        return entry == null ? new ArrayList<SearchResult>() : new ArrayList<SearchResult>(entry.results);
     }
 
     public synchronized boolean isFresh() {
-        return hasResults() && fetchedAt > 0L && System.currentTimeMillis() - fetchedAt < TTL_MILLIS;
+        return isFresh("DE");
     }
 
-    synchronized void invalidate() {
-        fetchedAt = 0L;
+    public synchronized boolean isFresh(String regionCode) {
+        CacheEntry entry = entries.get(normalizeRegionCode(regionCode));
+        return entry != null && !entry.results.isEmpty()
+            && entry.fetchedAt > 0L
+            && System.currentTimeMillis() - entry.fetchedAt < TTL_MILLIS;
     }
 
     public synchronized void store(List<SearchResult> newResults) {
+        store("DE", newResults);
+    }
+
+    public synchronized void store(String regionCode, List<SearchResult> newResults) {
         if (newResults == null || newResults.isEmpty()) {
             return;
         }
-        results = new ArrayList<SearchResult>(newResults);
-        fetchedAt = System.currentTimeMillis();
+        CacheEntry entry = new CacheEntry();
+        entry.results = new ArrayList<SearchResult>(newResults);
+        entry.fetchedAt = System.currentTimeMillis();
+        entries.put(normalizeRegionCode(regionCode), entry);
         write();
+    }
+
+    synchronized boolean hasResults() {
+        return hasResults("DE");
+    }
+
+    public synchronized boolean hasResults(String regionCode) {
+        return !getResults(regionCode).isEmpty();
+    }
+
+    synchronized void invalidate() {
+        invalidate("DE");
+    }
+
+    public synchronized void invalidate(String regionCode) {
+        CacheEntry entry = entries.get(normalizeRegionCode(regionCode));
+        if (entry != null) {
+            entry.fetchedAt = 0L;
+        }
     }
 
     private void load() {
@@ -71,9 +102,24 @@ public final class ChartCache {
         try (Reader reader = new BufferedReader(
             new InputStreamReader(new FileInputStream(cacheFile), StandardCharsets.UTF_8))) {
             CacheData data = gson.fromJson(reader, CacheData.class);
-            if (data != null && data.results != null && data.fetchedAt > 0L) {
-                results = new ArrayList<SearchResult>(data.results);
-                fetchedAt = data.fetchedAt;
+            if (data == null) {
+                return;
+            }
+            if (data.regions != null) {
+                for (Map.Entry<String, CacheEntry> region : data.regions.entrySet()) {
+                    CacheEntry entry = region.getValue();
+                    if (entry != null && entry.results != null && entry.fetchedAt > 0L) {
+                        CacheEntry copy = new CacheEntry();
+                        copy.results = new ArrayList<SearchResult>(entry.results);
+                        copy.fetchedAt = entry.fetchedAt;
+                        entries.put(normalizeRegionCode(region.getKey()), copy);
+                    }
+                }
+            } else if (data.results != null && data.fetchedAt > 0L) {
+                CacheEntry legacy = new CacheEntry();
+                legacy.results = new ArrayList<SearchResult>(data.results);
+                legacy.fetchedAt = data.fetchedAt;
+                entries.put("DE", legacy);
             }
         } catch (Exception exception) {
             LOGGER.log(Level.WARNING, "Could not load cached HorizonRadio charts", exception);
@@ -92,8 +138,13 @@ public final class ChartCache {
 
         File temporaryFile = new File(cacheFile.getPath() + ".tmp");
         CacheData data = new CacheData();
-        data.fetchedAt = fetchedAt;
-        data.results = results;
+        data.regions = new LinkedHashMap<String, CacheEntry>();
+        for (Map.Entry<String, CacheEntry> entry : entries.entrySet()) {
+            CacheEntry copy = new CacheEntry();
+            copy.fetchedAt = entry.getValue().fetchedAt;
+            copy.results = new ArrayList<SearchResult>(entry.getValue().results);
+            data.regions.put(entry.getKey(), copy);
+        }
         try (Writer writer = new OutputStreamWriter(new FileOutputStream(temporaryFile), StandardCharsets.UTF_8)) {
             gson.toJson(data, writer);
         } catch (IOException exception) {
@@ -120,7 +171,23 @@ public final class ChartCache {
 
     private static final class CacheData {
 
+        private Map<String, CacheEntry> regions;
         private long fetchedAt;
         private List<SearchResult> results = Collections.emptyList();
+    }
+
+    private static final class CacheEntry {
+
+        private long fetchedAt;
+        private List<SearchResult> results = Collections.emptyList();
+    }
+
+    private static String normalizeRegionCode(String regionCode) {
+        if (regionCode == null || regionCode.trim()
+            .length() == 0) {
+            throw new IllegalArgumentException("chart region code must not be empty");
+        }
+        return regionCode.trim()
+            .toUpperCase(Locale.ROOT);
     }
 }

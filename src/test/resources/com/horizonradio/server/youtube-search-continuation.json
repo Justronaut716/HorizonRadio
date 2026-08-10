@@ -1,0 +1,47 @@
+{
+  "onResponseReceivedCommands": [
+    {
+      "appendContinuationItemsAction": {
+        "continuationItems": [
+          {
+            "itemSectionRenderer": {
+              "contents": [
+                {
+                  "videoRenderer": {
+                    "videoId": "video-3",
+                    "title": {"simpleText": "Funk Three"},
+                    "ownerText": {"simpleText": "Channel Three"},
+                    "lengthText": {"simpleText": "4:00"},
+                    "thumbnail": {"thumbnails": []}
+                  }
+                },
+                {
+                  "videoRenderer": {
+                    "videoId": "video-4",
+                    "title": {"simpleText": "Funk Four"},
+                    "ownerText": {"simpleText": "Channel Four"},
+                    "lengthText": {"simpleText": "5:00"},
+                    "thumbnail": {"thumbnails": []}
+                  }
+                },
+                {
+                  "playlistRenderer": {
+                    "playlistId": "playlist-2",
+                    "title": {"simpleText": "More Funk"}
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "continuationItemRenderer": {
+              "continuationEndpoint": {
+                "continuationCommand": {"token": "token-page-3"}
+              }
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

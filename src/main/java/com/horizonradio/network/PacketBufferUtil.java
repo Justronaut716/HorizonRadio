@@ -17,20 +17,56 @@ public final class PacketBufferUtil {
     private PacketBufferUtil() {}
 
     public static void writeString(ByteBuf buf, String value) {
+        writeString(buf, value, MAX_STRING_BYTES);
+    }
+
+    public static void writeString(ByteBuf buf, String value, int maxBytes) {
         if (value == null) {
             throw new IllegalArgumentException("string must not be null");
         }
         byte[] bytes = value.getBytes(UTF_8);
-        if (bytes.length > MAX_STRING_BYTES) {
-            throw new IllegalArgumentException("string exceeds " + MAX_STRING_BYTES + " bytes");
+        if (maxBytes < 0 || maxBytes > MAX_STRING_BYTES || bytes.length > maxBytes) {
+            throw new IllegalArgumentException("string exceeds " + maxBytes + " bytes");
         }
         ByteBufUtils.writeUTF8String(buf, value);
     }
 
+    /** Returns the longest code-point-safe prefix that fits the supplied UTF-8 byte bound. */
+    public static String truncateUtf8(String value, int maxBytes) {
+        if (value == null) {
+            throw new IllegalArgumentException("string must not be null");
+        }
+        if (maxBytes < 0 || maxBytes > MAX_STRING_BYTES) {
+            throw new IllegalArgumentException("invalid UTF-8 byte bound: " + maxBytes);
+        }
+        if (value.getBytes(UTF_8).length <= maxBytes) {
+            return value;
+        }
+
+        int usedBytes = 0;
+        int end = 0;
+        while (end < value.length()) {
+            int codePoint = value.codePointAt(end);
+            int characterCount = Character.charCount(codePoint);
+            int codePointBytes = value.substring(end, end + characterCount)
+                .getBytes(UTF_8).length;
+            if (usedBytes + codePointBytes > maxBytes) {
+                break;
+            }
+            usedBytes += codePointBytes;
+            end += characterCount;
+        }
+        return value.substring(0, end);
+    }
+
     public static String readString(ByteBuf buf) {
+        return readString(buf, MAX_STRING_BYTES);
+    }
+
+    public static String readString(ByteBuf buf, int maxBytes) {
         int length = ByteBufUtils.readVarInt(buf, 2);
-        if (length < 0 || length > MAX_STRING_BYTES) {
-            throw new IllegalArgumentException("string exceeds " + MAX_STRING_BYTES + " bytes");
+        if (maxBytes < 0 || maxBytes > MAX_STRING_BYTES || length < 0 || length > maxBytes) {
+            throw new IllegalArgumentException("string exceeds " + maxBytes + " bytes");
         }
         if (buf.readableBytes() < length) {
             throw new IllegalArgumentException("truncated string");

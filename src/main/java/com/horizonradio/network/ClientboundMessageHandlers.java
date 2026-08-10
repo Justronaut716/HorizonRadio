@@ -6,6 +6,10 @@ import com.horizonradio.network.packets.LoopStatePacket;
 import com.horizonradio.network.packets.NowPlayingPacket;
 import com.horizonradio.network.packets.PausePacket;
 import com.horizonradio.network.packets.PlaylistSyncPacket;
+import com.horizonradio.network.packets.RadioAudioChunkPacket;
+import com.horizonradio.network.packets.RadioAudioStartPacket;
+import com.horizonradio.network.packets.RadioSearchResultsPacket;
+import com.horizonradio.network.packets.RadioStatePacket;
 import com.horizonradio.network.packets.ResumePacket;
 import com.horizonradio.network.packets.SearchResultsPacket;
 import com.horizonradio.network.packets.ShuffleStatePacket;
@@ -90,6 +94,42 @@ public final class ClientboundMessageHandlers {
         @Override
         public IMessage onMessage(ShuffleStatePacket message, MessageContext context) {
             HorizonRadio.proxy.handleShuffleState(message.isShuffling());
+            return null;
+        }
+    }
+
+    public static final class RadioSearchResultsHandler implements IMessageHandler<RadioSearchResultsPacket, IMessage> {
+
+        @Override
+        public IMessage onMessage(RadioSearchResultsPacket message, MessageContext context) {
+            HorizonRadio.proxy.handleRadioSearchResults(message);
+            return null;
+        }
+    }
+
+    public static final class RadioStateHandler implements IMessageHandler<RadioStatePacket, IMessage> {
+
+        @Override
+        public IMessage onMessage(RadioStatePacket message, MessageContext context) {
+            HorizonRadio.proxy.handleRadioState(message);
+            return null;
+        }
+    }
+
+    public static final class RadioAudioStartHandler implements IMessageHandler<RadioAudioStartPacket, IMessage> {
+
+        @Override
+        public IMessage onMessage(RadioAudioStartPacket message, MessageContext context) {
+            HorizonRadio.proxy.handleRadioAudioStart(message);
+            return null;
+        }
+    }
+
+    public static final class RadioAudioChunkHandler implements IMessageHandler<RadioAudioChunkPacket, IMessage> {
+
+        @Override
+        public IMessage onMessage(RadioAudioChunkPacket message, MessageContext context) {
+            HorizonRadio.proxy.handleRadioAudioChunk(message);
             return null;
         }
     }

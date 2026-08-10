@@ -12,13 +12,16 @@ import com.horizonradio.network.packets.ImportPlaylistPacket;
 import com.horizonradio.network.packets.ImportVideoPacket;
 import com.horizonradio.network.packets.PlayNowPacket;
 import com.horizonradio.network.packets.PreviousTrackPacket;
+import com.horizonradio.network.packets.RadioSearchRequestPacket;
 import com.horizonradio.network.packets.ReadyPacket;
 import com.horizonradio.network.packets.RemoveFromPlaylistPacket;
 import com.horizonradio.network.packets.ReorderPlaylistPacket;
 import com.horizonradio.network.packets.RequestChartsPacket;
 import com.horizonradio.network.packets.SearchRequestPacket;
 import com.horizonradio.network.packets.SeekRequestPacket;
+import com.horizonradio.network.packets.SelectRadioStationPacket;
 import com.horizonradio.network.packets.SkipTrackPacket;
+import com.horizonradio.network.packets.StopRadioPacket;
 import com.horizonradio.network.packets.ToggleLoopPacket;
 import com.horizonradio.network.packets.TogglePlaybackPacket;
 import com.horizonradio.network.packets.ToggleShufflePacket;
@@ -62,7 +65,7 @@ public final class ServerMessageHandlers {
 
         void handleImportVideo(EntityPlayerMP player, String videoUrl);
 
-        void handleRequestCharts(EntityPlayerMP player, boolean forceRefresh);
+        void handleRequestCharts(EntityPlayerMP player, String regionCode, boolean forceRefresh);
 
         void handleAdd(EntityPlayerMP player, String videoId, String title, String duration);
 
@@ -89,6 +92,12 @@ public final class ServerMessageHandlers {
         void handleToggleLoop(EntityPlayerMP player);
 
         void handleToggleShuffle(EntityPlayerMP player);
+
+        void handleRadioSearch(EntityPlayerMP player, String query);
+
+        void handleSelectRadio(EntityPlayerMP player, String stationUuid);
+
+        void handleStopRadio(EntityPlayerMP player);
     }
 
     private static final class NoOpServerPacketHook implements ServerPacketHook {
@@ -103,7 +112,7 @@ public final class ServerMessageHandlers {
         public void handleImportVideo(EntityPlayerMP player, String videoUrl) {}
 
         @Override
-        public void handleRequestCharts(EntityPlayerMP player, boolean forceRefresh) {}
+        public void handleRequestCharts(EntityPlayerMP player, String regionCode, boolean forceRefresh) {}
 
         @Override
         public void handleAdd(EntityPlayerMP player, String videoId, String title, String duration) {}
@@ -144,6 +153,15 @@ public final class ServerMessageHandlers {
 
         @Override
         public void handleToggleShuffle(EntityPlayerMP player) {}
+
+        @Override
+        public void handleRadioSearch(EntityPlayerMP player, String query) {}
+
+        @Override
+        public void handleSelectRadio(EntityPlayerMP player, String stationUuid) {}
+
+        @Override
+        public void handleStopRadio(EntityPlayerMP player) {}
     }
 
     public static final class SearchRequestHandler implements IMessageHandler<SearchRequestPacket, IMessage> {
@@ -157,6 +175,60 @@ public final class ServerMessageHandlers {
                     @Override
                     public void run() {
                         hook.handleSearch(player, message.getQuery());
+                    }
+                });
+            }
+            return null;
+        }
+    }
+
+    public static final class RadioSearchRequestHandler implements IMessageHandler<RadioSearchRequestPacket, IMessage> {
+
+        @Override
+        public IMessage onMessage(final RadioSearchRequestPacket message, final MessageContext context) {
+            final EntityPlayerMP player = player(context);
+            if (player != null) {
+                schedule(new Runnable() {
+
+                    @Override
+                    public void run() {
+                        hook.handleRadioSearch(player, message.getQuery());
+                    }
+                });
+            }
+            return null;
+        }
+    }
+
+    public static final class SelectRadioStationHandler implements IMessageHandler<SelectRadioStationPacket, IMessage> {
+
+        @Override
+        public IMessage onMessage(final SelectRadioStationPacket message, final MessageContext context) {
+            final EntityPlayerMP player = player(context);
+            if (player != null) {
+                schedule(new Runnable() {
+
+                    @Override
+                    public void run() {
+                        hook.handleSelectRadio(player, message.getStationUuid());
+                    }
+                });
+            }
+            return null;
+        }
+    }
+
+    public static final class StopRadioHandler implements IMessageHandler<StopRadioPacket, IMessage> {
+
+        @Override
+        public IMessage onMessage(final StopRadioPacket message, final MessageContext context) {
+            final EntityPlayerMP player = player(context);
+            if (player != null) {
+                schedule(new Runnable() {
+
+                    @Override
+                    public void run() {
+                        hook.handleStopRadio(player);
                     }
                 });
             }
@@ -210,7 +282,7 @@ public final class ServerMessageHandlers {
 
                     @Override
                     public void run() {
-                        hook.handleRequestCharts(player, message.isForceRefresh());
+                        hook.handleRequestCharts(player, message.getRegionCode(), message.isForceRefresh());
                     }
                 });
             }

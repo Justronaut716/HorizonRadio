@@ -1,5 +1,6 @@
 package com.horizonradio.network.packets;
 
+import java.nio.charset.Charset;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -12,20 +13,29 @@ import io.netty.buffer.ByteBuf;
 
 public class SearchResultsPacket implements IMessage {
 
+    private static final int MAX_CHART_REGION_CODE_BYTES = 16;
+
     private List<Entry> results;
     private boolean charts;
+    private String chartRegionCode;
 
     public SearchResultsPacket() {
         results = new ArrayList<Entry>();
+        chartRegionCode = "";
     }
 
     public SearchResultsPacket(List<Entry> results) {
-        this(results, false);
+        this(results, false, "");
     }
 
     public SearchResultsPacket(List<Entry> results, boolean charts) {
+        this(results, charts, "");
+    }
+
+    public SearchResultsPacket(List<Entry> results, boolean charts, String chartRegionCode) {
         this.results = copy(results);
         this.charts = charts;
+        this.chartRegionCode = charts ? normalizeChartRegionCode(chartRegionCode) : "";
     }
 
     public List<Entry> getResults() {
@@ -36,9 +46,14 @@ public class SearchResultsPacket implements IMessage {
         return charts;
     }
 
+    public String getChartRegionCode() {
+        return chartRegionCode;
+    }
+
     @Override
     public void toBytes(ByteBuf buf) {
         buf.writeBoolean(charts);
+        PacketBufferUtil.writeString(buf, chartRegionCode, MAX_CHART_REGION_CODE_BYTES);
         PacketBufferUtil.writeCount(buf, results.size());
         for (Entry result : results) {
             PacketBufferUtil.writeString(buf, result.getVideoId());
@@ -52,6 +67,10 @@ public class SearchResultsPacket implements IMessage {
     @Override
     public void fromBytes(ByteBuf buf) {
         charts = buf.readBoolean();
+        chartRegionCode = PacketBufferUtil.readString(buf, MAX_CHART_REGION_CODE_BYTES);
+        if (!charts) {
+            chartRegionCode = "";
+        }
         int count = PacketBufferUtil.readCount(buf);
         List<Entry> decoded = new ArrayList<Entry>(count);
         for (int i = 0; i < count; i++) {
@@ -71,6 +90,19 @@ public class SearchResultsPacket implements IMessage {
             throw new IllegalArgumentException("results must not be null");
         }
         return new ArrayList<Entry>(values);
+    }
+
+    private static String normalizeChartRegionCode(String value) {
+        if (value == null || value.trim()
+            .length() == 0) {
+            return "";
+        }
+        String normalized = value.trim()
+            .toUpperCase(java.util.Locale.ROOT);
+        if (normalized.getBytes(Charset.forName("UTF-8")).length > MAX_CHART_REGION_CODE_BYTES) {
+            throw new IllegalArgumentException("chart region code exceeds " + MAX_CHART_REGION_CODE_BYTES + " bytes");
+        }
+        return normalized;
     }
 
     public static final class Entry {

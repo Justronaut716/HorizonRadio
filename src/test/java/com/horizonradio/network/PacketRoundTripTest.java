@@ -2,6 +2,7 @@ package com.horizonradio.network;
 
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import java.io.IOException;
@@ -9,6 +10,7 @@ import java.nio.charset.Charset;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 
 import org.junit.Test;
@@ -25,6 +27,11 @@ import com.horizonradio.network.packets.PausePacket;
 import com.horizonradio.network.packets.PlayNowPacket;
 import com.horizonradio.network.packets.PlaylistSyncPacket;
 import com.horizonradio.network.packets.PreviousTrackPacket;
+import com.horizonradio.network.packets.RadioAudioChunkPacket;
+import com.horizonradio.network.packets.RadioAudioStartPacket;
+import com.horizonradio.network.packets.RadioSearchRequestPacket;
+import com.horizonradio.network.packets.RadioSearchResultsPacket;
+import com.horizonradio.network.packets.RadioStatePacket;
 import com.horizonradio.network.packets.ReadyPacket;
 import com.horizonradio.network.packets.RemoveFromPlaylistPacket;
 import com.horizonradio.network.packets.ReorderPlaylistPacket;
@@ -33,16 +40,69 @@ import com.horizonradio.network.packets.ResumePacket;
 import com.horizonradio.network.packets.SearchRequestPacket;
 import com.horizonradio.network.packets.SearchResultsPacket;
 import com.horizonradio.network.packets.SeekRequestPacket;
+import com.horizonradio.network.packets.SelectRadioStationPacket;
 import com.horizonradio.network.packets.ShuffleStatePacket;
 import com.horizonradio.network.packets.SkipTrackPacket;
+import com.horizonradio.network.packets.StopRadioPacket;
 import com.horizonradio.network.packets.ToggleLoopPacket;
 import com.horizonradio.network.packets.TogglePlaybackPacket;
 import com.horizonradio.network.packets.ToggleShufflePacket;
 
+import cpw.mods.fml.common.network.ByteBufUtils;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 
 public class PacketRoundTripTest {
+
+    @Test
+    public void roundTripsRadioPacketsAndPreservesWireFields() {
+        RadioSearchRequestPacket search = roundTrip(
+            new RadioSearchRequestPacket("ambient caf\u00e9"),
+            new RadioSearchRequestPacket());
+        assertEquals("ambient caf\u00e9", search.getQuery());
+
+        SelectRadioStationPacket select = roundTrip(
+            new SelectRadioStationPacket("station-uuid"),
+            new SelectRadioStationPacket());
+        assertEquals("station-uuid", select.getStationUuid());
+        roundTrip(new StopRadioPacket(), new StopRadioPacket());
+
+        List<RadioSearchResultsPacket.Entry> radioEntries = Arrays.asList(
+            new RadioSearchResultsPacket.Entry("station-1", "Station One"),
+            new RadioSearchResultsPacket.Entry("station-2", "Station Two"));
+        RadioSearchResultsPacket radioResults = roundTrip(
+            new RadioSearchResultsPacket(radioEntries),
+            new RadioSearchResultsPacket());
+        assertEquals(radioEntries, radioResults.getEntries());
+
+        RadioStatePacket state = roundTrip(
+            new RadioStatePacket(true, 7L, "station-uuid", "Station Name", "LIVE"),
+            new RadioStatePacket());
+        assertTrue(state.isActive());
+        assertEquals(7L, state.getGeneration());
+        assertEquals("station-uuid", state.getStationUuid());
+        assertEquals("Station Name", state.getStationName());
+        assertEquals("LIVE", state.getStatus());
+
+        RadioAudioStartPacket start = roundTrip(
+            new RadioAudioStartPacket(7L, 42L, 44100, 2, 16, false),
+            new RadioAudioStartPacket());
+        assertEquals(7L, start.getGeneration());
+        assertEquals(42L, start.getFirstSequence());
+        assertEquals(44100, start.getSampleRate());
+        assertEquals(2, start.getChannels());
+        assertEquals(16, start.getSampleSizeInBits());
+        assertFalse(start.isBigEndian());
+
+        byte[] audio = new byte[PacketBufferUtil.MAX_BYTE_ARRAY_BYTES];
+        for (int i = 0; i < audio.length; i++) {
+            audio[i] = (byte) (i * 17);
+        }
+        RadioAudioChunkPacket chunk = roundTrip(new RadioAudioChunkPacket(7L, 43L, audio), new RadioAudioChunkPacket());
+        assertEquals(7L, chunk.getGeneration());
+        assertEquals(43L, chunk.getSequence());
+        assertArrayEquals(audio, chunk.getData());
+    }
 
     @Test
     public void roundTripsEveryPacketAndPreservesWireFields() {
@@ -90,6 +150,11 @@ public class PacketRoundTripTest {
         assertEquals("https://youtu.be/id", importVideo.getVideoUrl());
         RequestChartsPacket chartsRequest = roundTrip(new RequestChartsPacket(true), new RequestChartsPacket());
         assertTrue(chartsRequest.isForceRefresh());
+        RequestChartsPacket regionalChartsRequest = roundTrip(
+            new RequestChartsPacket("US", true),
+            new RequestChartsPacket());
+        assertEquals("US", regionalChartsRequest.getRegionCode());
+        assertTrue(regionalChartsRequest.isForceRefresh());
 
         ReorderPlaylistPacket reorder = roundTrip(new ReorderPlaylistPacket(3, 1), new ReorderPlaylistPacket());
         assertEquals(3, reorder.getFromIndex());
@@ -115,6 +180,11 @@ public class PacketRoundTripTest {
         assertEquals(results, searchResults.getResults());
         SearchResultsPacket chartResults = roundTrip(new SearchResultsPacket(results, true), new SearchResultsPacket());
         assertTrue(chartResults.isCharts());
+        SearchResultsPacket regionalChartResults = roundTrip(
+            new SearchResultsPacket(Collections.<SearchResultsPacket.Entry>emptyList(), true, "GLOBAL"),
+            new SearchResultsPacket());
+        assertTrue(regionalChartResults.isCharts());
+        assertEquals("GLOBAL", regionalChartResults.getChartRegionCode());
 
         List<PlaylistSyncPacket.Entry> entries = Arrays.asList(
             new PlaylistSyncPacket.Entry("id-1", "One", "1:00", "Alice"),
@@ -179,6 +249,49 @@ public class PacketRoundTripTest {
         buf.writeLong(0L);
         PacketBufferUtil.writeCount(buf, AudioChunkPacket.CHUNK_SIZE + 1);
         new AudioChunkPacket().fromBytes(buf);
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void rejectsRadioSearchQueryOverCharacterLimit() {
+        new RadioSearchRequestPacket(repeat('q', 101));
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void rejectsRadioStationUuidOverByteLimitBeforeAllocation() {
+        ByteBuf buf = Unpooled.buffer();
+        PacketBufferUtil.writeString(buf, repeat('u', 65));
+        new SelectRadioStationPacket().fromBytes(buf);
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void rejectsRadioSearchResultsOverEntryLimitBeforeAllocation() {
+        ByteBuf buf = Unpooled.buffer();
+        PacketBufferUtil.writeCount(buf, 51);
+        new RadioSearchResultsPacket().fromBytes(buf);
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void rejectsRadioStationNameOverByteLimit() {
+        new RadioSearchResultsPacket.Entry("station", repeat('n', 201));
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void rejectsRadioStatusOverByteLimit() {
+        new RadioStatePacket(true, 1L, "station", "Station", repeat('s', 161));
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void rejectsOversizedRadioAudioDataBeforeAllocation() {
+        ByteBuf buf = Unpooled.buffer();
+        buf.writeLong(1L);
+        buf.writeLong(2L);
+        ByteBufUtils.writeVarInt(buf, PacketBufferUtil.MAX_BYTE_ARRAY_BYTES + 1, 5);
+        new RadioAudioChunkPacket().fromBytes(buf);
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void rejectsOversizedRadioAudioDataInConstructor() {
+        new RadioAudioChunkPacket(1L, 2L, new byte[PacketBufferUtil.MAX_BYTE_ARRAY_BYTES + 1]);
     }
 
     @Test(expected = IllegalArgumentException.class)
@@ -265,6 +378,34 @@ public class PacketRoundTripTest {
         assertTrue(
             source.contains(
                 "registerMessage(ClientboundMessageHandlers.ResumeHandler.class, ResumePacket.class, 9, Side.CLIENT)"));
+        assertTrue(
+            source.contains(
+                "registerMessage(ServerMessageHandlers.RadioSearchRequestHandler.class, RadioSearchRequestPacket.class, 25, Side.SERVER)"));
+        assertTrue(
+            source.contains(
+                "registerMessage(ServerMessageHandlers.SelectRadioStationHandler.class, SelectRadioStationPacket.class, 26, Side.SERVER)"));
+        assertTrue(
+            source.contains(
+                "registerMessage(ServerMessageHandlers.StopRadioHandler.class, StopRadioPacket.class, 27, Side.SERVER)"));
+        assertTrue(
+            source.contains(
+                "registerMessage(ClientboundMessageHandlers.RadioSearchResultsHandler.class, RadioSearchResultsPacket.class, 28, Side.CLIENT)"));
+        assertTrue(
+            source.contains(
+                "registerMessage(ClientboundMessageHandlers.RadioStateHandler.class, RadioStatePacket.class, 29, Side.CLIENT)"));
+        assertTrue(
+            source.contains(
+                "registerMessage(ClientboundMessageHandlers.RadioAudioStartHandler.class, RadioAudioStartPacket.class, 30, Side.CLIENT)"));
+        assertTrue(
+            source.contains(
+                "registerMessage(ClientboundMessageHandlers.RadioAudioChunkHandler.class, RadioAudioChunkPacket.class, 31, Side.CLIENT)"));
+        assertEquals(1, countOccurrences(source, "RadioSearchRequestPacket.class, 25, Side.SERVER"));
+        assertEquals(1, countOccurrences(source, "SelectRadioStationPacket.class, 26, Side.SERVER"));
+        assertEquals(1, countOccurrences(source, "StopRadioPacket.class, 27, Side.SERVER"));
+        assertEquals(1, countOccurrences(source, "RadioSearchResultsPacket.class, 28, Side.CLIENT"));
+        assertEquals(1, countOccurrences(source, "RadioStatePacket.class, 29, Side.CLIENT"));
+        assertEquals(1, countOccurrences(source, "RadioAudioStartPacket.class, 30, Side.CLIENT"));
+        assertEquals(1, countOccurrences(source, "RadioAudioChunkPacket.class, 31, Side.CLIENT"));
         assertEquals(1, countOccurrences(source, "registerMessages()"));
     }
 
@@ -277,6 +418,20 @@ public class PacketRoundTripTest {
         assertTrue(!source.contains("javax.sound"));
         assertTrue(!source.contains("ClientProxy"));
         assertTrue(!source.contains("cpw.mods.fml.client"));
+        assertTrue(source.contains("HorizonRadio.proxy.handleRadioSearchResults(message)"));
+        assertTrue(source.contains("HorizonRadio.proxy.handleRadioState(message)"));
+        assertTrue(source.contains("HorizonRadio.proxy.handleRadioAudioStart(message)"));
+        assertTrue(source.contains("HorizonRadio.proxy.handleRadioAudioChunk(message)"));
+    }
+
+    @Test
+    public void radioServerHandlersAuthenticateAndScheduleThroughServerExecutor() throws IOException {
+        String source = readSource("src/main/java/com/horizonradio/network/ServerMessageHandlers.java");
+        assertTrue(source.contains("final EntityPlayerMP player = player(context)"));
+        assertTrue(source.contains("ServerThreadExecutor.execute(server, task)"));
+        assertTrue(source.contains("hook.handleRadioSearch(player, message.getQuery())"));
+        assertTrue(source.contains("hook.handleSelectRadio(player, message.getStationUuid())"));
+        assertTrue(source.contains("hook.handleStopRadio(player)"));
     }
 
     @Test

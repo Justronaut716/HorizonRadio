@@ -11,6 +11,10 @@ import com.horizonradio.network.packets.AudioChunkPacket;
 import com.horizonradio.network.packets.NowPlayingPacket;
 import com.horizonradio.network.packets.PausePacket;
 import com.horizonradio.network.packets.PlaylistSyncPacket;
+import com.horizonradio.network.packets.RadioAudioChunkPacket;
+import com.horizonradio.network.packets.RadioAudioStartPacket;
+import com.horizonradio.network.packets.RadioSearchResultsPacket;
+import com.horizonradio.network.packets.RadioStatePacket;
 import com.horizonradio.network.packets.ResumePacket;
 import com.horizonradio.network.packets.SearchResultsPacket;
 
@@ -23,6 +27,33 @@ import cpw.mods.fml.common.gameevent.TickEvent;
 import cpw.mods.fml.common.network.FMLNetworkEvent;
 
 public class ClientProxy extends CommonProxy {
+
+    interface ClientTaskScheduler {
+
+        void schedule(Runnable task);
+    }
+
+    private static final class MinecraftClientTaskScheduler implements ClientTaskScheduler {
+
+        @Override
+        public void schedule(Runnable task) {
+            Minecraft.getMinecraft()
+                .func_152344_a(task);
+        }
+    }
+
+    private final ClientTaskScheduler clientTaskScheduler;
+
+    public ClientProxy() {
+        this(new MinecraftClientTaskScheduler());
+    }
+
+    ClientProxy(ClientTaskScheduler clientTaskScheduler) {
+        if (clientTaskScheduler == null) {
+            throw new IllegalArgumentException("client task scheduler is required");
+        }
+        this.clientTaskScheduler = clientTaskScheduler;
+    }
 
     @Override
     public void preInit(FMLPreInitializationEvent event) {
@@ -39,7 +70,7 @@ public class ClientProxy extends CommonProxy {
         HorizonRadioKeybinds.register();
         FMLCommonHandler.instance()
             .bus()
-            .register(new ClientEvents());
+            .register(new ClientEvents(clientTaskScheduler));
     }
 
     @Override
@@ -84,7 +115,7 @@ public class ClientProxy extends CommonProxy {
                             entry.getDuration(),
                             entry.getThumbnail()));
                 }
-                HorizonRadioClient.updateChartResults(results);
+                HorizonRadioClient.updateChartResults(results, packet.getChartRegionCode());
             }
         });
     }
@@ -175,33 +206,85 @@ public class ClientProxy extends CommonProxy {
         });
     }
 
-    private static void schedule(Runnable task) {
-        Minecraft.getMinecraft()
-            .func_152344_a(task);
+    @Override
+    public void handleRadioSearchResults(final RadioSearchResultsPacket packet) {
+        schedule(new Runnable() {
+
+            @Override
+            public void run() {
+                HorizonRadioClient.updateRadioSearchResults(packet);
+            }
+        });
+    }
+
+    @Override
+    public void handleRadioState(final RadioStatePacket packet) {
+        schedule(new Runnable() {
+
+            @Override
+            public void run() {
+                HorizonRadioClient.updateRadioState(packet);
+            }
+        });
+    }
+
+    @Override
+    public void handleRadioAudioStart(final RadioAudioStartPacket packet) {
+        schedule(new Runnable() {
+
+            @Override
+            public void run() {
+                HorizonRadioClient.handleRadioAudioStart(packet);
+            }
+        });
+    }
+
+    @Override
+    public void handleRadioAudioChunk(final RadioAudioChunkPacket packet) {
+        schedule(new Runnable() {
+
+            @Override
+            public void run() {
+                HorizonRadioClient.handleRadioAudioChunk(packet);
+            }
+        });
+    }
+
+    private void schedule(Runnable task) {
+        clientTaskScheduler.schedule(task);
     }
 
     public static final class ClientEvents {
 
-        private boolean chartLoadStarted;
+        private final ClientTaskScheduler clientTaskScheduler;
+
+        public ClientEvents() {
+            this(new MinecraftClientTaskScheduler());
+        }
+
+        ClientEvents(ClientTaskScheduler clientTaskScheduler) {
+            if (clientTaskScheduler == null) {
+                throw new IllegalArgumentException("client task scheduler is required");
+            }
+            this.clientTaskScheduler = clientTaskScheduler;
+        }
 
         @SubscribeEvent
         public void onClientTick(TickEvent.ClientTickEvent event) {
             if (event.phase == TickEvent.Phase.END) {
                 HorizonRadioKeybinds.onClientTick();
-                Minecraft minecraft = Minecraft.getMinecraft();
-                if (minecraft.theWorld == null || minecraft.thePlayer == null) {
-                    chartLoadStarted = false;
-                } else if (!chartLoadStarted) {
-                    chartLoadStarted = true;
-                    HorizonRadioClient.beginChartLoading();
-                    HorizonRadioClient.sendChartsRequest(false);
-                }
             }
         }
 
         @SubscribeEvent
         public void onDisconnect(FMLNetworkEvent.ClientDisconnectionFromServerEvent event) {
-            HorizonRadioClient.clearCache();
+            clientTaskScheduler.schedule(new Runnable() {
+
+                @Override
+                public void run() {
+                    HorizonRadioClient.clearCache();
+                }
+            });
         }
     }
 }

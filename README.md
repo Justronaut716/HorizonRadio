@@ -1,7 +1,7 @@
 # HorizonRadio for Forge 1.7.10
 
-HorizonRadio is a server-authoritative, shared YouTube music player for Minecraft
-1.7.10. This repository is a Forge port that runs in standalone Forge
+HorizonRadio is a server-authoritative, shared YouTube music player and live
+radio relay for Minecraft 1.7.10. This repository is a Forge port that runs in standalone Forge
 installations and alongside GregTech: New Horizons (GTNH). It has no required
 GTNHLib or GregTech dependency and adds no world content.
 
@@ -9,15 +9,21 @@ GTNHLib or GregTech dependency and adds no world content.
 
 - Shared server playlist with add/remove ownership checks.
 - Drag-and-drop reordering of queued songs in the Playlist tab.
-- Separate Charts tab with server-cached German weekly Top-50 results and bulk queueing.
+- Separate Charts tab with server-cached weekly Top-50 results for all ISO
+  countries, with multilingual region search and bulk queueing.
 - YouTube search through the server-side InnerTube request.
-- Automatic German Top-50 chart suggestions when opening the Search tab.
+- Empty Charts tab until a country is searched; country aliases and ISO codes
+  can be searched in multiple languages.
 - YouTube playlist import through server-side `yt-dlp` metadata extraction.
 - Server-side `yt-dlp`/`ffmpeg` WAV download and cache.
+- Server-side Radio Browser directory search and station lookup; clients receive
+  station UUIDs and names, never station stream URLs.
+- Shared live-radio playback: the server relays FFmpeg PCM and clients play it
+  through Java Sound.
 - Forge `SimpleNetworkWrapper` synchronization, including late-join pause,
   chunk transfer, ready, and resume messages.
-- 300x285 client GUI with Search/Playlist tabs, scrolling, shared remove access,
-  queue toggle buttons, progress, and volume control.
+- 300x285 client GUI with Charts, Search, Playlist, and Radio tabs; scrolling,
+  shared remove access, queue toggle buttons, progress, and volume control.
 - Client-local Java Sound playback.
 
 There are deliberately no items, blocks, crafting or machine recipes,
@@ -35,7 +41,9 @@ integrations. The inactive companion service is not part of this port.
   same plain reobfuscated JAR works for both, with no hard GTNHLib or GregTech
   dependency.
 - `yt-dlp` and `ffmpeg` available on the server `PATH`. They are external
-  prerequisites and are not bundled in the JAR.
+  prerequisites and are not bundled in the JAR. `ffmpeg` is also required for
+  live radio, and the server needs outbound HTTPS access to Radio Browser
+  directory mirrors and the selected station's HTTP(S) stream.
 - A usable Java Sound line on each client for audible playback. The client
   remains usable when a sound device is unavailable, but playback cannot work.
 
@@ -115,14 +123,28 @@ kept separately: the volume slider stores its value in
 ## Use
 
 Join a server or load a client world with a player, then press `N` to open the
-HorizonRadio screen. The server loads the German weekly Top 50 in the
-background when a world is joined and keeps it in its seven-day cache. The
-Charts tab provides the cached results; `Refresh` forces a new server fetch and
-the `+`/`-` button adds or removes all displayed chart songs. Search remains
-separate. Each search or chart result also has a queue button. The server still
-allows every player to remove entries. The volume slider is local to the client
-and persists in `config/horizonradio-client.json` across restarts and rejoins.
-The server controls ordering, playback position, and late-join synchronization.
+HorizonRadio screen. The Charts tab starts empty. Its search field accepts ISO
+codes and country/region names such as `Germany`, `Deutschland`, `America`, or
+`Amerika`; the last successfully searched country remains selected when the
+tab is revisited. Charts are loaded and cached on the server for seven days per
+region. `Refresh` updates the selected region, and the `+`/`-` button adds or
+removes all displayed chart songs. Unknown or ambiguous region names keep the
+current list and show an error. Search remains separate. Each search or chart
+result also has a queue button. The server still allows every player to remove
+entries.
+The volume slider is local to the client and persists in
+`config/horizonradio-client.json` across restarts and rejoins. The server
+controls ordering, playback position, and late-join synchronization.
+
+The Radio tab initially shows popular working Radio Browser stations and uses
+the same field to search by station name. Selecting a station asks the server to
+look it up again by UUID; the station stream URL never leaves the server. Radio
+is live rather than seekable: its standard control center remains visible, but
+shuffle, previous, next, and repeat are disabled. The center play/stop button
+ends the current radio and starts the same station again when pressed once more.
+The station name remains visible while stopped. Starting radio stops
+finite-track playback without changing the queue, and Play Now stops radio and
+starts the selected song.
 
 For GUI verification, the client must already have a loaded world and a
 non-null player (`Minecraft.getMinecraft().theWorld != null` and
@@ -131,17 +153,18 @@ player-null client are not valid GUI test states.
 
 ## Architecture
 
-The server owns playlist/search/download state. The client reassembles the
-server's 30 KiB audio chunks and plays them locally. The current source registers
-24 Forge messages once from common initialization: IDs 0-3, 10-15, 17, and
-19-23 are C2S with server handlers, and IDs 4-9, 16, and 18 are S2C with common
-server-safe forwarding handlers. The preserved baseline packet table in
-`docs/ARCHITECTURE.md` documents IDs 0-21; the source registration table is
-authoritative for the pre-existing IDs 22-23 entries. Weekly chart metadata is cached in memory and
-persisted as `config/horizonradio-charts.json` for seven days. Cached durations
-are reused when chart entries are added to the queue, avoiding another `yt-dlp`
-lookup. The server preloads the next and previous audio files while the current
-track plays.
+The server owns playlist/search/download/radio state. Finite tracks use the
+existing cached-WAV chunk flow; live radio is decoded by server FFmpeg into
+44.1 kHz stereo signed 16-bit little-endian PCM and relayed in bounded 30 KiB
+chunks. The current source registers 32 Forge messages once from common
+initialization: IDs 0-3, 10-15, 17, and 19-27 are C2S with server handlers, and
+IDs 4-9, 16, 18, and 28-31 are S2C with common server-safe forwarding handlers.
+Weekly chart metadata is cached in memory and persisted as
+`config/horizonradio-charts.json` for seven days per canonical region. Existing
+single-region cache files are treated as German (`DE`) data during migration,
+never as Global data. Cached durations are reused when chart entries are added
+to the queue, avoiding another `yt-dlp` lookup. The
+server preloads the next and previous audio files while a finite track plays.
 `ClientProxy` schedules the actual GUI/audio mutations on the client thread;
 common, server, and network code never imports client classes.
 
@@ -150,7 +173,8 @@ audio state machine, port decisions, and omitted systems.
 
 ## Known limitations
 
-YouTube's InnerTube endpoint is undocumented and may change. WAV chunks are
+YouTube's InnerTube endpoint and the Radio Browser directory are external
+services and may change or be unreachable. WAV and live PCM chunks are
 bandwidth- and memory-intensive. `yt-dlp`/`ffmpeg` and Java Sound depend on the
 host environment. The playlist is in memory and is not persisted to NBT or a
 database. Search thumbnails remain data-only because the active GUI does not

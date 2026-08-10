@@ -1,0 +1,49 @@
+{
+  "contents": {
+    "twoColumnSearchResultsRenderer": {
+      "primaryContents": {
+        "sectionListRenderer": {
+          "contents": [
+            {
+              "itemSectionRenderer": {
+                "contents": [
+                  {
+                    "videoRenderer": {
+                      "videoId": "video-1",
+                      "title": {"simpleText": "Funk One"},
+                      "ownerText": {"simpleText": "Channel One"},
+                      "lengthText": {"simpleText": "2:30"},
+                      "thumbnail": {"thumbnails": []}
+                    }
+                  },
+                  {
+                    "videoRenderer": {
+                      "videoId": "video-2",
+                      "title": {"simpleText": "Funk Two"},
+                      "ownerText": {"simpleText": "Channel Two"},
+                      "lengthText": {"simpleText": "3:45"},
+                      "thumbnail": {"thumbnails": []}
+                    }
+                  },
+                  {
+                    "playlistRenderer": {
+                      "playlistId": "playlist-1",
+                      "title": {"simpleText": "Funk Playlist"}
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "continuationItemRenderer": {
+                "continuationEndpoint": {
+                  "continuationCommand": {"token": "token-page-2"}
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+}
