@@ -9,6 +9,7 @@ import net.minecraft.client.Minecraft;
 import com.horizonradio.CommonProxy;
 import com.horizonradio.network.packets.AudioChunkPacket;
 import com.horizonradio.network.packets.ChartAddCompletionPacket;
+import com.horizonradio.network.packets.ClockSyncResponsePacket;
 import com.horizonradio.network.packets.NowPlayingPacket;
 import com.horizonradio.network.packets.PausePacket;
 import com.horizonradio.network.packets.PlaylistSyncPacket;
@@ -153,6 +154,18 @@ public class ClientProxy extends CommonProxy {
     }
 
     @Override
+    public void handleClockSync(final ClockSyncResponsePacket packet) {
+        final long clientReceivedAtMs = System.currentTimeMillis();
+        schedule(new Runnable() {
+
+            @Override
+            public void run() {
+                HorizonRadioClient.handleClockSync(packet, clientReceivedAtMs);
+            }
+        });
+    }
+
+    @Override
     public void handleAudioChunk(final AudioChunkPacket packet) {
         schedule(new Runnable() {
 
@@ -286,6 +299,17 @@ public class ClientProxy extends CommonProxy {
             if (event.phase == TickEvent.Phase.END) {
                 HorizonRadioKeybinds.onClientTick();
             }
+        }
+
+        @SubscribeEvent
+        public void onConnect(FMLNetworkEvent.ClientConnectedToServerEvent event) {
+            clientTaskScheduler.schedule(new Runnable() {
+
+                @Override
+                public void run() {
+                    HorizonRadioClient.sendClockSync();
+                }
+            });
         }
 
         @SubscribeEvent

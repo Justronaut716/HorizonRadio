@@ -7,8 +7,10 @@ import static org.junit.Assert.assertTrue;
 import java.io.IOException;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.nio.charset.Charset;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -587,6 +589,15 @@ public class PlaylistManagerTest {
         } finally {
             manager.shutdown();
         }
+    }
+
+    @Test
+    public void chartBulkRequestReportsHowManySongsWereAdded() throws IOException {
+        String source = new String(
+            Files.readAllBytes(Paths.get("src/main/java/com/horizonradio/server/PlaylistManager.java")),
+            Charset.forName("UTF-8"));
+
+        assertTrue(source.contains("Added \" + added + \" chart songs to the playlist."));
     }
 
     @Test

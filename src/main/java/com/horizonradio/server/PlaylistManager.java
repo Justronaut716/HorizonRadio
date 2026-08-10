@@ -1118,6 +1118,10 @@ public final class PlaylistManager {
                 playNext();
             }
         }
+        sendChat(
+            player,
+            added > 0 ? EnumChatFormatting.GREEN : EnumChatFormatting.YELLOW,
+            "Added " + added + " chart songs to the playlist.");
         sendChartAddCompletion(player, entries);
     }
 
@@ -2150,7 +2154,7 @@ public final class PlaylistManager {
     }
 
     private void sendChat(EntityPlayerMP player, EnumChatFormatting color, String message) {
-        if (player == null) {
+        if (player == null || server == null) {
             return;
         }
         player.addChatMessage(new ChatComponentText(EnumChatFormatting.YELLOW + "[HorizonRadio] " + color + message));

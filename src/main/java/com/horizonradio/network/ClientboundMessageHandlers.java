@@ -3,6 +3,7 @@ package com.horizonradio.network;
 import com.horizonradio.HorizonRadio;
 import com.horizonradio.network.packets.AudioChunkPacket;
 import com.horizonradio.network.packets.ChartAddCompletionPacket;
+import com.horizonradio.network.packets.ClockSyncResponsePacket;
 import com.horizonradio.network.packets.LoopStatePacket;
 import com.horizonradio.network.packets.NowPlayingPacket;
 import com.horizonradio.network.packets.PausePacket;
@@ -50,6 +51,15 @@ public final class ClientboundMessageHandlers {
         @Override
         public IMessage onMessage(ChartAddCompletionPacket message, MessageContext context) {
             HorizonRadio.proxy.handleChartAddCompletion(message);
+            return null;
+        }
+    }
+
+    public static final class ClockSyncResponseHandler implements IMessageHandler<ClockSyncResponsePacket, IMessage> {
+
+        @Override
+        public IMessage onMessage(ClockSyncResponsePacket message, MessageContext context) {
+            HorizonRadio.proxy.handleClockSync(message);
             return null;
         }
     }
