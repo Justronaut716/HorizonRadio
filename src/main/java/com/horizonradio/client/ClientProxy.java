@@ -8,6 +8,7 @@ import net.minecraft.client.Minecraft;
 
 import com.horizonradio.CommonProxy;
 import com.horizonradio.network.packets.AudioChunkPacket;
+import com.horizonradio.network.packets.ChartAddCompletionPacket;
 import com.horizonradio.network.packets.NowPlayingPacket;
 import com.horizonradio.network.packets.PausePacket;
 import com.horizonradio.network.packets.PlaylistSyncPacket;
@@ -136,6 +137,17 @@ public class ClientProxy extends CommonProxy {
                             entry.getAddedBy()));
                 }
                 HorizonRadioClient.updatePlaylist(entries);
+            }
+        });
+    }
+
+    @Override
+    public void handleChartAddCompletion(final ChartAddCompletionPacket packet) {
+        schedule(new Runnable() {
+
+            @Override
+            public void run() {
+                HorizonRadioClient.completeChartAdds(packet.getCompletedVideoIds());
             }
         });
     }

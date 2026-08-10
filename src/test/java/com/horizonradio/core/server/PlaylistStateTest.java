@@ -21,16 +21,14 @@ import com.horizonradio.server.PlaylistManager;
 public class PlaylistStateTest {
 
     @Test
-    public void preservesOrderWithoutEnforcingConfiguredMaximum() {
+    public void rejectsEntriesBeyondConfiguredMaximum() {
         PlaylistState state = new PlaylistState(2);
 
         assertTrue(state.add(entry("one", "Alice")));
         assertTrue(state.add(entry("two", "Bob")));
-        assertTrue(state.add(entry("three", "Carol")));
+        assertFalse(state.add(entry("three", "Carol")));
 
-        assertEquals(
-            Arrays.asList(entry("one", "Alice"), entry("two", "Bob"), entry("three", "Carol")),
-            state.snapshot());
+        assertEquals(Arrays.asList(entry("one", "Alice"), entry("two", "Bob")), state.snapshot());
     }
 
     @Test
@@ -424,6 +422,27 @@ public class PlaylistStateTest {
         assertTrue(removeIndex >= 0);
         assertTrue(resumeIndex < removeIndex);
         assertTrue(manager.contains("new ResumePacket(pausedPositionMs)"));
+    }
+
+    @Test
+    public void initialTrackTransferUsesTheReadyBarrierForAllPlayers() throws IOException {
+        String manager = read("src/main/java/com/horizonradio/server/PlaylistManager.java");
+        int start = manager.indexOf("private void downloadedAudioReady");
+        int end = manager.indexOf("private void requestLateJoinAudio", start);
+
+        assertTrue(start >= 0);
+        assertTrue(end > start);
+        String body = manager.substring(start, end);
+        assertTrue(body.contains("beginInitialPlaybackSync"));
+        assertTrue(body.contains("sendAudioChunks(player, entry.getVideoId(), entry.getTitle(), audioBytes, -1L)"));
+        assertTrue(body.contains("if (state.isSyncing())"));
+    }
+
+    @Test
+    public void playbackSyncTimeoutIsLimitedToThreeSeconds() throws IOException {
+        String manager = read("src/main/java/com/horizonradio/server/PlaylistManager.java");
+
+        assertTrue(manager.contains("private static final long LATE_JOIN_TIMEOUT_MS = 3000L;"));
     }
 
     @Test

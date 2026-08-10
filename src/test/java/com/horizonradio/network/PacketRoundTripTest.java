@@ -18,6 +18,7 @@ import org.junit.Test;
 import com.horizonradio.network.packets.AddChartsToPlaylistPacket;
 import com.horizonradio.network.packets.AddToPlaylistPacket;
 import com.horizonradio.network.packets.AudioChunkPacket;
+import com.horizonradio.network.packets.ChartAddCompletionPacket;
 import com.horizonradio.network.packets.ClearPlaylistPacket;
 import com.horizonradio.network.packets.ImportPlaylistPacket;
 import com.horizonradio.network.packets.ImportVideoPacket;
@@ -83,6 +84,12 @@ public class PacketRoundTripTest {
         assertEquals("station-uuid", state.getStationUuid());
         assertEquals("Station Name", state.getStationName());
         assertEquals("LIVE", state.getStatus());
+        assertFalse(state.isMusicMode());
+
+        RadioStatePacket musicState = roundTrip(
+            new RadioStatePacket(false, 8L, "station-uuid", "Station Name", "", true),
+            new RadioStatePacket());
+        assertTrue(musicState.isMusicMode());
 
         RadioAudioStartPacket start = roundTrip(
             new RadioAudioStartPacket(7L, 42L, 44100, 2, 16, false),
@@ -191,6 +198,12 @@ public class PacketRoundTripTest {
             new PlaylistSyncPacket.Entry("id-2", "Two", "2:00", "Bob"));
         PlaylistSyncPacket playlist = roundTrip(new PlaylistSyncPacket(entries), new PlaylistSyncPacket());
         assertEquals(entries, playlist.getEntries());
+
+        List<String> completedChartIds = Arrays.asList("chart-1", "chart-2");
+        ChartAddCompletionPacket chartCompletion = roundTrip(
+            new ChartAddCompletionPacket(completedChartIds),
+            new ChartAddCompletionPacket());
+        assertEquals(completedChartIds, chartCompletion.getCompletedVideoIds());
 
         byte[] audio = new byte[AudioChunkPacket.CHUNK_SIZE];
         for (int i = 0; i < audio.length; i++) {
@@ -442,6 +455,14 @@ public class PacketRoundTripTest {
         assertTrue(source.contains("CHANNEL.sendToServer(new PlayNowPacket(videoId, title, duration))"));
         assertTrue(source.contains("CHANNEL.sendToServer(new RemoveFromPlaylistPacket(videoId))"));
         assertTrue(source.contains("CHANNEL.sendToServer(new ReadyPacket(videoId))"));
+    }
+
+    @Test
+    public void registersChartAddCompletionAsClientboundMessage() throws IOException {
+        String source = normalizeSource(readSource("src/main/java/com/horizonradio/network/HorizonRadioNetwork.java"));
+        assertTrue(source.contains("ClientboundMessageHandlers.ChartAddCompletionHandler.class"));
+        assertTrue(source.contains("ChartAddCompletionPacket.class"));
+        assertTrue(source.contains("ChartAddCompletionPacket.class, 32, Side.CLIENT"));
     }
 
     private static <T extends cpw.mods.fml.common.network.simpleimpl.IMessage> T roundTrip(T source, T target) {
