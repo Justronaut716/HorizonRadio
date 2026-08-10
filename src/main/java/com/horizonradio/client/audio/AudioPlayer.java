@@ -705,7 +705,8 @@ public final class AudioPlayer {
                         if (!isCurrent(requestGeneration) || clip != currentClip
                             || clip == null
                             || !clip.isOpen()
-                            || awaitingResume) {
+                            || awaitingResume
+                            || !isResumeScheduleCurrent(localStartAtMs, localStartAtMs(startAtMs))) {
                             return;
                         }
                         safeSeek(clip, synchronizedPositionMs(positionMs, localStartAtMs, System.currentTimeMillis()));
@@ -740,6 +741,7 @@ public final class AudioPlayer {
             || !resumeReceived) {
             return;
         }
+        cancelPendingResumeStart();
         long localStartAtMs = localStartAtMs(resumeStartAtMs);
         long delayMs = Math.max(0L, localStartAtMs - System.currentTimeMillis());
         if (delayMs > 0L) {
@@ -758,6 +760,10 @@ public final class AudioPlayer {
     private long localStartAtMs(long serverStartAtMs) {
         return !serverClockSynchronized ? serverStartAtMs
             : PlaybackClock.clientTimeForServerTime(serverStartAtMs, serverClockOffsetMs);
+    }
+
+    static boolean isResumeScheduleCurrent(long scheduledLocalStartAtMs, long currentLocalStartAtMs) {
+        return scheduledLocalStartAtMs == currentLocalStartAtMs;
     }
 
     private synchronized void cancelPendingResumeStart() {
