@@ -609,9 +609,13 @@ public final class HorizonRadioClient {
     }
 
     public static synchronized void handleResume(long positionMs) {
+        handleResume(positionMs, 0L);
+    }
+
+    public static synchronized void handleResume(long positionMs, long startAtMs) {
         cachedPaused = false;
         AudioPlayer.getInstance()
-            .resume(positionMs);
+            .resume(positionMs, startAtMs);
         HorizonRadioScreen screen = getOpenScreen();
         if (screen != null) {
             screen.updatePlaybackPaused(false);

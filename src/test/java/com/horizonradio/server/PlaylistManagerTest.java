@@ -13,21 +13,27 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
+import net.minecraft.entity.player.EntityPlayer;
+import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.util.EnumChatFormatting;
 
 import org.junit.Test;
 
+import com.horizonradio.core.model.PlaylistEntry;
 import com.horizonradio.core.model.RadioStation;
 import com.horizonradio.core.model.SearchResult;
 import com.horizonradio.core.server.ChartCache;
 import com.horizonradio.core.server.ChartRegion;
 import com.horizonradio.core.server.ChartRegionCatalog;
+import com.horizonradio.core.server.PlaylistState;
 import com.horizonradio.network.packets.AddChartsToPlaylistPacket;
 import com.horizonradio.network.packets.RadioStatePacket;
 import com.horizonradio.network.packets.SearchResultsPacket;
+import com.mojang.authlib.GameProfile;
+
+import sun.misc.Unsafe;
 
 public class PlaylistManagerTest {
 
@@ -510,7 +516,7 @@ public class PlaylistManagerTest {
     }
 
     @Test
-    public void chartRefreshPublishesResultsWithoutWaitingForDurationLookup() throws Exception {
+    public void chartRefreshDoesNotStartDurationLookup() throws Exception {
         FakeRadioBrowser browser = new FakeRadioBrowser(STATION_A);
         FakeRadioStream stream = new FakeRadioStream();
         FakeAudioDownload audioDownload = new FakeAudioDownload(new ArrayList<String>());
@@ -520,8 +526,7 @@ public class PlaylistManagerTest {
         try {
             invokeChartRefresh(manager, ChartRegionCatalog.byCode("DE"));
 
-            assertEquals(1, audioDownload.durationLookupCalls);
-            assertFalse(audioDownload.lastDurationLookup.isDone());
+            assertEquals(0, audioDownload.durationLookupCalls);
             assertEquals(
                 Arrays.asList(new SearchResult("chart", "Chart Song", "Artist", "", "")),
                 cachedCharts(manager, "DE"));
@@ -531,93 +536,82 @@ public class PlaylistManagerTest {
     }
 
     @Test
-    @SuppressWarnings("unchecked")
-    public void chartQueueDurationResolutionReusesTheBackgroundLookup() throws Exception {
-        FakeRadioBrowser browser = new FakeRadioBrowser(STATION_A);
-        FakeRadioStream stream = new FakeRadioStream();
-        FakeAudioDownload audioDownload = new FakeAudioDownload(new ArrayList<String>());
-        RecordingChartYouTube youtube = new RecordingChartYouTube();
-        youtube.charts = Arrays.asList(new SearchResult("chart", "Chart Song", "Artist", "", ""));
-        PlaylistManager manager = new PlaylistManager(youtube, audioDownload, browser, stream);
-        try {
-            invokeChartRefresh(manager, ChartRegionCatalog.byCode("DE"));
+    public void chartResultsKeepSongsBeyondTheNormalDurationLimit() {
+        List<SearchResultsPacket.Entry> entries = PlaylistManager.buildChartEntries(
+            Arrays.asList(new SearchResult("long-chart", "Long Chart", "Artist", "20:00", "")),
+            15L * 60L * 1000L);
 
-            Method resolve = PlaylistManager.class.getDeclaredMethod("resolveChartDurations", List.class);
-            resolve.setAccessible(true);
-            CompletableFuture<Map<String, String>> durationFuture = (CompletableFuture<Map<String, String>>) resolve
-                .invoke(manager, Arrays.asList("chart"));
-
-            assertEquals(1, audioDownload.durationLookupCalls);
-            audioDownload.completeLastDuration("chart\\t1:00");
-
-            assertEquals(
-                "1:00",
-                durationFuture.get()
-                    .get("chart"));
-        } finally {
-            manager.shutdown();
-        }
-    }
-
-    @Test
-    public void chartBulkRequestsAreSplitIntoOrderedTenSongBatches() {
-        List<AddChartsToPlaylistPacket.Entry> entries = new ArrayList<AddChartsToPlaylistPacket.Entry>();
-        for (int index = 0; index < 21; index++) {
-            entries.add(new AddChartsToPlaylistPacket.Entry("chart-" + index, "Chart " + index, ""));
-        }
-
-        List<List<AddChartsToPlaylistPacket.Entry>> batches = PlaylistManager.splitChartEntries(entries, 10);
-
-        assertEquals(3, batches.size());
+        assertEquals(1, entries.size());
         assertEquals(
-            10,
-            batches.get(0)
-                .size());
-        assertEquals(
-            10,
-            batches.get(1)
-                .size());
-        assertEquals(
-            1,
-            batches.get(2)
-                .size());
-        assertEquals(
-            "chart-0",
-            batches.get(0)
-                .get(0)
-                .getVideoId());
-        assertEquals(
-            "chart-20",
-            batches.get(2)
-                .get(0)
+            "long-chart",
+            entries.get(0)
                 .getVideoId());
     }
 
     @Test
-    @SuppressWarnings("unchecked")
-    public void chartBulkDurationBatchesStartWithoutWaitingForEachOther() throws Exception {
+    public void chartPlaybackResolvesMissingDurationBeforeDownloading() throws Exception {
         FakeRadioBrowser browser = new FakeRadioBrowser(STATION_A);
         FakeRadioStream stream = new FakeRadioStream();
         FakeAudioDownload audioDownload = new FakeAudioDownload(new ArrayList<String>());
         PlaylistManager manager = new PlaylistManager(new YouTubeService(), audioDownload, browser, stream);
         try {
-            Method resolve = PlaylistManager.class.getDeclaredMethod("resolveChartEntryDurations", List.class);
-            resolve.setAccessible(true);
-            resolve.invoke(manager, chartEntries(10, 0));
-            resolve.invoke(manager, chartEntries(10, 10));
+            PlaylistState state = playlistState(manager);
+            state.add(new PlaylistEntry("chart", "Chart Song", "", "test"));
 
-            assertEquals(2, audioDownload.durationLookupCalls);
+            invokePlayNext(manager);
+
+            assertEquals(1, audioDownload.durationLookupCalls);
+            assertEquals(1, audioDownload.downloadCalls);
+            audioDownload.completeLastDuration("chart\\t1:00");
+            assertEquals(1, audioDownload.downloadCalls);
+            assertEquals(60_000L, state.getCurrentTrackDurationMs());
         } finally {
             manager.shutdown();
         }
     }
 
     @Test
-    public void chartBatchPublicationWaitsUntilTheFinalBatch() {
-        assertFalse(PlaylistManager.shouldPublishChartAddBatch(0, 3));
-        assertFalse(PlaylistManager.shouldPublishChartAddBatch(1, 3));
-        assertTrue(PlaylistManager.shouldPublishChartAddBatch(2, 3));
-        assertTrue(PlaylistManager.shouldPublishChartAddBatch(0, 1));
+    public void chartBulkRequestAddsAllRequestedSongsWithoutDurationLookup() throws Exception {
+        FakeRadioBrowser browser = new FakeRadioBrowser(STATION_A);
+        FakeRadioStream stream = new FakeRadioStream();
+        FakeAudioDownload audioDownload = new FakeAudioDownload(new ArrayList<String>());
+        PlaylistManager manager = new PlaylistManager(new YouTubeService(), audioDownload, browser, stream);
+        try {
+            EntityPlayerMP player = testPlayer();
+            manager.handleAddToPlaylist(player, "playing", "Playing", "1:00");
+
+            manager.handleAddChartsToPlaylist(player, chartEntries(21, 0), false);
+
+            assertEquals(0, audioDownload.durationLookupCalls);
+            assertEquals(22, playlistState(manager).size());
+        } finally {
+            manager.shutdown();
+        }
+    }
+
+    @Test
+    public void chartBulkRequestKeepsEntriesBeyondTheNormalSongDurationLimit() throws Exception {
+        FakeRadioBrowser browser = new FakeRadioBrowser(STATION_A);
+        FakeRadioStream stream = new FakeRadioStream();
+        FakeAudioDownload audioDownload = new FakeAudioDownload(new ArrayList<String>());
+        PlaylistManager manager = new PlaylistManager(new YouTubeService(), audioDownload, browser, stream);
+        try {
+            EntityPlayerMP player = testPlayer();
+            manager.handleAddToPlaylist(player, "playing", "Playing", "1:00");
+
+            manager.handleAddChartsToPlaylist(
+                player,
+                Arrays.asList(new AddChartsToPlaylistPacket.Entry("long-chart", "Long Chart", "20:00")),
+                false);
+
+            assertEquals(2, playlistState(manager).size());
+            assertEquals(
+                "20:00",
+                playlistState(manager).get(1)
+                    .getDuration());
+        } finally {
+            manager.shutdown();
+        }
     }
 
     @Test
@@ -701,10 +695,33 @@ public class PlaylistManagerTest {
         return entries;
     }
 
+    private static EntityPlayerMP testPlayer() throws Exception {
+        Field unsafeField = Unsafe.class.getDeclaredField("theUnsafe");
+        unsafeField.setAccessible(true);
+        EntityPlayerMP player = (EntityPlayerMP) ((Unsafe) unsafeField.get(null))
+            .allocateInstance(EntityPlayerMP.class);
+        Field profileField = EntityPlayer.class.getDeclaredField("field_146106_i");
+        profileField.setAccessible(true);
+        profileField.set(player, new GameProfile(java.util.UUID.randomUUID(), "test"));
+        return player;
+    }
+
     private static void invokeChartRefresh(PlaylistManager manager, ChartRegion region) throws Exception {
         Method refresh = PlaylistManager.class.getDeclaredMethod("refreshChartsIfNeeded", ChartRegion.class);
         refresh.setAccessible(true);
         refresh.invoke(manager, region);
+    }
+
+    private static void invokePlayNext(PlaylistManager manager) throws Exception {
+        Method playNext = PlaylistManager.class.getDeclaredMethod("playNext");
+        playNext.setAccessible(true);
+        playNext.invoke(manager);
+    }
+
+    private static PlaylistState playlistState(PlaylistManager manager) throws Exception {
+        Field field = PlaylistManager.class.getDeclaredField("state");
+        field.setAccessible(true);
+        return (PlaylistState) field.get(manager);
     }
 
     private static List<SearchResult> cachedCharts(PlaylistManager manager, String regionCode) throws Exception {
@@ -934,6 +951,7 @@ public class PlaylistManagerTest {
         private CompletableFuture<Path> lastDownload;
         private Path lastDownloadFile;
         private CompletableFuture<String> lastDurationLookup;
+        private List<String> lastDurationVideoIds;
 
         private FakeAudioDownload(List<String> events) throws IOException {
             super(Files.createTempDirectory("horizonradio-playlist-test"), false);
@@ -951,6 +969,7 @@ public class PlaylistManagerTest {
         @Override
         public CompletableFuture<String> extractVideoDurationOutput(List<String> videoIds) {
             durationLookupCalls++;
+            lastDurationVideoIds = new ArrayList<String>(videoIds);
             lastDurationLookup = new CompletableFuture<String>();
             return lastDurationLookup;
         }

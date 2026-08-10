@@ -228,8 +228,9 @@ public class PacketRoundTripTest {
         PausePacket pause = roundTrip(new PausePacket(123456789L), new PausePacket());
         assertEquals(123456789L, pause.getPositionMs());
 
-        ResumePacket resume = roundTrip(new ResumePacket(987654321L), new ResumePacket());
+        ResumePacket resume = roundTrip(new ResumePacket(987654321L, 987654999L), new ResumePacket());
         assertEquals(987654321L, resume.getPositionMs());
+        assertEquals(987654999L, resume.getStartAtMs());
     }
 
     @Test(expected = IllegalArgumentException.class)

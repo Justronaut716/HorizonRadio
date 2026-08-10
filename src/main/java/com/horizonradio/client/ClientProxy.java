@@ -191,7 +191,7 @@ public class ClientProxy extends CommonProxy {
 
             @Override
             public void run() {
-                HorizonRadioClient.handleResume(packet.getPositionMs());
+                HorizonRadioClient.handleResume(packet.getPositionMs(), packet.getStartAtMs());
             }
         });
     }
