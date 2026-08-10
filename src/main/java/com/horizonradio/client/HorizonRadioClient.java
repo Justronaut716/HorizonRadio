@@ -521,6 +521,13 @@ public final class HorizonRadioClient {
         }
     }
 
+    public static synchronized void completeChartAdds(List<String> videoIds) {
+        HorizonRadioScreen screen = getOpenScreen();
+        if (screen != null) {
+            screen.completeChartAdds(videoIds);
+        }
+    }
+
     public static synchronized void updateRadioSearchResults(RadioSearchResultsPacket packet) {
         CACHED_RADIO_RESULTS.clear();
         if (packet != null) {

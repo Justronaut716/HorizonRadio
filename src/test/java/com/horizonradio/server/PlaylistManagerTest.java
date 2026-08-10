@@ -13,6 +13,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
 import net.minecraft.util.EnumChatFormatting;
@@ -24,6 +25,7 @@ import com.horizonradio.core.model.SearchResult;
 import com.horizonradio.core.server.ChartCache;
 import com.horizonradio.core.server.ChartRegion;
 import com.horizonradio.core.server.ChartRegionCatalog;
+import com.horizonradio.network.packets.AddChartsToPlaylistPacket;
 import com.horizonradio.network.packets.RadioStatePacket;
 import com.horizonradio.network.packets.SearchResultsPacket;
 
@@ -321,6 +323,9 @@ public class PlaylistManagerTest {
             assertFalse(
                 radioStates.get(0)
                     .isActive());
+            assertTrue(
+                radioStates.get(0)
+                    .isMusicMode());
             assertEquals(
                 "",
                 radioStates.get(0)
@@ -515,13 +520,104 @@ public class PlaylistManagerTest {
         try {
             invokeChartRefresh(manager, ChartRegionCatalog.byCode("DE"));
 
-            assertEquals(0, audioDownload.durationLookupCalls);
+            assertEquals(1, audioDownload.durationLookupCalls);
+            assertFalse(audioDownload.lastDurationLookup.isDone());
             assertEquals(
                 Arrays.asList(new SearchResult("chart", "Chart Song", "Artist", "", "")),
                 cachedCharts(manager, "DE"));
         } finally {
             manager.shutdown();
         }
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    public void chartQueueDurationResolutionReusesTheBackgroundLookup() throws Exception {
+        FakeRadioBrowser browser = new FakeRadioBrowser(STATION_A);
+        FakeRadioStream stream = new FakeRadioStream();
+        FakeAudioDownload audioDownload = new FakeAudioDownload(new ArrayList<String>());
+        RecordingChartYouTube youtube = new RecordingChartYouTube();
+        youtube.charts = Arrays.asList(new SearchResult("chart", "Chart Song", "Artist", "", ""));
+        PlaylistManager manager = new PlaylistManager(youtube, audioDownload, browser, stream);
+        try {
+            invokeChartRefresh(manager, ChartRegionCatalog.byCode("DE"));
+
+            Method resolve = PlaylistManager.class.getDeclaredMethod("resolveChartDurations", List.class);
+            resolve.setAccessible(true);
+            CompletableFuture<Map<String, String>> durationFuture = (CompletableFuture<Map<String, String>>) resolve
+                .invoke(manager, Arrays.asList("chart"));
+
+            assertEquals(1, audioDownload.durationLookupCalls);
+            audioDownload.completeLastDuration("chart\\t1:00");
+
+            assertEquals(
+                "1:00",
+                durationFuture.get()
+                    .get("chart"));
+        } finally {
+            manager.shutdown();
+        }
+    }
+
+    @Test
+    public void chartBulkRequestsAreSplitIntoOrderedTenSongBatches() {
+        List<AddChartsToPlaylistPacket.Entry> entries = new ArrayList<AddChartsToPlaylistPacket.Entry>();
+        for (int index = 0; index < 21; index++) {
+            entries.add(new AddChartsToPlaylistPacket.Entry("chart-" + index, "Chart " + index, ""));
+        }
+
+        List<List<AddChartsToPlaylistPacket.Entry>> batches = PlaylistManager.splitChartEntries(entries, 10);
+
+        assertEquals(3, batches.size());
+        assertEquals(
+            10,
+            batches.get(0)
+                .size());
+        assertEquals(
+            10,
+            batches.get(1)
+                .size());
+        assertEquals(
+            1,
+            batches.get(2)
+                .size());
+        assertEquals(
+            "chart-0",
+            batches.get(0)
+                .get(0)
+                .getVideoId());
+        assertEquals(
+            "chart-20",
+            batches.get(2)
+                .get(0)
+                .getVideoId());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    public void chartBulkDurationBatchesStartWithoutWaitingForEachOther() throws Exception {
+        FakeRadioBrowser browser = new FakeRadioBrowser(STATION_A);
+        FakeRadioStream stream = new FakeRadioStream();
+        FakeAudioDownload audioDownload = new FakeAudioDownload(new ArrayList<String>());
+        PlaylistManager manager = new PlaylistManager(new YouTubeService(), audioDownload, browser, stream);
+        try {
+            Method resolve = PlaylistManager.class.getDeclaredMethod("resolveChartEntryDurations", List.class);
+            resolve.setAccessible(true);
+            resolve.invoke(manager, chartEntries(10, 0));
+            resolve.invoke(manager, chartEntries(10, 10));
+
+            assertEquals(2, audioDownload.durationLookupCalls);
+        } finally {
+            manager.shutdown();
+        }
+    }
+
+    @Test
+    public void chartBatchPublicationWaitsUntilTheFinalBatch() {
+        assertFalse(PlaylistManager.shouldPublishChartAddBatch(0, 3));
+        assertFalse(PlaylistManager.shouldPublishChartAddBatch(1, 3));
+        assertTrue(PlaylistManager.shouldPublishChartAddBatch(2, 3));
+        assertTrue(PlaylistManager.shouldPublishChartAddBatch(0, 1));
     }
 
     @Test
@@ -594,6 +690,15 @@ public class PlaylistManagerTest {
             result.add(event);
         }
         return result;
+    }
+
+    private static List<AddChartsToPlaylistPacket.Entry> chartEntries(int count, int offset) {
+        List<AddChartsToPlaylistPacket.Entry> entries = new ArrayList<AddChartsToPlaylistPacket.Entry>();
+        for (int index = 0; index < count; index++) {
+            entries
+                .add(new AddChartsToPlaylistPacket.Entry("chart-" + (offset + index), "Chart " + (offset + index), ""));
+        }
+        return entries;
     }
 
     private static void invokeChartRefresh(PlaylistManager manager, ChartRegion region) throws Exception {

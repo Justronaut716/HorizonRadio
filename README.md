@@ -108,10 +108,11 @@ Example configuration:
 }
 ```
 
-`maxPlaylistSize` is preserved as a configuration value but is not enforced by
-the active source behavior. `maxTrackDurationMinutes` limits YouTube search
-results to songs shorter than the configured number of minutes. HorizonRadio
-uses yt-dlp's Android client by default; if YouTube still requests a login,
+`maxPlaylistSize` limits the total number of entries in the shared playlist;
+additional songs are rejected once the configured maximum is reached.
+`maxTrackDurationMinutes` limits YouTube search results to songs shorter than
+the configured number of minutes. HorizonRadio uses yt-dlp's Android client
+by default; if YouTube still requests a login,
 set either `youtubeCookiesFromBrowser` (for example `chrome` or `firefox`) or
 `youtubeCookiesFile` to an exported Netscape-format cookie file, then restart
 the server.
