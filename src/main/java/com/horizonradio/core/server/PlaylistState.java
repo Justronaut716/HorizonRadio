@@ -43,10 +43,7 @@ public final class PlaylistState {
     }
 
     public boolean add(PlaylistEntry entry) {
-        // The active Fabric implementation reads maxPlaylistSize but never
-        // applies it. Keep that behavior for this port; changing it would
-        // silently change playlist gameplay.
-        if (entry == null) {
+        if (entry == null || playlist.size() >= maxPlaylistSize) {
             return false;
         }
         playlist.add(entry);

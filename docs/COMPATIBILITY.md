@@ -200,8 +200,8 @@ The preserved JSON file is `config/horizonradio.json`:
 }
 ```
 
-`maxPlaylistSize` is read but not enforced by the active behavior; this is
-intentionally documented rather than silently changing gameplay.
+`maxPlaylistSize` is enforced server-side for all playlist additions, including
+individual songs, chart batches, and playlist imports.
 `maxTrackDurationMinutes` excludes search results that are at or above the
 configured limit. The playlist is in memory and has no NBT/database persistence.
 OneDrive paths can expose

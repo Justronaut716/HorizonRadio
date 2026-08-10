@@ -51,6 +51,7 @@ import com.horizonradio.network.HorizonRadioNetwork;
 import com.horizonradio.network.PacketBufferUtil;
 import com.horizonradio.network.packets.AddChartsToPlaylistPacket;
 import com.horizonradio.network.packets.AudioChunkPacket;
+import com.horizonradio.network.packets.ChartAddCompletionPacket;
 import com.horizonradio.network.packets.LoopStatePacket;
 import com.horizonradio.network.packets.NowPlayingPacket;
 import com.horizonradio.network.packets.PausePacket;
@@ -69,8 +70,14 @@ public final class PlaylistManager {
     private static final Logger LOGGER = Logger.getLogger(PlaylistManager.class.getName());
     private static final long DEFAULT_TRACK_DURATION_MS = 3L * 60L * 1000L;
     private static final long NEXT_TRACK_DELAY_MS = 2000L;
-    private static final long LATE_JOIN_TIMEOUT_MS = 10000L;
+    private static final long LATE_JOIN_TIMEOUT_MS = 3000L;
     private static final int MAX_SEARCH_RESULTS = 10;
+    private static final int CHART_DURATION_PREFETCH_LIMIT = 10;
+    private static final int CHART_ADD_BATCH_SIZE = 10;
+
+    static boolean shouldPublishChartAddBatch(int batchIndex, int batchCount) {
+        return batchCount > 0 && batchIndex == batchCount - 1;
+    }
 
     private final MinecraftServer server;
     private final YouTubeService youTubeService;
@@ -85,6 +92,8 @@ public final class PlaylistManager {
     private final AtomicLong searchRequestGeneration = new AtomicLong();
     private final RadioPlaybackState radioState = new RadioPlaybackState();
     private final Map<String, List<EntityPlayerMP>> chartRefreshWaiters = new HashMap<String, List<EntityPlayerMP>>();
+    private final ConcurrentMap<String, String> chartDurations = new ConcurrentHashMap<String, String>();
+    private final ConcurrentMap<String, CompletableFuture<String>> chartDurationRequests = new ConcurrentHashMap<String, CompletableFuture<String>>();
     private final Set<String> preloadingAudio = Collections.newSetFromMap(new ConcurrentHashMap<String, Boolean>());
 
     private volatile boolean shuttingDown;
@@ -447,13 +456,9 @@ public final class PlaylistManager {
     }
 
     void stopRadioForMusic() {
-        if (isRadioActive()) {
-            stopRadio();
-            return;
-        }
         ++radioSelectionRequest;
         radioStreamService.stopAll();
-        radioState.stop();
+        radioState.startMusic();
         radioLastSequence = -1L;
         broadcastRadioState("");
     }
@@ -504,6 +509,7 @@ public final class PlaylistManager {
         }
         final String canonicalRegionCode = region.getCode();
         final List<SearchResult> cached = chartCache.getResults(canonicalRegionCode);
+        prefetchChartDurations(cached);
         boolean operator = server.getConfigurationManager()
             .func_152596_g(player.getGameProfile());
         processChartRequest(
@@ -631,6 +637,7 @@ public final class PlaylistManager {
             chartCache.store(regionCode, refreshed);
         }
         List<SearchResult> results = chartCache.getResults(regionCode);
+        prefetchChartDurations(results);
         List<EntityPlayerMP> waiters = chartRefreshWaiters.remove(regionCode);
         chartRefreshInProgress.remove(regionCode);
         if (waiters == null) {
@@ -659,6 +666,140 @@ public final class PlaylistManager {
                 entries.isEmpty() ? EnumChatFormatting.YELLOW : EnumChatFormatting.GREEN,
                 "Loaded " + entries.size() + " " + region.getDisplayName() + " chart songs.");
         }
+    }
+
+    private void prefetchChartDurations(List<SearchResult> charts) {
+        if (charts == null || charts.isEmpty()) {
+            return;
+        }
+        List<String> videoIds = new ArrayList<String>();
+        Set<String> seenVideoIds = new HashSet<String>();
+        for (SearchResult chart : charts) {
+            if (chart == null || isEmpty(chart.getVideoId())) {
+                continue;
+            }
+            String videoId = chart.getVideoId();
+            if (isKnownDuration(chart.getDuration())) {
+                chartDurations.put(videoId, chart.getDuration());
+            }
+            if (videoIds.size() >= CHART_DURATION_PREFETCH_LIMIT || isKnownDuration(chartDurations.get(videoId))
+                || !seenVideoIds.add(videoId)) {
+                continue;
+            }
+            videoIds.add(videoId);
+        }
+        if (!videoIds.isEmpty()) {
+            resolveChartDurations(videoIds);
+        }
+    }
+
+    private CompletableFuture<Map<String, String>> resolveChartDurations(List<String> videoIds) {
+        final Map<String, CompletableFuture<String>> durationFutures = new HashMap<String, CompletableFuture<String>>();
+        List<String> lookupIds = new ArrayList<String>();
+        Set<String> seenVideoIds = new HashSet<String>();
+        if (videoIds != null) {
+            for (String videoId : videoIds) {
+                if (isEmpty(videoId) || !seenVideoIds.add(videoId)) {
+                    continue;
+                }
+                String cachedDuration = chartDurations.get(videoId);
+                if (isKnownDuration(cachedDuration)) {
+                    durationFutures.put(videoId, CompletableFuture.completedFuture(cachedDuration));
+                    continue;
+                }
+                CompletableFuture<String> pending = new CompletableFuture<String>();
+                CompletableFuture<String> existing = chartDurationRequests.putIfAbsent(videoId, pending);
+                if (existing == null) {
+                    durationFutures.put(videoId, pending);
+                    lookupIds.add(videoId);
+                } else {
+                    durationFutures.put(videoId, existing);
+                }
+            }
+        }
+        if (!lookupIds.isEmpty()) {
+            startChartDurationLookup(lookupIds);
+        }
+
+        final CompletableFuture<Map<String, String>> resolved = new CompletableFuture<Map<String, String>>();
+        if (durationFutures.isEmpty()) {
+            resolved.complete(new HashMap<String, String>());
+            return resolved;
+        }
+        CompletableFuture<?>[] pendingFutures = durationFutures.values()
+            .toArray(new CompletableFuture<?>[durationFutures.size()]);
+        CompletableFuture.allOf(pendingFutures)
+            .whenComplete(new BiConsumer<Void, Throwable>() {
+
+                @Override
+                public void accept(Void ignored, Throwable failure) {
+                    if (failure != null) {
+                        resolved.completeExceptionally(failure);
+                        return;
+                    }
+                    Map<String, String> durations = new HashMap<String, String>();
+                    for (Map.Entry<String, CompletableFuture<String>> entry : durationFutures.entrySet()) {
+                        String duration = entry.getValue()
+                            .getNow("");
+                        if (!isEmpty(duration)) {
+                            durations.put(entry.getKey(), duration);
+                        }
+                    }
+                    resolved.complete(durations);
+                }
+            });
+        return resolved;
+    }
+
+    private void startChartDurationLookup(final List<String> videoIds) {
+        CompletableFuture<String> lookup;
+        try {
+            lookup = audioDownloadService.extractVideoDurationOutput(videoIds);
+        } catch (RuntimeException exception) {
+            completeChartDurationLookup(videoIds, null);
+            return;
+        }
+        if (lookup == null) {
+            completeChartDurationLookup(videoIds, null);
+            return;
+        }
+        lookup.whenComplete(new BiConsumer<String, Throwable>() {
+
+            @Override
+            public void accept(String durationOutput, Throwable failure) {
+                completeChartDurationLookup(videoIds, failure == null ? durationOutput : null);
+            }
+        });
+    }
+
+    private void completeChartDurationLookup(List<String> videoIds, String durationOutput) {
+        Map<String, String> durations = PlaylistImportService.parseDurationOutput(durationOutput);
+        for (String videoId : videoIds) {
+            String duration = durations.get(videoId);
+            if (isKnownDuration(duration)) {
+                chartDurations.put(videoId, duration);
+            }
+            CompletableFuture<String> pending = chartDurationRequests.remove(videoId);
+            if (pending != null) {
+                pending.complete(safe(duration));
+            }
+        }
+    }
+
+    static List<List<AddChartsToPlaylistPacket.Entry>> splitChartEntries(List<AddChartsToPlaylistPacket.Entry> entries,
+        int batchSize) {
+        if (batchSize <= 0) {
+            throw new IllegalArgumentException("batchSize must be positive");
+        }
+        List<List<AddChartsToPlaylistPacket.Entry>> batches = new ArrayList<List<AddChartsToPlaylistPacket.Entry>>();
+        if (entries == null || entries.isEmpty()) {
+            return batches;
+        }
+        for (int start = 0; start < entries.size(); start += batchSize) {
+            int end = Math.min(entries.size(), start + batchSize);
+            batches.add(new ArrayList<AddChartsToPlaylistPacket.Entry>(entries.subList(start, end)));
+        }
+        return batches;
     }
 
     static List<SearchResultsPacket.Entry> buildChartEntries(List<SearchResult> charts, long maxDurationMs) {
@@ -936,36 +1077,94 @@ public final class PlaylistManager {
             removeChartEntries(player, entries);
             return;
         }
-        final List<AddChartsToPlaylistPacket.Entry> requested = new ArrayList<AddChartsToPlaylistPacket.Entry>(entries);
-        List<String> videoIds = new ArrayList<String>();
-        for (AddChartsToPlaylistPacket.Entry entry : requested) {
-            if (!isEmpty(entry.getVideoId()) && DurationParser.parseMillisStrict(entry.getDuration()) < 0L) {
-                videoIds.add(entry.getVideoId());
-            }
+        final List<List<AddChartsToPlaylistPacket.Entry>> batches = splitChartEntries(entries, CHART_ADD_BATCH_SIZE);
+        if (!audioDownloadService.isDependenciesAvailable()) {
+            sendChat(
+                player,
+                EnumChatFormatting.YELLOW,
+                "Warning: yt-dlp or ffmpeg may not be installed on the server. Downloads may fail.");
         }
-        if (videoIds.isEmpty()) {
-            finishAddChartsToPlaylist(player, requested, null);
+        List<CompletableFuture<Map<String, String>>> durationFutures = new ArrayList<CompletableFuture<Map<String, String>>>();
+        for (List<AddChartsToPlaylistPacket.Entry> batch : batches) {
+            durationFutures.add(resolveChartEntryDurations(batch));
+        }
+        processChartAddBatch(player, batches, durationFutures, 0, 0);
+    }
+
+    private void processChartAddBatch(final EntityPlayerMP player,
+        final List<List<AddChartsToPlaylistPacket.Entry>> batches,
+        final List<CompletableFuture<Map<String, String>>> durationFutures, final int batchIndex,
+        final int addedSoFar) {
+        if (batchIndex >= batches.size()) {
+            sendChat(
+                player,
+                addedSoFar > 0 ? EnumChatFormatting.GREEN : EnumChatFormatting.YELLOW,
+                "Added " + addedSoFar + " chart songs to the playlist.");
             return;
         }
-        audioDownloadService.extractVideoDurationOutput(videoIds)
-            .whenComplete(new BiConsumer<String, Throwable>() {
+
+        final List<AddChartsToPlaylistPacket.Entry> batch = batches.get(batchIndex);
+        durationFutures.get(batchIndex)
+            .whenComplete(new BiConsumer<Map<String, String>, Throwable>() {
 
                 @Override
-                public void accept(final String durationOutput, Throwable failure) {
+                public void accept(final Map<String, String> durations, Throwable failure) {
                     enqueueServerTask(new Runnable() {
 
                         @Override
                         public void run() {
-                            finishAddChartsToPlaylist(player, requested, durationOutput);
+                            int added = finishAddChartsToPlaylist(
+                                player,
+                                batch,
+                                failure == null && durations != null ? durations
+                                    : Collections.<String, String>emptyMap());
+                            if (shouldPublishChartAddBatch(batchIndex, batches.size())) {
+                                publishChartAddRequest(player, batches, addedSoFar + added);
+                            }
+                            processChartAddBatch(player, batches, durationFutures, batchIndex + 1, addedSoFar + added);
                         }
                     });
                 }
             });
     }
 
-    private void finishAddChartsToPlaylist(EntityPlayerMP player, List<AddChartsToPlaylistPacket.Entry> entries,
-        String durationOutput) {
-        Map<String, String> durations = PlaylistImportService.parseDurationOutput(durationOutput);
+    private CompletableFuture<Map<String, String>> resolveChartEntryDurations(
+        List<AddChartsToPlaylistPacket.Entry> entries) {
+        final Map<String, String> knownDurations = new HashMap<String, String>();
+        List<String> videoIds = new ArrayList<String>();
+        if (entries != null) {
+            for (AddChartsToPlaylistPacket.Entry entry : entries) {
+                if (entry == null || isEmpty(entry.getVideoId()) || isKnownDuration(entry.getDuration())) {
+                    continue;
+                }
+                String cachedDuration = chartDurations.get(entry.getVideoId());
+                if (isKnownDuration(cachedDuration)) {
+                    knownDurations.put(entry.getVideoId(), cachedDuration);
+                } else if (!videoIds.contains(entry.getVideoId())) {
+                    videoIds.add(entry.getVideoId());
+                }
+            }
+        }
+        if (videoIds.isEmpty()) {
+            return CompletableFuture.completedFuture(knownDurations);
+        }
+
+        final CompletableFuture<Map<String, String>> resolved = new CompletableFuture<Map<String, String>>();
+        resolveChartDurations(videoIds).whenComplete(new BiConsumer<Map<String, String>, Throwable>() {
+
+            @Override
+            public void accept(Map<String, String> durations, Throwable failure) {
+                if (failure == null && durations != null) {
+                    knownDurations.putAll(durations);
+                }
+                resolved.complete(knownDurations);
+            }
+        });
+        return resolved;
+    }
+
+    private int finishAddChartsToPlaylist(EntityPlayerMP player, List<AddChartsToPlaylistPacket.Entry> entries,
+        Map<String, String> durations) {
         Set<String> knownVideoIds = new HashSet<String>();
         for (PlaylistEntry entry : state.snapshot()) {
             knownVideoIds.add(entry.getVideoId());
@@ -973,34 +1172,53 @@ public final class PlaylistManager {
 
         int added = 0;
         for (AddChartsToPlaylistPacket.Entry chart : entries) {
-            String duration = isEmpty(chart.getDuration()) ? durations.get(chart.getVideoId()) : chart.getDuration();
+            if (chart == null) {
+                continue;
+            }
+            String duration = isKnownDuration(chart.getDuration()) ? chart.getDuration()
+                : durations.get(chart.getVideoId());
             if (isEmpty(chart.getVideoId()) || isEmpty(chart.getTitle())
                 || !isSearchDurationAllowed(duration, configuredMaxTrackDurationMs())
                 || !knownVideoIds.add(chart.getVideoId())) {
                 continue;
             }
-            state.add(new PlaylistEntry(chart.getVideoId(), chart.getTitle(), duration, player.getCommandSenderName()));
-            added++;
+            if (state.add(
+                new PlaylistEntry(chart.getVideoId(), chart.getTitle(), duration, player.getCommandSenderName()))) {
+                added++;
+            }
         }
-        if (state.isShuffling() && added > 0) {
-            state.shuffleQueued();
-        }
+        return added;
+    }
+
+    private void publishChartAddRequest(EntityPlayerMP player, List<List<AddChartsToPlaylistPacket.Entry>> batches,
+        int added) {
         if (added > 0) {
-            if (!audioDownloadService.isDependenciesAvailable()) {
-                sendChat(
-                    player,
-                    EnumChatFormatting.YELLOW,
-                    "Warning: yt-dlp or ffmpeg may not be installed on the server. Downloads may fail.");
+            if (state.isShuffling()) {
+                state.shuffleQueued();
             }
             syncToAll();
             if (shouldStartPlaylistPlayback(isRadioActive(), state.isPlaying())) {
                 playNext();
             }
         }
-        sendChat(
-            player,
-            added > 0 ? EnumChatFormatting.GREEN : EnumChatFormatting.YELLOW,
-            "Added " + added + " chart songs to the playlist.");
+        sendChartAddCompletion(player, batches);
+    }
+
+    private void sendChartAddCompletion(EntityPlayerMP player, List<List<AddChartsToPlaylistPacket.Entry>> batches) {
+        List<String> completedVideoIds = new ArrayList<String>();
+        if (batches != null) {
+            for (List<AddChartsToPlaylistPacket.Entry> batch : batches) {
+                if (batch == null) {
+                    continue;
+                }
+                for (AddChartsToPlaylistPacket.Entry entry : batch) {
+                    if (entry != null && !isEmpty(entry.getVideoId())) {
+                        completedVideoIds.add(entry.getVideoId());
+                    }
+                }
+            }
+        }
+        HorizonRadioNetwork.CHANNEL.sendTo(new ChartAddCompletionPacket(completedVideoIds), player);
     }
 
     public void handleRemoveFromPlaylist(EntityPlayerMP player, String videoId) {
@@ -1360,6 +1578,10 @@ public final class PlaylistManager {
         if (isRadioActive()) {
             return;
         }
+        if (radioState.getMode() != RadioPlaybackState.Mode.MUSIC) {
+            radioState.startMusic();
+            broadcastRadioState("");
+        }
         final long generation = ++musicGeneration;
         cancelActiveAudioDownload();
         PlaylistEntry previousLastTrack = state.peekLastTrack();
@@ -1619,14 +1841,19 @@ public final class PlaylistManager {
         }
 
         state.markLoaded(entry.getVideoId(), System.currentTimeMillis());
-        radioState.startMusic();
-        for (EntityPlayerMP player : onlinePlayersSnapshot()) {
-            if (!sendAudioChunks(player, entry.getVideoId(), entry.getTitle(), audioBytes, 0L)) {
+        List<EntityPlayerMP> players = onlinePlayersSnapshot();
+        beginInitialPlaybackSync(players);
+        for (EntityPlayerMP player : players) {
+            if (!sendAudioChunks(player, entry.getVideoId(), entry.getTitle(), audioBytes, -1L)) {
                 audioTooLarge(generation, entry, index, audioBytes.length);
                 return;
             }
         }
         broadcastNowPlaying(entry.getTitle(), 0.0f);
+
+        if (state.isSyncing()) {
+            return;
+        }
 
         cancelFuture(advanceFuture);
         long delay = state.getCurrentTrackDurationMs() + NEXT_TRACK_DELAY_MS;
@@ -1639,6 +1866,18 @@ public final class PlaylistManager {
                 }
             }
         }, delay, TimeUnit.MILLISECONDS);
+    }
+
+    private void beginInitialPlaybackSync(List<EntityPlayerMP> players) {
+        if (players == null || players.isEmpty()) {
+            return;
+        }
+        long now = System.currentTimeMillis();
+        for (EntityPlayerMP player : players) {
+            state.beginLateJoin(player.getUniqueID(), 0L, now);
+        }
+        scheduleSyncTimeout();
+        LOGGER.info("Waiting for " + players.size() + " players before starting the current track");
     }
 
     private void requestLateJoinAudio(final EntityPlayerMP player, final UUID playerUuid, final PlaylistEntry entry,
@@ -1873,7 +2112,8 @@ public final class PlaylistManager {
             radioState.getGeneration(),
             radioState.getStationUuid(),
             radioState.getStationName(),
-            PacketBufferUtil.truncateUtf8(safe(status), RadioStatePacket.MAX_STATUS_BYTES));
+            PacketBufferUtil.truncateUtf8(safe(status), RadioStatePacket.MAX_STATUS_BYTES),
+            radioState.getMode() == RadioPlaybackState.Mode.MUSIC);
     }
 
     private void broadcastRadioState(String inactiveStatus) {
@@ -2008,6 +2248,10 @@ public final class PlaylistManager {
     public static boolean isSearchDurationAllowed(String duration, long maxDurationMs) {
         long durationMs = DurationParser.parseMillisStrict(duration);
         return durationMs >= 0L && durationMs < maxDurationMs;
+    }
+
+    private static boolean isKnownDuration(String duration) {
+        return DurationParser.parseMillisStrict(duration) >= 0L;
     }
 
     static boolean shouldStartPlaylistPlayback(boolean radioActive, boolean musicPlaying) {

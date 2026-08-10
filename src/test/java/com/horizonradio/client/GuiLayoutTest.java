@@ -16,6 +16,7 @@ import java.io.InputStreamReader;
 import java.nio.charset.Charset;
 import java.nio.file.Files;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 import javax.imageio.ImageIO;
@@ -224,6 +225,40 @@ public class GuiLayoutTest {
         int bulkButtonTop = screenConstant("CHARTS_BULK_BUTTON_Y_OFFSET");
 
         assertTrue("Charts bulk button overlaps the search controls", bulkButtonTop > searchButtonBottom);
+    }
+
+    @Test
+    public void pendingChartAddUsesMinusAndBlocksDuplicateRequestsUntilCompletion() {
+        TestScreen screen = new TestScreen();
+        List<HorizonRadioScreen.SearchResult> results = singleResult();
+
+        assertEquals(results, screen.beginChartAdd(results));
+        assertTrue(screen.isChartAddPending("video"));
+        assertEquals("-", HorizonRadioScreen.chartQueueButtonLabel(false, true));
+        assertTrue(
+            screen.beginChartAdd(results)
+                .isEmpty());
+
+        screen.completeChartAdds(Arrays.asList("video"));
+
+        assertFalse(screen.isChartAddPending("video"));
+        assertEquals("+", HorizonRadioScreen.chartQueueButtonLabel(false, false));
+    }
+
+    @Test
+    public void chartBulkAddSkipsQueuedAndPendingEntries() {
+        TestScreen screen = new TestScreen();
+        List<HorizonRadioScreen.SearchResult> results = Arrays.asList(
+            new HorizonRadioScreen.SearchResult("queued", "Queued", "", "2:00", ""),
+            new HorizonRadioScreen.SearchResult("pending", "Pending", "", "2:00", ""),
+            new HorizonRadioScreen.SearchResult("new", "New", "", "2:00", ""));
+        screen.updatePlaylist(Arrays.asList(new HorizonRadioScreen.PlaylistEntry("queued", "Queued", "2:00", "Alice")));
+        screen.beginChartAdd(Arrays.asList(new HorizonRadioScreen.SearchResult("pending", "Pending", "", "2:00", "")));
+
+        List<HorizonRadioScreen.SearchResult> request = screen.beginChartAdd(results);
+
+        assertEquals(1, request.size());
+        assertEquals("new", request.get(0).videoId);
     }
 
     @Test
@@ -843,10 +878,32 @@ public class GuiLayoutTest {
     }
 
     @Test
+    public void musicModeDoesNotDisplayTheRememberedRadioStation() {
+        HorizonRadioClient.updateRadioState(new RadioStatePacket(false, 1L, "radio-uuid", "Station", "", true));
+        TestScreen screen = new TestScreen();
+        screen.setScreenSize(300, 285);
+
+        screen.initialize();
+
+        assertNull(screen.getNowPlayingSnapshot());
+    }
+
+    @Test
     public void pausedRadioDoesNotUseMusicProgressBar() {
         assertFalse(invokeShouldDrawPlaybackProgress(false, true));
         assertTrue(invokeShouldDrawPlaybackProgress(false, false));
         assertFalse(invokeShouldDrawPlaybackProgress(true, false));
+    }
+
+    @Test
+    public void musicModeIsDistinguishedFromPausedRadioState() throws IOException {
+        String packet = readSource("src/main/java/com/horizonradio/network/packets/RadioStatePacket.java");
+        String manager = readSource("src/main/java/com/horizonradio/server/PlaylistManager.java");
+        String screen = readSource("src/main/java/com/horizonradio/client/HorizonRadioScreen.java");
+
+        assertTrue(packet.contains("isMusicMode"));
+        assertTrue(manager.contains("RadioPlaybackState.Mode.MUSIC"));
+        assertTrue(screen.contains("isMusicMode()"));
     }
 
     @Test

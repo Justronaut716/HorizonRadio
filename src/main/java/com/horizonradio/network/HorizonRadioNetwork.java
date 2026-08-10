@@ -4,6 +4,7 @@ import com.horizonradio.core.protocol.HorizonRadioProtocol;
 import com.horizonradio.network.packets.AddChartsToPlaylistPacket;
 import com.horizonradio.network.packets.AddToPlaylistPacket;
 import com.horizonradio.network.packets.AudioChunkPacket;
+import com.horizonradio.network.packets.ChartAddCompletionPacket;
 import com.horizonradio.network.packets.ClearPlaylistPacket;
 import com.horizonradio.network.packets.ImportPlaylistPacket;
 import com.horizonradio.network.packets.ImportVideoPacket;
@@ -173,6 +174,11 @@ public final class HorizonRadioNetwork {
             ClientboundMessageHandlers.RadioAudioChunkHandler.class,
             RadioAudioChunkPacket.class,
             31,
+            Side.CLIENT);
+        CHANNEL.registerMessage(
+            ClientboundMessageHandlers.ChartAddCompletionHandler.class,
+            ChartAddCompletionPacket.class,
+            32,
             Side.CLIENT);
         registered = true;
     }

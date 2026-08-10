@@ -2,8 +2,10 @@ package com.horizonradio.client;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Gui;
@@ -109,6 +111,7 @@ public class HorizonRadioScreen extends GuiScreen {
     private ControlButton refreshChartsButton;
     private HorizonRadioVolumeSlider volumeSlider;
     private List<SearchResult> chartResults = new ArrayList<SearchResult>();
+    private final Set<String> pendingChartAdds = new HashSet<String>();
     private String chartRegionCode = "";
     private String chartSearchMessage = "";
     private List<SearchResult> searchResults = new ArrayList<SearchResult>();
@@ -345,8 +348,8 @@ public class HorizonRadioScreen extends GuiScreen {
             drawQueueButtonAt(
                 left,
                 top + CHARTS_BULK_BUTTON_Y_OFFSET,
-                areAllChartsInQueue(),
-                isChartsBulkButtonAt(left, top, mouseX, mouseY));
+                areAllChartsInQueueOrPending(),
+                isChartsBulkButtonAt(left, top, mouseX, mouseY) && !areAllChartsInQueueOrPending());
         }
     }
 
@@ -424,7 +427,12 @@ public class HorizonRadioScreen extends GuiScreen {
                 y + 4,
                 0xFFAAAAAA);
             drawString(fontRendererObj, truncate(result.channel, textWidth), left + 15, y + 14, 0xFF888888);
-            drawQueueButton(left, y, isInQueue(result.videoId), isQueueButtonAt(left, y, mouseX, mouseY));
+            boolean pending = currentTab == CHARTS_TAB && isChartAddPending(result.videoId);
+            drawQueueButton(
+                left,
+                y,
+                isInQueue(result.videoId) || pending,
+                isQueueButtonAt(left, y, mouseX, mouseY) && !pending);
         }
         drawResultScrollbar(results.size(), scrollOffset, left, listTop);
     }
@@ -693,7 +701,14 @@ public class HorizonRadioScreen extends GuiScreen {
         if (button == 0 && isResultTab(currentTab)) {
             boolean charts = currentTab == CHARTS_TAB;
             if (charts && isChartsBulkButtonAt(panelLeft(), panelTop(), mouseX, mouseY)) {
-                HorizonRadioClient.sendAddChartsToPlaylist(chartResults, areAllChartsInQueue());
+                if (areAllChartsInQueue()) {
+                    HorizonRadioClient.sendAddChartsToPlaylist(chartResults, true);
+                } else {
+                    List<SearchResult> request = beginChartAdd(chartResults);
+                    if (!request.isEmpty()) {
+                        HorizonRadioClient.sendAddChartsToPlaylist(request);
+                    }
+                }
                 return;
             }
             List<SearchResult> results = charts ? chartResults : searchResults;
@@ -717,10 +732,20 @@ public class HorizonRadioScreen extends GuiScreen {
                 SearchResult result = results.get(scrollOffset + row);
                 int rowTop = resultListTop(panelTop()) + row * ROW_HEIGHT;
                 if (isQueueButtonAt(panelLeft(), rowTop, mouseX, mouseY)) {
+                    if (charts && isChartAddPending(result.videoId)) {
+                        return;
+                    }
                     if (isInQueue(result.videoId)) {
                         HorizonRadioClient.sendRemove(result.videoId);
                     } else {
-                        sendResultToQueue(result, charts);
+                        if (charts) {
+                            List<SearchResult> request = beginChartAdd(Collections.singletonList(result));
+                            if (!request.isEmpty()) {
+                                HorizonRadioClient.sendAddChartsToPlaylist(request);
+                            }
+                        } else {
+                            sendResultToQueue(result, false);
+                        }
                     }
                     return;
                 }
@@ -1054,7 +1079,8 @@ public class HorizonRadioScreen extends GuiScreen {
             currentDuration = "";
         } else {
             String cachedNowPlaying = HorizonRadioClient.getCachedNowPlaying();
-            if (hasResumableRadioStation() && (cachedNowPlaying == null || cachedNowPlaying.length() == 0)) {
+            if (!isMusicMode() && hasResumableRadioStation()
+                && (cachedNowPlaying == null || cachedNowPlaying.length() == 0)) {
                 nowPlaying = packet.getStationName();
                 currentDuration = "";
             } else {
@@ -1159,6 +1185,11 @@ public class HorizonRadioScreen extends GuiScreen {
 
     public void updatePlaylist(List<PlaylistEntry> entries) {
         playlist = entries == null ? new ArrayList<PlaylistEntry>() : new ArrayList<PlaylistEntry>(entries);
+        for (PlaylistEntry entry : playlist) {
+            if (entry != null) {
+                pendingChartAdds.remove(entry.videoId);
+            }
+        }
         refreshCurrentDuration();
         playlistScrollOffset = Math.min(playlistScrollOffset, Math.max(0, playlist.size() - MAX_VISIBLE_ROWS));
         if (draggedPlaylistIndex >= playlist.size()) {
@@ -1166,6 +1197,37 @@ public class HorizonRadioScreen extends GuiScreen {
             draggedPlaylistEntry = null;
             playlistDragMoved = false;
         }
+    }
+
+    void completeChartAdds(List<String> videoIds) {
+        if (videoIds != null) {
+            pendingChartAdds.removeAll(videoIds);
+        }
+    }
+
+    List<SearchResult> beginChartAdd(List<SearchResult> results) {
+        List<SearchResult> request = new ArrayList<SearchResult>();
+        if (results == null) {
+            return request;
+        }
+        for (SearchResult result : results) {
+            if (result == null || result.videoId == null
+                || result.videoId.length() == 0
+                || isInQueue(result.videoId)
+                || !pendingChartAdds.add(result.videoId)) {
+                continue;
+            }
+            request.add(result);
+        }
+        return request;
+    }
+
+    boolean isChartAddPending(String videoId) {
+        return videoId != null && pendingChartAdds.contains(videoId);
+    }
+
+    static String chartQueueButtonLabel(boolean inQueue, boolean pending) {
+        return inQueue || pending ? "-" : "+";
     }
 
     boolean isInQueue(String videoId) {
@@ -1590,11 +1652,16 @@ public class HorizonRadioScreen extends GuiScreen {
 
     private boolean isPausedRadio() {
         String cachedNowPlaying = HorizonRadioClient.getCachedNowPlaying();
-        return !isRadioActive() && hasResumableRadioStation()
+        return !isRadioActive() && !isMusicMode()
+            && hasResumableRadioStation()
             && !hasRadioStatus()
             && (cachedNowPlaying == null || cachedNowPlaying.length() == 0)
             && nowPlaying != null
             && nowPlaying.equals(radioState.getStationName());
+    }
+
+    private boolean isMusicMode() {
+        return radioState != null && radioState.isMusicMode();
     }
 
     static boolean shouldDrawPlaybackProgress(boolean radioActive, boolean pausedRadio) {
@@ -1667,6 +1734,18 @@ public class HorizonRadioScreen extends GuiScreen {
         }
         for (SearchResult result : chartResults) {
             if (!isInQueue(result.videoId)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private boolean areAllChartsInQueueOrPending() {
+        if (chartResults.isEmpty()) {
+            return false;
+        }
+        for (SearchResult result : chartResults) {
+            if (result == null || (!isInQueue(result.videoId) && !isChartAddPending(result.videoId))) {
                 return false;
             }
         }
