@@ -8,6 +8,8 @@ import net.minecraft.server.MinecraftServer;
 import com.horizonradio.network.packets.AddChartsToPlaylistPacket;
 import com.horizonradio.network.packets.AddToPlaylistPacket;
 import com.horizonradio.network.packets.ClearPlaylistPacket;
+import com.horizonradio.network.packets.ClockSyncRequestPacket;
+import com.horizonradio.network.packets.ClockSyncResponsePacket;
 import com.horizonradio.network.packets.ImportPlaylistPacket;
 import com.horizonradio.network.packets.ImportVideoPacket;
 import com.horizonradio.network.packets.PlayNowPacket;
@@ -175,6 +177,30 @@ public final class ServerMessageHandlers {
                     @Override
                     public void run() {
                         hook.handleSearch(player, message.getQuery());
+                    }
+                });
+            }
+            return null;
+        }
+    }
+
+    public static final class ClockSyncRequestHandler implements IMessageHandler<ClockSyncRequestPacket, IMessage> {
+
+        @Override
+        public IMessage onMessage(final ClockSyncRequestPacket message, MessageContext context) {
+            final EntityPlayerMP player = player(context);
+            if (player != null && message != null) {
+                final long serverReceivedAtMs = System.currentTimeMillis();
+                schedule(new Runnable() {
+
+                    @Override
+                    public void run() {
+                        HorizonRadioNetwork.CHANNEL.sendTo(
+                            new ClockSyncResponsePacket(
+                                message.getClientSentAtMs(),
+                                serverReceivedAtMs,
+                                System.currentTimeMillis()),
+                            player);
                     }
                 });
             }

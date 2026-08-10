@@ -190,6 +190,12 @@ public final class PlaylistState {
         return playlist.get(currentIndex);
     }
 
+    public void updateCurrentTrackDuration(long durationMs) {
+        if (durationMs > 0L) {
+            currentTrackDurationMs = durationMs;
+        }
+    }
+
     public void startTrack(int index, String videoId, long durationMs, long startTimeMs) {
         currentIndex = index;
         playing = true;

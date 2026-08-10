@@ -6,6 +6,8 @@ import com.horizonradio.network.packets.AddToPlaylistPacket;
 import com.horizonradio.network.packets.AudioChunkPacket;
 import com.horizonradio.network.packets.ChartAddCompletionPacket;
 import com.horizonradio.network.packets.ClearPlaylistPacket;
+import com.horizonradio.network.packets.ClockSyncRequestPacket;
+import com.horizonradio.network.packets.ClockSyncResponsePacket;
 import com.horizonradio.network.packets.ImportPlaylistPacket;
 import com.horizonradio.network.packets.ImportVideoPacket;
 import com.horizonradio.network.packets.LoopStatePacket;
@@ -179,6 +181,16 @@ public final class HorizonRadioNetwork {
             ClientboundMessageHandlers.ChartAddCompletionHandler.class,
             ChartAddCompletionPacket.class,
             32,
+            Side.CLIENT);
+        CHANNEL.registerMessage(
+            ServerMessageHandlers.ClockSyncRequestHandler.class,
+            ClockSyncRequestPacket.class,
+            33,
+            Side.SERVER);
+        CHANNEL.registerMessage(
+            ClientboundMessageHandlers.ClockSyncResponseHandler.class,
+            ClockSyncResponsePacket.class,
+            34,
             Side.CLIENT);
         registered = true;
     }

@@ -20,6 +20,8 @@ import com.horizonradio.network.packets.AddToPlaylistPacket;
 import com.horizonradio.network.packets.AudioChunkPacket;
 import com.horizonradio.network.packets.ChartAddCompletionPacket;
 import com.horizonradio.network.packets.ClearPlaylistPacket;
+import com.horizonradio.network.packets.ClockSyncRequestPacket;
+import com.horizonradio.network.packets.ClockSyncResponsePacket;
 import com.horizonradio.network.packets.ImportPlaylistPacket;
 import com.horizonradio.network.packets.ImportVideoPacket;
 import com.horizonradio.network.packets.LoopStatePacket;
@@ -147,6 +149,17 @@ public class PacketRoundTripTest {
         ReadyPacket ready = roundTrip(new ReadyPacket("id"), new ReadyPacket());
         assertEquals("id", ready.getVideoId());
 
+        ClockSyncRequestPacket clockRequest = roundTrip(
+            new ClockSyncRequestPacket(1_234L),
+            new ClockSyncRequestPacket());
+        assertEquals(1_234L, clockRequest.getClientSentAtMs());
+        ClockSyncResponsePacket clockResponse = roundTrip(
+            new ClockSyncResponsePacket(1_234L, 6_400L, 6_500L),
+            new ClockSyncResponsePacket());
+        assertEquals(1_234L, clockResponse.getClientSentAtMs());
+        assertEquals(6_400L, clockResponse.getServerReceivedAtMs());
+        assertEquals(6_500L, clockResponse.getServerSentAtMs());
+
         ImportPlaylistPacket importPlaylist = roundTrip(
             new ImportPlaylistPacket("https://youtu.be/id?list=PLtest"),
             new ImportPlaylistPacket());
@@ -228,8 +241,9 @@ public class PacketRoundTripTest {
         PausePacket pause = roundTrip(new PausePacket(123456789L), new PausePacket());
         assertEquals(123456789L, pause.getPositionMs());
 
-        ResumePacket resume = roundTrip(new ResumePacket(987654321L), new ResumePacket());
+        ResumePacket resume = roundTrip(new ResumePacket(987654321L, 987654999L), new ResumePacket());
         assertEquals(987654321L, resume.getPositionMs());
+        assertEquals(987654999L, resume.getStartAtMs());
     }
 
     @Test(expected = IllegalArgumentException.class)
@@ -463,6 +477,8 @@ public class PacketRoundTripTest {
         assertTrue(source.contains("ClientboundMessageHandlers.ChartAddCompletionHandler.class"));
         assertTrue(source.contains("ChartAddCompletionPacket.class"));
         assertTrue(source.contains("ChartAddCompletionPacket.class, 32, Side.CLIENT"));
+        assertTrue(source.contains("ClockSyncRequestPacket.class, 33, Side.SERVER"));
+        assertTrue(source.contains("ClockSyncResponsePacket.class, 34, Side.CLIENT"));
     }
 
     private static <T extends cpw.mods.fml.common.network.simpleimpl.IMessage> T roundTrip(T source, T target) {

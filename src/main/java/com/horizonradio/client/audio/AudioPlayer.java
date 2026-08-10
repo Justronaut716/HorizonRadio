@@ -7,6 +7,8 @@ import java.util.Arrays;
 import java.util.Deque;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -61,6 +63,7 @@ public final class AudioPlayer {
 
     private final ExecutorService executor;
     private final ExecutorService radioControlExecutor;
+    private final ScheduledExecutorService resumeScheduler;
     private final SourceLineFactory sourceLineFactory;
     private final RadioStreamBuffer radioBuffer = new RadioStreamBuffer();
     private final Deque<byte[]> radioHandoff = new ArrayDeque<byte[]>(MAX_LIVE_HANDOFF_PACKETS);
@@ -80,32 +83,43 @@ public final class AudioPlayer {
     private volatile String currentTitle = "";
     private volatile boolean playing;
     private volatile boolean awaitingResume;
+    private volatile boolean resumeReceived;
     private volatile boolean shuttingDown;
     private volatile long resumePositionMs;
+    private volatile long resumeStartAtMs;
+    private volatile long serverClockOffsetMs;
+    private volatile boolean serverClockSynchronized;
     private volatile float volume = 1.0f;
+    private ScheduledFuture<?> pendingResumeStart;
 
     private AudioPlayer() {
         this(new JavaSoundSourceLineFactory());
     }
 
     public AudioPlayer(SourceLineFactory sourceLineFactory) {
-        this(sourceLineFactory, newAudioExecutor(), newRadioControlExecutor());
+        this(sourceLineFactory, newAudioExecutor(), newRadioControlExecutor(), newResumeScheduler());
     }
 
     public AudioPlayer(SourceLineFactory sourceLineFactory, ExecutorService executor) {
-        this(sourceLineFactory, executor, newRadioControlExecutor());
+        this(sourceLineFactory, executor, newRadioControlExecutor(), newResumeScheduler());
     }
 
     AudioPlayer(SourceLineFactory sourceLineFactory, ExecutorService executor, ExecutorService radioControlExecutor) {
+        this(sourceLineFactory, executor, radioControlExecutor, newResumeScheduler());
+    }
+
+    AudioPlayer(SourceLineFactory sourceLineFactory, ExecutorService executor, ExecutorService radioControlExecutor,
+        ScheduledExecutorService resumeScheduler) {
         if (sourceLineFactory == null) {
             throw new IllegalArgumentException("source line factory is required");
         }
-        if (executor == null || radioControlExecutor == null) {
+        if (executor == null || radioControlExecutor == null || resumeScheduler == null) {
             throw new IllegalArgumentException("audio executors are required");
         }
         this.sourceLineFactory = sourceLineFactory;
         this.executor = executor;
         this.radioControlExecutor = radioControlExecutor;
+        this.resumeScheduler = resumeScheduler;
     }
 
     public static synchronized AudioPlayer getInstance() {
@@ -126,6 +140,8 @@ public final class AudioPlayer {
             // A new zero supersedes work for the previous track. The assembler
             // still rejects duplicate zeros for the same in-flight transfer.
             generation.incrementAndGet();
+            cancelPendingResumeStart();
+            resumeReceived = false;
             stopRadio();
         }
 
@@ -142,8 +158,8 @@ public final class AudioPlayer {
         }
 
         final long requestGeneration = generation.get();
-        final boolean lateJoin = awaitingResume || completed.isLateJoin();
-        if (lateJoin) {
+        final boolean lateJoin = completed.isLateJoin();
+        if (lateJoin && !resumeReceived) {
             awaitingResume = true;
         }
         enqueue(new Runnable() {
@@ -158,8 +174,11 @@ public final class AudioPlayer {
     /** Pauses the current clip and records the server position for resume. */
     public void pause(final long positionMs) {
         final long safePosition = Math.max(0L, positionMs);
+        cancelPendingResumeStart();
         awaitingResume = true;
+        resumeReceived = false;
         resumePositionMs = safePosition;
+        resumeStartAtMs = 0L;
         playing = false;
         enqueue(new Runnable() {
 
@@ -176,30 +195,58 @@ public final class AudioPlayer {
 
     /** Seeks the loaded clip and starts it, if a clip is available. */
     public void resume(final long positionMs) {
+        resume(positionMs, 0L);
+    }
+
+    /** Resumes at a shared server timestamp, catching up if the packet arrived late. */
+    public void resume(final long positionMs, final long startAtMs) {
         final long safePosition = Math.max(0L, positionMs);
+        final long safeStartAtMs = Math.max(0L, startAtMs);
         resumePositionMs = safePosition;
+        resumeStartAtMs = safeStartAtMs;
         awaitingResume = false;
+        resumeReceived = true;
+        cancelPendingResumeStart();
+        final long requestGeneration = generation.get();
+        Clip clip = currentClip;
+        if (clip != null && clip.isOpen()) {
+            scheduleClipStart(requestGeneration, clip, safePosition, safeStartAtMs);
+        }
+    }
+
+    /** Applies a measured server-to-client clock offset to pending playback. */
+    public void updateServerClockOffset(final long offsetMs) {
+        serverClockOffsetMs = offsetMs;
+        serverClockSynchronized = true;
+        final Clip clip = currentClip;
+        if (clip == null || !resumeReceived || resumeStartAtMs <= 0L) {
+            return;
+        }
+        final long requestGeneration = generation.get();
         enqueue(new Runnable() {
 
             @Override
             public void run() {
-                Clip clip = currentClip;
-                if (clip != null && clip.isOpen()) {
-                    safeSeek(clip, safePosition);
-                    playing = true;
-                    clip.start();
-                }
+                realignCurrentResume(requestGeneration, clip);
             }
         });
+    }
+
+    public void resetServerClock() {
+        serverClockOffsetMs = 0L;
+        serverClockSynchronized = false;
     }
 
     /** Stops playback and discards all incomplete packet buffers. */
     public void stop() {
         synchronized (stateLock) {
             generation.incrementAndGet();
+            cancelPendingResumeStart();
             assembler.clear();
             awaitingResume = false;
+            resumeReceived = false;
             resumePositionMs = 0L;
+            resumeStartAtMs = 0L;
             playing = false;
             currentTitle = "";
         }
@@ -238,9 +285,12 @@ public final class AudioPlayer {
             packet.isBigEndian());
         synchronized (stateLock) {
             generation.incrementAndGet();
+            cancelPendingResumeStart();
             assembler.clear();
             awaitingResume = false;
+            resumeReceived = false;
             resumePositionMs = 0L;
+            resumeStartAtMs = 0L;
             playing = false;
             currentTitle = "";
         }
@@ -381,12 +431,15 @@ public final class AudioPlayer {
             }
             shuttingDown = true;
             generation.incrementAndGet();
+            cancelPendingResumeStart();
             radioEpoch.incrementAndGet();
             assembler.clear();
             radioBuffer.reset();
             clearRadioHandoff();
             currentRadioFormat = null;
             awaitingResume = false;
+            resumeReceived = false;
+            resumeStartAtMs = 0L;
             playing = false;
             currentTitle = "";
         }
@@ -423,6 +476,7 @@ public final class AudioPlayer {
                 .interrupt();
             radioControlExecutor.shutdownNow();
         }
+        resumeScheduler.shutdownNow();
     }
 
     private void drainRadio(long requestEpoch, AudioFormat format) {
@@ -602,13 +656,12 @@ public final class AudioPlayer {
                     if (awaitingResume) {
                         playing = false;
                     } else {
-                        safeSeek(loadedClip, resumePositionMs);
-                        playing = true;
-                        loadedClip.start();
+                        scheduleClipStart(requestGeneration, loadedClip, resumePositionMs, resumeStartAtMs);
                     }
                 } else {
                     safeSeek(loadedClip, track.getStartOffsetMs());
                     awaitingResume = false;
+                    resumeReceived = true;
                     playing = true;
                     loadedClip.start();
                 }
@@ -631,6 +684,99 @@ public final class AudioPlayer {
                 HorizonRadioClient.sendReady(track.getVideoId());
             }
         }
+    }
+
+    private void scheduleClipStart(final long requestGeneration, final Clip clip, final long positionMs,
+        final long startAtMs) {
+        cancelPendingResumeStart();
+        long localStartAtMs = localStartAtMs(startAtMs);
+        long delayMs = localStartAtMs <= 0L ? 0L : Math.max(0L, localStartAtMs - System.currentTimeMillis());
+        Runnable startTask = new Runnable() {
+
+            @Override
+            public void run() {
+                synchronized (AudioPlayer.this) {
+                    pendingResumeStart = null;
+                }
+                enqueue(new Runnable() {
+
+                    @Override
+                    public void run() {
+                        if (!isCurrent(requestGeneration) || clip != currentClip
+                            || clip == null
+                            || !clip.isOpen()
+                            || awaitingResume
+                            || !isResumeScheduleCurrent(localStartAtMs, localStartAtMs(startAtMs))) {
+                            return;
+                        }
+                        safeSeek(clip, synchronizedPositionMs(positionMs, localStartAtMs, System.currentTimeMillis()));
+                        playing = true;
+                        clip.start();
+                    }
+                });
+            }
+        };
+
+        if (delayMs <= 0L) {
+            startTask.run();
+            return;
+        }
+        synchronized (this) {
+            if (!isCurrent(requestGeneration)) {
+                return;
+            }
+            try {
+                pendingResumeStart = resumeScheduler.schedule(startTask, delayMs, TimeUnit.MILLISECONDS);
+            } catch (RuntimeException exception) {
+                LOGGER.log(Level.FINE, "HorizonRadio synchronized playback start was rejected", exception);
+            }
+        }
+    }
+
+    private void realignCurrentResume(final long requestGeneration, final Clip clip) {
+        if (!isCurrent(requestGeneration) || clip != currentClip
+            || clip == null
+            || !clip.isOpen()
+            || awaitingResume
+            || !resumeReceived) {
+            return;
+        }
+        cancelPendingResumeStart();
+        long localStartAtMs = localStartAtMs(resumeStartAtMs);
+        long delayMs = Math.max(0L, localStartAtMs - System.currentTimeMillis());
+        if (delayMs > 0L) {
+            if (playing) {
+                playing = false;
+                clip.stop();
+            }
+            scheduleClipStart(requestGeneration, clip, resumePositionMs, resumeStartAtMs);
+            return;
+        }
+        safeSeek(clip, synchronizedPositionMs(resumePositionMs, localStartAtMs, System.currentTimeMillis()));
+        playing = true;
+        clip.start();
+    }
+
+    private long localStartAtMs(long serverStartAtMs) {
+        return !serverClockSynchronized ? serverStartAtMs
+            : PlaybackClock.clientTimeForServerTime(serverStartAtMs, serverClockOffsetMs);
+    }
+
+    static boolean isResumeScheduleCurrent(long scheduledLocalStartAtMs, long currentLocalStartAtMs) {
+        return scheduledLocalStartAtMs == currentLocalStartAtMs;
+    }
+
+    private synchronized void cancelPendingResumeStart() {
+        if (pendingResumeStart != null) {
+            pendingResumeStart.cancel(false);
+            pendingResumeStart = null;
+        }
+    }
+
+    static long synchronizedPositionMs(long positionMs, long startAtMs, long nowMs) {
+        long safePosition = Math.max(0L, positionMs);
+        long elapsed = startAtMs <= 0L ? 0L : Math.max(0L, nowMs - startAtMs);
+        return safePosition + elapsed;
     }
 
     private Clip createClip(byte[] audioBytes) throws Exception {
@@ -835,6 +981,18 @@ public final class AudioPlayer {
 
     private static ExecutorService newRadioControlExecutor() {
         return newSingleDaemonExecutor("HorizonRadio-Audio-Control");
+    }
+
+    private static ScheduledExecutorService newResumeScheduler() {
+        return Executors.newSingleThreadScheduledExecutor(new ThreadFactory() {
+
+            @Override
+            public Thread newThread(Runnable runnable) {
+                Thread thread = new Thread(runnable, "HorizonRadio-Audio-Start");
+                thread.setDaemon(true);
+                return thread;
+            }
+        });
     }
 
     private static ExecutorService newSingleDaemonExecutor(final String name) {

@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import com.horizonradio.client.audio.AudioPlayer;
+import com.horizonradio.client.audio.PlaybackClock;
 import com.horizonradio.core.server.ChartRegion;
 import com.horizonradio.core.server.ChartRegionCatalog;
 import com.horizonradio.network.HorizonRadioNetwork;
@@ -13,6 +14,8 @@ import com.horizonradio.network.packets.AddChartsToPlaylistPacket.Entry;
 import com.horizonradio.network.packets.AddToPlaylistPacket;
 import com.horizonradio.network.packets.AudioChunkPacket;
 import com.horizonradio.network.packets.ClearPlaylistPacket;
+import com.horizonradio.network.packets.ClockSyncRequestPacket;
+import com.horizonradio.network.packets.ClockSyncResponsePacket;
 import com.horizonradio.network.packets.ImportPlaylistPacket;
 import com.horizonradio.network.packets.ImportVideoPacket;
 import com.horizonradio.network.packets.PlayNowPacket;
@@ -108,6 +111,8 @@ public final class HorizonRadioClient {
         void sendSelectRadio(String stationUuid);
 
         void sendStopRadio();
+
+        default void sendClockSync(long clientSentAtMs) {}
     }
 
     /** Forge transport for the four client-to-server protocol messages. */
@@ -227,6 +232,11 @@ public final class HorizonRadioClient {
         @Override
         public void sendStopRadio() {
             HorizonRadioNetwork.CHANNEL.sendToServer(new StopRadioPacket());
+        }
+
+        @Override
+        public void sendClockSync(long clientSentAtMs) {
+            HorizonRadioNetwork.CHANNEL.sendToServer(new ClockSyncRequestPacket(clientSentAtMs));
         }
     }
 
@@ -412,6 +422,10 @@ public final class HorizonRadioClient {
 
     public static synchronized void sendStopRadio() {
         transport.sendStopRadio();
+    }
+
+    public static synchronized void sendClockSync() {
+        transport.sendClockSync(System.currentTimeMillis());
     }
 
     public static synchronized List<HorizonRadioScreen.PlaylistEntry> getCachedPlaylist() {
@@ -609,13 +623,30 @@ public final class HorizonRadioClient {
     }
 
     public static synchronized void handleResume(long positionMs) {
+        handleResume(positionMs, 0L);
+    }
+
+    public static synchronized void handleResume(long positionMs, long startAtMs) {
         cachedPaused = false;
         AudioPlayer.getInstance()
-            .resume(positionMs);
+            .resume(positionMs, startAtMs);
         HorizonRadioScreen screen = getOpenScreen();
         if (screen != null) {
             screen.updatePlaybackPaused(false);
         }
+    }
+
+    public static synchronized void handleClockSync(ClockSyncResponsePacket packet, long clientReceivedAtMs) {
+        if (packet == null) {
+            return;
+        }
+        long serverClockOffsetMs = PlaybackClock.estimateServerOffsetMs(
+            packet.getClientSentAtMs(),
+            packet.getServerReceivedAtMs(),
+            packet.getServerSentAtMs(),
+            clientReceivedAtMs);
+        AudioPlayer.getInstance()
+            .updateServerClockOffset(serverClockOffsetMs);
     }
 
     public static synchronized void clearCache() {
@@ -638,6 +669,8 @@ public final class HorizonRadioClient {
             .stop();
         AudioPlayer.getInstance()
             .resetRadio();
+        AudioPlayer.getInstance()
+            .resetServerClock();
     }
 
     public static synchronized boolean isPaused() {

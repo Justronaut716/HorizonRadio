@@ -169,6 +169,17 @@ public class PlaylistStateTest {
     }
 
     @Test
+    public void currentTrackDurationCanBeUpdatedAfterLazyMetadataResolution() {
+        PlaylistState state = new PlaylistState(5);
+        state.add(entry("chart", "Alice"));
+        state.advanceToNext(3L * 60L * 1000L);
+
+        state.updateCurrentTrackDuration(60_000L);
+
+        assertEquals(60_000L, state.getCurrentTrackDurationMs());
+    }
+
+    @Test
     public void searchDurationLimitExcludesFifteenMinutesAndLonger() {
         long limit = 15L * 60L * 1000L;
 
@@ -436,6 +447,15 @@ public class PlaylistStateTest {
         assertTrue(body.contains("beginInitialPlaybackSync"));
         assertTrue(body.contains("sendAudioChunks(player, entry.getVideoId(), entry.getTitle(), audioBytes, -1L)"));
         assertTrue(body.contains("if (state.isSyncing())"));
+    }
+
+    @Test
+    public void playbackResumeUsesASharedFutureStartTimestamp() throws IOException {
+        String manager = read("src/main/java/com/horizonradio/server/PlaylistManager.java");
+
+        assertTrue(manager.contains("PLAYBACK_SYNC_START_LEAD_MS"));
+        assertTrue(manager.contains("state.resume(resumeAtMs)"));
+        assertTrue(manager.contains("new ResumePacket(pausedPositionMs, resumeAtMs)"));
     }
 
     @Test
