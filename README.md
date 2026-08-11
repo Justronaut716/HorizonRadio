@@ -14,12 +14,13 @@ GTNHLib or GregTech dependency and adds no world content.
 - YouTube search through the server-side InnerTube request.
 - Empty Charts tab until a country is searched; country aliases and ISO codes
   can be searched in multiple languages.
-- YouTube playlist import through server-side `yt-dlp` metadata extraction.
-- Server-side `yt-dlp`/`ffmpeg` WAV download and cache.
+- YouTube playlist import through the embedded Java metadata resolver.
+- Server-side embedded Java decoding, normalization, WAV download, and cache for
+  finite YouTube audio.
 - Server-side Radio Browser directory search and station lookup; clients receive
   station UUIDs and names, never station stream URLs.
-- Shared live-radio playback: the server relays FFmpeg PCM and clients play it
-  through Java Sound.
+- Shared live-radio playback: the server decodes direct station streams through
+  the embedded Java backend and clients play normalized PCM through Java Sound.
 - Forge `SimpleNetworkWrapper` synchronization, including late-join pause,
   chunk transfer, ready, and resume messages.
 - 300x285 client GUI with Charts, Search, Playlist, and Radio tabs; scrolling,
@@ -40,12 +41,24 @@ integrations. The inactive companion service is not part of this port.
 - Either standalone Forge 1.7.10 or a GTNH installation for deployment. The
   same plain reobfuscated JAR works for both, with no hard GTNHLib or GregTech
   dependency.
-- `yt-dlp` and `ffmpeg` available on the server `PATH`. They are external
-  prerequisites and are not bundled in the JAR. `ffmpeg` is also required for
-  live radio, and the server needs outbound HTTPS access to Radio Browser
-  directory mirrors and the selected station's HTTP(S) stream.
+- The server needs outbound HTTP(S) access to YouTube's InnerTube endpoints,
+  Radio Browser directory mirrors, and the selected station's direct HTTP(S)
+  stream. The mod JAR includes its Java media decoders; no separately
+  installed media program or native media library is required.
 - A usable Java Sound line on each client for audible playback. The client
   remains usable when a sound device is unavailable, but playback cannot work.
+
+### Embedded media backend
+
+YouTube finite audio, YouTube metadata, and direct radio decoding run in the
+embedded Java media backend. The decoder registry supports MP3, ADTS/AAC,
+WAV/PCM, M4A/MP4 AAC, Ogg Vorbis, Ogg Opus, and WebM/Opus. The direct radio
+acceptance path covers MP3, ADTS/AAC, Ogg Vorbis, and Ogg Opus. Finite audio is
+normalized to cached WAV; live radio is normalized to 44.1 kHz stereo signed
+16-bit little-endian PCM.
+
+HLS/M3U8 was intentionally not added because the current acceptance corpus has
+no concrete required HLS URL. Direct HTTP radio remains the default path.
 
 ## Build
 
@@ -82,11 +95,9 @@ see the [`release guide`](docs/RELEASE.md).
    on the server and every connecting client. Do not install `-dev` or
    `-sources` outputs. This one JAR is for ordinary Forge 1.7.10 and GTNH
    Java 17+; Java 25 is only required to build it.
-3. Install `yt-dlp` and `ffmpeg` on the server and verify both commands are on
-   its `PATH`.
-4. Start the server once. HorizonRadio creates `config/horizonradio.json` defaults and
+3. Start the server once. HorizonRadio creates `config/horizonradio.json` defaults and
    uses `./horizonradio-downloads` for cached WAV files unless configured otherwise.
-5. Keep the server and every client on the same Forge 1.7.10 port build. The
+4. Keep the server and every client on the same Forge 1.7.10 port build. The
    current protocol uses the versioned `horizonradio_1_0` channel.
 
 ## 1.0 migration boundary
@@ -111,11 +122,10 @@ Example configuration:
 `maxPlaylistSize` limits the total number of entries in the shared playlist;
 additional songs are rejected once the configured maximum is reached.
 `maxTrackDurationMinutes` limits YouTube search results to songs shorter than
-the configured number of minutes. HorizonRadio uses yt-dlp's Android client
-by default; if YouTube still requests a login,
-set either `youtubeCookiesFromBrowser` (for example `chrome` or `firefox`) or
-`youtubeCookiesFile` to an exported Netscape-format cookie file, then restart
-the server.
+the configured number of minutes. YouTube metadata and finite audio use the
+embedded Java resolver/backend. The legacy cookie fields remain readable for
+configuration compatibility, but the embedded resolver does not use them; they
+can be left empty.
 
 The JSON above is the server/common configuration. Client audio settings are
 kept separately: the volume slider stores its value in
@@ -155,16 +165,17 @@ player-null client are not valid GUI test states.
 ## Architecture
 
 The server owns playlist/search/download/radio state. Finite tracks use the
-existing cached-WAV chunk flow; live radio is decoded by server FFmpeg into
-44.1 kHz stereo signed 16-bit little-endian PCM and relayed in bounded 30 KiB
-chunks. The current source registers 32 Forge messages once from common
+embedded Java resolver and decoder pipeline, then the existing cached-WAV chunk
+flow. Direct radio is decoded by `RadioInputSession` into 44.1 kHz stereo
+signed 16-bit little-endian PCM and relayed in bounded 30 KiB chunks. The
+current source registers 32 Forge messages once from common
 initialization: IDs 0-3, 10-15, 17, and 19-27 are C2S with server handlers, and
 IDs 4-9, 16, 18, and 28-31 are S2C with common server-safe forwarding handlers.
 Weekly chart metadata is cached in memory and persisted as
 `config/horizonradio-charts.json` for seven days per canonical region. Existing
 single-region cache files are treated as German (`DE`) data during migration,
 never as Global data. Cached durations are reused when chart entries are added
-to the queue, avoiding another `yt-dlp` lookup. The
+to the queue, avoiding another metadata HTTP lookup. The
 server preloads the next and previous audio files while a finite track plays.
 `ClientProxy` schedules the actual GUI/audio mutations on the client thread;
 common, server, and network code never imports client classes.
@@ -174,9 +185,10 @@ audio state machine, port decisions, and omitted systems.
 
 ## Known limitations
 
-YouTube's InnerTube endpoint and the Radio Browser directory are external
-services and may change or be unreachable. WAV and live PCM chunks are
-bandwidth- and memory-intensive. `yt-dlp`/`ffmpeg` and Java Sound depend on the
-host environment. The playlist is in memory and is not persisted to NBT or a
+YouTube's InnerTube endpoint, the Radio Browser directory, and selected station
+streams are external services and may change or be unreachable. WAV and live
+PCM chunks are bandwidth- and memory-intensive. Clients still require a usable
+Java Sound line; a headless client or unavailable audio device cannot produce
+audible playback. The playlist is in memory and is not persisted to NBT or a
 database. Search thumbnails remain data-only because the active GUI does not
 render them.

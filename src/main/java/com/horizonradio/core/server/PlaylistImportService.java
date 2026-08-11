@@ -15,7 +15,7 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.horizonradio.core.model.SearchResult;
 
-/** Parses metadata returned by yt-dlp for YouTube playlist imports. */
+/** Parses metadata returned by the embedded Java YouTube resolver for playlist imports. */
 public final class PlaylistImportService {
 
     static final int MAX_IMPORT_ENTRIES = 50;

@@ -2,8 +2,37 @@
  * Project dependencies. Keep GTNH and GregTech optional: the portable JAR
  * must remain usable in a plain Forge 1.7.10 installation.
  */
+configurations {
+    horizonradioMediaRuntime {
+        canBeConsumed = false
+        canBeResolved = true
+        visible = false
+    }
+}
+
+configurations.configureEach {
+    resolutionStrategy.dependencySubstitution {
+        // Jogg 0.0.17 was distributed inside the JOrbis 0.0.17 JAR and was never
+        // published as a standalone Maven module. Keep the requested coordinate
+        // resolvable without introducing a Forge/Minecraft-provided substitute.
+        substitute module("org.jcraft:jogg:0.0.17") using module("org.jcraft:jorbis:0.0.17")
+    }
+}
+
 dependencies {
     testImplementation("junit:junit:4.13.2")
     // Forge GUI classes reference LWJGL during static initialisation; keep it test-only.
     testRuntimeOnly("org.lwjgl.lwjgl:lwjgl:2.9.4-nightly-20150209")
+
+    implementation("javazoom:jlayer:1.0.1")
+    implementation("com.tianscar.javasound:jaad:0.9.4")
+    implementation("org.jcraft:jogg:0.0.17")
+    implementation("org.jcraft:jorbis:0.0.17")
+    implementation("io.github.jaredmdobson:concentus:1.0.2")
+
+    horizonradioMediaRuntime("javazoom:jlayer:1.0.1")
+    horizonradioMediaRuntime("com.tianscar.javasound:jaad:0.9.4")
+    horizonradioMediaRuntime("org.jcraft:jogg:0.0.17")
+    horizonradioMediaRuntime("org.jcraft:jorbis:0.0.17")
+    horizonradioMediaRuntime("io.github.jaredmdobson:concentus:1.0.2")
 }

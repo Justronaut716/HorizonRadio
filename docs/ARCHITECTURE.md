@@ -44,7 +44,7 @@ that server work on server ticks and forwards player login/logout transitions.
 | `com.horizonradio.core.integration` | Project-owned integration interface and context. |
 | `com.horizonradio.integration` | Optional capability detection, manager, and adapter implementation. |
 | `com.horizonradio.network` and `.network.packets` | Forge `SimpleNetworkWrapper`, handlers, codecs, and the 32 current-source packet types, including the contract below. |
-| `com.horizonradio.server` | Forge/server-facing playlist manager, events, download, YouTube, Radio Browser, FFmpeg relay, and server-thread services. |
+| `com.horizonradio.server` | Forge/server-facing playlist manager, events, embedded media download/decoding, YouTube, Radio Browser, and server-thread services. |
 | `com.horizonradio.client` and `.client.audio` | Client proxy, GUI, keybinds, client transport, and Java Sound playback. |
 
 ## Forge message contract (current source: IDs 0–31)
@@ -131,14 +131,28 @@ unnamed or broken records, and streams that are not valid HTTP(S) URLs. Selectin
 a result performs a fresh server-side lookup by UUID and records the directory
 click only after the candidate becomes active.
 
-`RadioStreamService` starts FFmpeg with the selected server-only URL and relays
-44.1 kHz, stereo, signed 16-bit little-endian PCM from stdout in chunks no
-larger than 30 KiB. It drains FFmpeg stderr, requires first PCM data within 15
-seconds, and owns the process/stream cleanup. Station changes use a candidate
-handover: the published relay remains audible until the candidate produces its
-first PCM chunk; only then does the manager promote it, send state/start/chunk
-packets, and close the previous relay. A failed or superseded candidate leaves
-the published station intact.
+`RadioInputSession` opens the selected server-only URL with Java HTTP APIs,
+strips ICY metadata, detects the direct stream format, and decodes MP3,
+ADTS/AAC, Ogg Vorbis, or Ogg Opus into 44.1 kHz stereo signed 16-bit
+little-endian PCM. `RadioStreamService` requires first PCM data within 15
+seconds, bounds inactivity, and owns session cleanup. Station changes use a
+candidate handover: the published relay remains audible until the candidate
+produces its first PCM chunk; only then does the manager promote it, send
+state/start/chunk packets, and close the previous relay. A failed or superseded
+candidate leaves the published station intact.
+
+## Embedded media backend
+
+Finite YouTube audio, YouTube metadata, and direct radio decoding run in the
+embedded Java backend. Its decoder registry supports MP3, ADTS/AAC, WAV/PCM,
+M4A/MP4 AAC, Ogg Vorbis, Ogg Opus, and WebM/Opus. Finite audio is normalized
+through `WavFileSink` and cached before the existing packet/chunk flow; direct
+radio is normalized through the radio input session and bounded relay. The
+backend requires outbound HTTP(S) access to YouTube, Radio Browser, and the
+selected station, plus Java Sound on each client for audible playback.
+
+HLS/M3U8 was intentionally not added because the current acceptance corpus has
+no concrete required HLS URL. Direct HTTP radio remains the implemented path.
 
 `PlaylistManager` owns the single shared source. Promoting a radio candidate
 cancels finite-track download/preload/synchronization work and stops finite
@@ -215,12 +229,12 @@ not accepted as GUI evidence.
 
 | Source feature | Port status | Decision |
 |---|---|---|
-| Playlist/search/import/download/playback | Reimplemented | Forge events, Java 8 services, server-side `yt-dlp` metadata extraction, and SimpleNetworkWrapper preserve behavior. |
+| Playlist/search/import/download/playback | Reimplemented | Forge events, Java 8 services, embedded Java metadata/audio handling, and SimpleNetworkWrapper preserve behavior. |
 | JSON config | Preserved | `config/horizonradio.json` keeps server/common settings such as `downloadDir` and `maxPlaylistSize`; `maxTrackDurationMinutes` filters search results server-side, while client volume is stored separately in `config/horizonradio-client.json`. |
 | GUI and N key | Reimplemented | Same geometry and interaction, Forge 1.7.10 classes. |
 | Legacy payloads/receivers and Radio protocol | Reimplemented | Thirty-two explicit Forge `IMessage` classes and common registrations; IDs 25–31 add server-authoritative radio search, source selection, state, and PCM relay. |
-| Java 11 HTTP/process helpers | Reimplemented | `HttpURLConnection`, Java 8 stream/process handling. |
-| Live radio | Reimplemented | Server-only Radio Browser lookup and FFmpeg PCM relay; client-side `SourceDataLine` adapter. |
+| Java 11 HTTP/process helpers | Reimplemented | `HttpURLConnection`, Java 8 stream handling, and embedded media decoders. |
+| Live radio | Reimplemented | Server-only Radio Browser lookup and embedded Java PCM relay; client-side `SourceDataLine` adapter. |
 | Items and blocks | Omitted | None exist in the active source. |
 | Recipes/GT machines | Omitted | No crafting, smelting, GregTech, or MineTweaker recipes exist. |
 | TileEntities/NBT persistence | Omitted | No world object or persistent playlist exists. |

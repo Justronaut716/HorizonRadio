@@ -96,10 +96,10 @@ public class RadioStreamBufferTest {
         for (long sequence = 0L; sequence < 12L; sequence++) {
             assertTrue(buffer.accept(1L, sequence, new byte[] { (byte) sequence }));
         }
-        assertFalse(buffer.accept(1L, 12L, new byte[] { 12 }));
+        assertTrue(buffer.accept(1L, 12L, new byte[] { 12 }));
         assertTrue(buffer.isReady());
 
-        for (long sequence = 0L; sequence < 12L; sequence++) {
+        for (long sequence = 1L; sequence < 13L; sequence++) {
             assertArrayEquals(new byte[] { (byte) sequence }, buffer.poll());
         }
         assertNull(buffer.poll());
@@ -117,5 +117,15 @@ public class RadioStreamBufferTest {
 
         assertTrue(buffer.accept(1L, 7L, new byte[] { 7 }));
         assertTrue(buffer.isReady());
+    }
+
+    @Test
+    public void resynchronizesToAForwardSequenceAfterAChunkWasMissed() {
+        RadioStreamBuffer buffer = new RadioStreamBuffer();
+        assertTrue(buffer.begin(1L, 10L, 44100, 2, 16, false));
+
+        assertTrue(buffer.accept(1L, 12L, new byte[] { 12 }));
+        assertArrayEquals(new byte[] { 12 }, buffer.poll());
+        assertFalse(buffer.accept(1L, 11L, new byte[] { 11 }));
     }
 }

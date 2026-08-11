@@ -964,12 +964,6 @@ public final class PlaylistManager {
             state.shuffleQueued();
         }
 
-        if (!audioDownloadService.isDependenciesAvailable()) {
-            sendChat(
-                player,
-                EnumChatFormatting.YELLOW,
-                "Warning: yt-dlp or ffmpeg may not be installed on the server. Downloads may fail.");
-        }
         LOGGER.info(playerName(player) + " added " + title + " to the playlist");
         syncToAll();
         if (shouldStartPlaylistPlayback(isRadioActive(), state.isPlaying())) {
@@ -1041,12 +1035,6 @@ public final class PlaylistManager {
         state.prepareImmediatePlayback(requested);
         broadcastNowPlaying("", 0.0f);
         syncToAll();
-        if (!audioDownloadService.isDependenciesAvailable()) {
-            sendChat(
-                player,
-                EnumChatFormatting.YELLOW,
-                "Warning: yt-dlp or ffmpeg may not be installed on the server. Downloads may fail.");
-        }
         LOGGER.info(playerName(player) + " selected " + requested.getTitle() + " for immediate playback");
         playNext(false, false);
     }
@@ -1065,12 +1053,6 @@ public final class PlaylistManager {
             return;
         }
         final List<AddChartsToPlaylistPacket.Entry> requested = new ArrayList<AddChartsToPlaylistPacket.Entry>(entries);
-        if (!audioDownloadService.isDependenciesAvailable()) {
-            sendChat(
-                player,
-                EnumChatFormatting.YELLOW,
-                "Warning: yt-dlp or ffmpeg may not be installed on the server. Downloads may fail.");
-        }
         enqueueServerTask(new Runnable() {
 
             @Override

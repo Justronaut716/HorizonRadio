@@ -1,0 +1,23 @@
+HorizonRadio embedded Java media runtime notices
+
+The following Java libraries are embedded in the HorizonRadio mod JAR for the
+standalone media backend. Media decoding and stream handling are performed by
+the embedded Java implementation; no separately installed media program is
+required.
+
+JLayer 1.0.1 (javazoom:jlayer:1.0.1)
+License: GNU Lesser General Public License, version 2.1 or later.
+
+JAAD 0.9.4 (com.tianscar.javasound:jaad:0.9.4)
+License: Apache License, Version 2.0.
+
+Jogg 0.0.17 (org.jcraft:jogg:0.0.17)
+License: GNU Lesser General Public License, version 2.1 or later. This version
+is provided by the JOrbis 0.0.17 JAR because it was not separately published
+to Maven Central.
+
+JOrbis 0.0.17 (org.jcraft:jorbis:0.0.17)
+License: GNU Lesser General Public License, version 2.1 or later.
+
+Concentus 1.0.2 (io.github.jaredmdobson:concentus:1.0.2)
+License: BSD 3-Clause License.
