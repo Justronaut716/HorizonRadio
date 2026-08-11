@@ -19,6 +19,21 @@ The Forge port has its own packet protocol. Install the same plain
 reobfuscated `horizonradio-<version>.jar` on the server and every client. The
 artifact has no hard GTNH or GregTech dependency.
 
+## Embedded media backend
+
+The same JAR carries the Java media runtime used for YouTube finite audio,
+YouTube metadata, and direct radio decoding. The current decoder registry
+supports MP3, ADTS/AAC, WAV/PCM, M4A/MP4 AAC, Ogg Vorbis, Ogg Opus, and
+WebM/Opus. The direct radio path is acceptance-targeted for MP3, ADTS/AAC, Ogg
+Vorbis, and Ogg Opus. Finite audio is cached as normalized WAV; live radio is
+relayed as normalized 44.1 kHz stereo signed 16-bit little-endian PCM.
+
+The server still requires outbound HTTP(S) access to YouTube, Radio Browser,
+and selected station streams. Each client still needs a usable Java Sound line
+for audible playback. No separately installed media program or native media
+library is required. HLS/M3U8 was intentionally not added because the current
+acceptance corpus has no concrete required HLS URL.
+
 ## Compatibility matrix and verification gates
 
 | Environment | Requirement | Evidence/status |
@@ -94,8 +109,8 @@ as Global, so an existing German cache cannot be shown as the wrong region.
   imports appear in common, core, network, or server code, and radio
   client-facing models carry station UUID/name data rather than stream URLs.
 - Dependency audit: no Gradle dependency declaration changed. Radio Browser uses
-  server-side JDK HTTP APIs, while FFmpeg remains an external server `PATH`
-  requirement for both finite conversion and the live PCM relay.
+  server-side JDK HTTP APIs, while the embedded Java media backend handles
+  finite conversion and the live PCM relay.
 - `git diff --check`: PASS.
 
 ## Environment and runtime verification limits
@@ -138,7 +153,7 @@ available:
 | Standalone Forge Java 8 | Java `1.8.0_502` is installed; scan for Forge `1.7.10`/server artifacts found no local installation or launch harness | Pending/unverified; no Java 8 Forge server/client was launched. |
 | GTNH runtime smoke test | Local PrismLauncher instance `GTNH 2.9 Beta-2` (Java 25 environment); `gtnhlib-0.11.24.jar` and `gregtech-5.09.54.20.jar` are present | Pending/unverified; a built HorizonRadio JAR is available, but no GTNH launch was performed. The target remains Java 17+. |
 | Optional dependency absence/presence | GTNHLib/GregTech present in the GTNH instance; no standalone Forge installation was available to test physical absence | Pending/unverified for both startup comparisons. |
-| External audio dependencies | `yt-dlp` present at `/home/benjamin/.local/bin/yt-dlp`; `ffmpeg` present at `/usr/bin/ffmpeg` | Presence recorded only; functional audio smoke remains pending/unverified. |
+| Embedded media runtime | Java decoder libraries are packaged in the standalone artifact | Source/package audit is covered by Task 8; functional game audio smoke remains pending/unverified. |
 | Functional smoke | No local standalone or project runtime harness; no client/server launch | Pending/unverified. |
 
 The Gradle distribution download blocker is resolved by the writable-cache and
@@ -174,12 +189,12 @@ and thumbnail fields. A response-shape change can make searches return an
 empty list. HTTP and parser failures are contained and do not take down the
 server.
 
-## External tools and audio
+## Embedded media and audio
 
-`yt-dlp` and `ffmpeg` must be installed separately on the server and available
-on its `PATH`. HorizonRadio logs a diagnostic when either is absent; it never
-bundles an executable. The downloaded WAV cache is named `<videoId>.wav` in
-the configured `downloadDir`.
+The downloaded WAV cache is named `<videoId>.wav` in the configured
+`downloadDir`. Finite YouTube audio and metadata are handled by the embedded
+Java backend, while direct radio uses the same Java decoder pipeline and a
+bounded PCM relay. No separate media installation is part of the runtime.
 
 Java Sound is client-local and depends on an available `Clip`/audio line. A
 headless client or an unavailable `MASTER_GAIN` control is handled without
@@ -208,10 +223,11 @@ OneDrive paths can expose
 cloud-sync locks or long-path/process timing issues; a local checkout is the
 fallback if those issues appear.
 
-yt-dlp uses the Android player client by default to avoid the web client's PO
-token path. If YouTube requires authentication, configure exactly one of
-`youtubeCookiesFromBrowser` or `youtubeCookiesFile`; cookie values are never
-stored in source code or logs.
+The embedded resolver uses bounded YouTube InnerTube player and browse
+requests. YouTube can change those response shapes or make them unreachable.
+The legacy `youtubeCookiesFromBrowser` and `youtubeCookiesFile` fields remain
+readable for configuration compatibility, but the embedded resolver does not
+use them and they can be left empty.
 
 ## GTNH status
 

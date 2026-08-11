@@ -1,13 +1,6 @@
 package com.horizonradio.server;
 
-import java.io.Closeable;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
-import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.List;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
@@ -17,92 +10,80 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import com.horizonradio.core.model.RadioStation;
+import com.horizonradio.server.media.RadioInputSession;
 
 /**
- * Relays one published FFmpeg PCM stream and, during handover, one candidate stream.
+ * Relays one published Java radio input session and, during handover, one
+ * candidate session.
  */
 public class RadioStreamService {
 
     private static final Logger LOGGER = Logger.getLogger(RadioStreamService.class.getName());
-    private static final int PCM_CHUNK_BYTES = 30 * 1024;
     private static final int PCM_FRAME_BYTES = 4;
     private static final long FIRST_DATA_TIMEOUT_MILLIS = 15000L;
     private static final long INACTIVITY_TIMEOUT_MILLIS = 15000L;
 
     private final Object lock = new Object();
-    private final ProcessFactory processFactory;
-    private final ExecutorService relayExecutor;
+    private final SessionFactory sessionFactory;
     private final ScheduledExecutorService deadlineExecutor;
     private final TimeoutRaceHook timeoutRaceHook;
+    private final long firstDataTimeoutMillis;
+    private final long inactivityTimeoutMillis;
     private Session published;
     private Session candidate;
     private boolean shutDown;
 
     public RadioStreamService() {
-        this(new ProcessFactory() {
+        this(new SessionFactory() {
 
             @Override
-            public Process start(List<String> command) throws IOException {
-                return new ProcessBuilder(command).start();
+            public SessionHandle create(String streamUrl, RadioInputSession.RadioPcmListener listener) {
+                final RadioInputSession input = new RadioInputSession(streamUrl, listener);
+                return new SessionHandle() {
+
+                    @Override
+                    public void start() {
+                        input.start();
+                    }
+
+                    @Override
+                    public void close() {
+                        input.close();
+                    }
+                };
             }
-        });
+        }, newDaemonDeadlineExecutor(), FIRST_DATA_TIMEOUT_MILLIS, INACTIVITY_TIMEOUT_MILLIS, TimeoutRaceHook.NONE);
     }
 
-    RadioStreamService(ProcessFactory processFactory) {
+    RadioStreamService(SessionFactory sessionFactory) {
         this(
-            processFactory,
-            newDaemonExecutor("HorizonRadio-Relay"),
+            sessionFactory,
             newDaemonDeadlineExecutor(),
             FIRST_DATA_TIMEOUT_MILLIS,
             INACTIVITY_TIMEOUT_MILLIS,
             TimeoutRaceHook.NONE);
     }
 
-    RadioStreamService(ProcessFactory processFactory, ExecutorService relayExecutor,
-        ScheduledExecutorService deadlineExecutor, long firstDataTimeoutMillis) {
-        this(
-            processFactory,
-            relayExecutor,
-            deadlineExecutor,
-            firstDataTimeoutMillis,
-            INACTIVITY_TIMEOUT_MILLIS,
-            TimeoutRaceHook.NONE);
+    RadioStreamService(SessionFactory sessionFactory, ScheduledExecutorService deadlineExecutor,
+        long firstDataTimeoutMillis, long inactivityTimeoutMillis) {
+        this(sessionFactory, deadlineExecutor, firstDataTimeoutMillis, inactivityTimeoutMillis, TimeoutRaceHook.NONE);
     }
 
-    RadioStreamService(ProcessFactory processFactory, ExecutorService relayExecutor,
-        ScheduledExecutorService deadlineExecutor, long firstDataTimeoutMillis, TimeoutRaceHook timeoutRaceHook) {
-        this(
-            processFactory,
-            relayExecutor,
-            deadlineExecutor,
-            firstDataTimeoutMillis,
-            INACTIVITY_TIMEOUT_MILLIS,
-            timeoutRaceHook);
-    }
-
-    RadioStreamService(ProcessFactory processFactory, ExecutorService relayExecutor,
-        ScheduledExecutorService deadlineExecutor, long firstDataTimeoutMillis, long inactivityTimeoutMillis,
-        TimeoutRaceHook timeoutRaceHook) {
-        if (processFactory == null || relayExecutor == null
-            || deadlineExecutor == null
+    RadioStreamService(SessionFactory sessionFactory, ScheduledExecutorService deadlineExecutor,
+        long firstDataTimeoutMillis, long inactivityTimeoutMillis, TimeoutRaceHook timeoutRaceHook) {
+        if (sessionFactory == null || deadlineExecutor == null
             || firstDataTimeoutMillis <= 0L
             || inactivityTimeoutMillis <= 0L) {
             throw new IllegalArgumentException("Radio relay dependencies must be provided");
         }
-        this.processFactory = processFactory;
-        this.relayExecutor = relayExecutor;
+        this.sessionFactory = sessionFactory;
         this.deadlineExecutor = deadlineExecutor;
         this.firstDataTimeoutMillis = firstDataTimeoutMillis;
         this.inactivityTimeoutMillis = inactivityTimeoutMillis;
         this.timeoutRaceHook = timeoutRaceHook == null ? TimeoutRaceHook.NONE : timeoutRaceHook;
     }
 
-    private final long firstDataTimeoutMillis;
-    private final long inactivityTimeoutMillis;
-
-    /**
-     * Starts an unpublished candidate. The current published session stays active until promotion.
-     */
+    /** Starts an unpublished candidate. The current published session stays active until promotion. */
     public void startCandidate(RadioStation station, long generation, RadioStreamListener listener) {
         if (station == null || station.getStreamUrl() == null
             || station.getStreamUrl()
@@ -115,7 +96,29 @@ public class RadioStreamService {
             return;
         }
 
-        Session session = new Session(station, generation, listener);
+        final Session session = new Session(station, generation, listener);
+        try {
+            session.input = sessionFactory.create(station.getStreamUrl(), new RadioInputSession.RadioPcmListener() {
+
+                @Override
+                public void onPcm(byte[] pcm) {
+                    dispatchPcm(session, pcm);
+                }
+
+                @Override
+                public void onFailure(String message) {
+                    failSession(session, message == null ? "Radio input session failed" : message);
+                }
+            });
+        } catch (RuntimeException exception) {
+            safeRejectedFailure(session, "Radio input could not be created: " + exception.getMessage());
+            return;
+        }
+        if (session.input == null) {
+            safeRejectedFailure(session, "Radio input could not be created");
+            return;
+        }
+
         Session replaced;
         boolean rejected;
         synchronized (lock) {
@@ -135,26 +138,19 @@ public class RadioStreamService {
             }
         }
         if (rejected) {
+            closeSessionResources(session);
             safeRejectedFailure(session, "Radio relay is shut down");
             return;
         }
         closeSession(replaced);
         try {
-            relayExecutor.execute(new Runnable() {
-
-                @Override
-                public void run() {
-                    relay(session);
-                }
-            });
+            session.input.start();
         } catch (RuntimeException exception) {
-            failSession(session, "Radio relay could not start: " + exception.getMessage());
+            failSession(session, "Radio input could not start: " + exception.getMessage());
         }
     }
 
-    /**
-     * Publishes a ready candidate and closes the previously published source.
-     */
+    /** Publishes a ready candidate and closes the previously published source. */
     public void promoteCandidate(long generation) {
         Session previous;
         Session promoted;
@@ -206,122 +202,32 @@ public class RadioStreamService {
         closeSession(candidateToStop);
     }
 
-    /** Stops active relays and releases the daemon executors. */
+    /** Stops active inputs and releases the deadline executor. */
     public void shutdown() {
         synchronized (lock) {
             shutDown = true;
         }
         stopAll();
-        relayExecutor.shutdownNow();
         deadlineExecutor.shutdownNow();
     }
 
-    /** Builds the FFmpeg invocation that writes 44.1 kHz stereo signed little-endian PCM to stdout. */
-    public static List<String> buildFfmpegCommand(String streamUrl) {
-        if (streamUrl == null || streamUrl.trim()
-            .length() == 0) {
-            throw new IllegalArgumentException("streamUrl must not be empty");
+    private void dispatchPcm(Session session, byte[] data) {
+        if (data == null || data.length == 0) {
+            return;
         }
-        return new ArrayList<String>(
-            Arrays.asList(
-                "ffmpeg",
-                "-nostdin",
-                "-hide_banner",
-                "-loglevel",
-                "warning",
-                "-i",
-                streamUrl,
-                "-vn",
-                "-ac",
-                "2",
-                "-ar",
-                "44100",
-                "-acodec",
-                "pcm_s16le",
-                "-f",
-                "s16le",
-                "pipe:1"));
-    }
-
-    private void relay(Session session) {
-        Process process = null;
-        try {
-            if (!isCurrent(session)) {
+        byte[] complete;
+        synchronized (lock) {
+            if (!isCurrentLocked(session) || session.closed) {
                 return;
             }
-            process = processFactory.start(buildFfmpegCommand(session.station.getStreamUrl()));
-            if (process == null) {
-                failSession(session, "FFmpeg did not start a process");
-                return;
-            }
-            synchronized (lock) {
-                if (!isCurrentLocked(session)) {
-                    closeProcess(process);
-                    return;
-                }
-                session.process = process;
-                session.input = process.getInputStream();
-                session.error = process.getErrorStream();
-                session.output = process.getOutputStream();
-            }
-            drainError(session);
-            readPcm(session);
-        } catch (IOException exception) {
-            failSession(session, "FFmpeg relay failed: " + exception.getMessage());
-        } catch (RuntimeException exception) {
-            failSession(session, "FFmpeg relay failed: " + exception.getMessage());
-        } finally {
-            if (process != null && session.process != process) {
-                closeProcess(process);
-            }
+            complete = completePcmFrames(session, data);
         }
-    }
-
-    private void drainError(final Session session) {
-        relayExecutor.execute(new Runnable() {
-
-            @Override
-            public void run() {
-                InputStream error = session.error;
-                if (error == null) {
-                    return;
-                }
-                byte[] buffer = new byte[1024];
-                try {
-                    while (!session.closed && error.read(buffer) != -1) {
-                        // Draining prevents FFmpeg stderr backpressure.
-                    }
-                } catch (IOException ignored) {
-                    // Session cleanup closes this stream to unblock the drainer.
-                }
-            }
-        });
-    }
-
-    private void readPcm(Session session) throws IOException {
-        byte[] readBuffer = new byte[PCM_CHUNK_BYTES];
-        int count;
-        while (!session.closed && (count = session.input.read(readBuffer, 0, readBuffer.length)) != -1) {
-            if (count == 0) {
-                continue;
-            }
-            byte[] chunk = completePcmFrames(session, readBuffer, count);
-            if (chunk.length == 0) {
-                continue;
-            }
-            DispatchResult result = dispatchChunk(session, chunk);
-            if (result == DispatchResult.STOPPED) {
-                return;
-            }
-            if (result == DispatchResult.READY && !awaitPublication(session)) {
-                return;
-            }
+        if (complete.length == 0) {
+            return;
         }
-        if (!session.closed) {
-            failSession(
-                session,
-                session.receivedFirstData ? "FFmpeg stream ended"
-                    : "FFmpeg stream ended before first PCM data (exit " + exitCode(session.process) + ")");
+        DispatchResult result = dispatchChunk(session, complete);
+        if (result == DispatchResult.READY && !awaitPublication(session)) {
+            return;
         }
     }
 
@@ -389,7 +295,9 @@ public class RadioStreamService {
             }
             closeSessionResources(session);
             notifyPromotion(session);
-            invokeFailure(session, "FFmpeg did not provide PCM data within 15 seconds");
+            invokeFailure(
+                session,
+                "Radio input did not provide PCM data within " + firstDataTimeoutMillis + " milliseconds");
         }
     }
 
@@ -414,16 +322,6 @@ public class RadioStreamService {
         }
     }
 
-    private boolean isCurrent(Session session) {
-        synchronized (lock) {
-            return isCurrentLocked(session);
-        }
-    }
-
-    private boolean isCurrentLocked(Session session) {
-        return published == session || candidate == session;
-    }
-
     private void closeSession(Session session) {
         if (session == null) {
             return;
@@ -440,73 +338,20 @@ public class RadioStreamService {
     }
 
     private static void closeSessionResources(Session session) {
-        closeQuietly(session.input);
-        closeQuietly(session.error);
-        closeQuietly(session.output);
-        closeProcess(session.process);
-    }
-
-    private static void closeProcess(Process process) {
-        if (process == null) {
-            return;
-        }
-        closeQuietly(process.getOutputStream());
-        closeQuietly(process.getInputStream());
-        closeQuietly(process.getErrorStream());
-        boolean interrupted = false;
-        process.destroy();
-        try {
-            if (!process.waitFor(1L, TimeUnit.SECONDS)) {
-                process.destroyForcibly();
-                if (!process.waitFor(1L, TimeUnit.SECONDS)) {
-                    LOGGER.warning("FFmpeg process remained alive after forced termination");
-                }
-            }
-        } catch (InterruptedException exception) {
-            interrupted = true;
-            process.destroyForcibly();
-            try {
-                if (!process.waitFor(1L, TimeUnit.SECONDS)) {
-                    LOGGER.warning("FFmpeg process remained alive after forced termination");
-                }
-            } catch (InterruptedException ignored) {
-                interrupted = true;
-            }
-        } finally {
-            if (interrupted) {
-                Thread.currentThread()
-                    .interrupt();
-            }
+        if (session.input != null) {
+            session.input.close();
         }
     }
 
-    private static void closeQuietly(Closeable stream) {
-        if (stream == null) {
-            return;
-        }
-        try {
-            stream.close();
-        } catch (IOException ignored) {
-            // Closing process streams is best effort.
-        }
+    private boolean isCurrentLocked(Session session) {
+        return published == session || candidate == session;
     }
 
-    private static int exitCode(Process process) {
-        if (process == null) {
-            return -1;
-        }
-        try {
-            return process.exitValue();
-        } catch (IllegalThreadStateException ignored) {
-            return -1;
-        }
-    }
-
-    private static byte[] completePcmFrames(Session session, byte[] data, int count) {
+    private byte[] completePcmFrames(Session session, byte[] data) {
         int previousBytes = session.pcmRemainder.length;
-        byte[] combined = new byte[previousBytes + count];
+        byte[] combined = new byte[previousBytes + data.length];
         System.arraycopy(session.pcmRemainder, 0, combined, 0, previousBytes);
-        System.arraycopy(data, 0, combined, previousBytes, count);
+        System.arraycopy(data, 0, combined, previousBytes, data.length);
         int completeBytes = combined.length - combined.length % PCM_FRAME_BYTES;
         session.pcmRemainder = Arrays.copyOfRange(combined, completeBytes, combined.length);
         return Arrays.copyOf(combined, completeBytes);
@@ -563,8 +408,10 @@ public class RadioStreamService {
 
     private void safeReady(Session session, long firstSequence, byte[] data) {
         synchronized (session.callbackGate) {
-            if (!isCurrent(session) || session.closed) {
-                return;
+            synchronized (lock) {
+                if (!isCurrentLocked(session) || session.closed) {
+                    return;
+                }
             }
             try {
                 session.listener
@@ -577,8 +424,10 @@ public class RadioStreamService {
 
     private void safeChunk(Session session, long sequence, byte[] data) {
         synchronized (session.callbackGate) {
-            if (!isCurrent(session) || session.closed) {
-                return;
+            synchronized (lock) {
+                if (!isCurrentLocked(session) || session.closed) {
+                    return;
+                }
             }
             try {
                 session.listener.onChunk(session.generation, sequence, Arrays.copyOf(data, data.length));
@@ -594,7 +443,7 @@ public class RadioStreamService {
         }
     }
 
-    private void invokeFailure(Session session, String message) {
+    private static void invokeFailure(Session session, String message) {
         try {
             session.listener.onFailure(session.generation, message);
         } catch (RuntimeException exception) {
@@ -603,24 +452,9 @@ public class RadioStreamService {
     }
 
     private static void notifyPromotion(Session session) {
-        if (session == null) {
-            return;
-        }
         synchronized (session.promotionGate) {
             session.promotionGate.notifyAll();
         }
-    }
-
-    private static ExecutorService newDaemonExecutor(final String name) {
-        return Executors.newCachedThreadPool(new ThreadFactory() {
-
-            @Override
-            public Thread newThread(Runnable runnable) {
-                Thread thread = new Thread(runnable, name);
-                thread.setDaemon(true);
-                return thread;
-            }
-        });
     }
 
     private static ScheduledExecutorService newDaemonDeadlineExecutor() {
@@ -635,9 +469,16 @@ public class RadioStreamService {
         });
     }
 
-    interface ProcessFactory {
+    interface SessionFactory {
 
-        Process start(List<String> command) throws IOException;
+        SessionHandle create(String streamUrl, RadioInputSession.RadioPcmListener listener);
+    }
+
+    interface SessionHandle {
+
+        void start();
+
+        void close();
     }
 
     interface TimeoutRaceHook {
@@ -672,10 +513,7 @@ public class RadioStreamService {
         private byte[] pcmRemainder = new byte[0];
         private long inactivityDeadlineToken;
         private volatile boolean closed;
-        private Process process;
-        private InputStream input;
-        private InputStream error;
-        private OutputStream output;
+        private SessionHandle input;
         private ScheduledFuture<?> firstDataDeadline;
         private ScheduledFuture<?> inactivityDeadline;
 

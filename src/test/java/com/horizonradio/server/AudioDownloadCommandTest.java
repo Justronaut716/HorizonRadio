@@ -2,127 +2,38 @@ package com.horizonradio.server;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
-import java.io.ByteArrayInputStream;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
-import java.lang.reflect.Field;
-import java.lang.reflect.Method;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.util.Arrays;
-import java.util.List;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import org.junit.Test;
 
+import com.horizonradio.server.media.MediaException;
+import com.horizonradio.server.media.PcmSink;
+import com.horizonradio.server.media.YouTubeMediaModels;
+
 public class AudioDownloadCommandTest {
 
     @Test
-    public void buildsTheExactActiveYtDlpCommandAndWavPath() {
-        Path wavPath = Paths.get("audio-cache", "abc123.wav");
-
-        List<String> command = AudioDownloadService.buildDownloadCommand(wavPath, "abc123");
-
-        assertEquals(
-            Arrays.asList(
-                "yt-dlp",
-                "--extractor-args",
-                "youtube:player_client=android",
-                "-f",
-                "bestaudio[ext=m4a]/bestaudio/best",
-                "--retries",
-                "3",
-                "--fragment-retries",
-                "3",
-                "--sleep-requests",
-                "1",
-                "-x",
-                "--audio-format",
-                "wav",
-                "--audio-quality",
-                "0",
-                "-o",
-                wavPath.toString(),
-                "--no-playlist",
-                "https://www.youtube.com/watch?v=abc123"),
-            command);
-    }
-
-    @Test
-    public void buildsTheMetadataOnlyPlaylistCommand() {
-        String playlistUrl = "https://www.youtube.com/watch?v=abc123&list=PLtest";
-
-        assertEquals(
-            Arrays.asList(
-                "yt-dlp",
-                "--extractor-args",
-                "youtube:player_client=android",
-                "--flat-playlist",
-                "--dump-single-json",
-                "--skip-download",
-                "--quiet",
-                "--no-warnings",
-                "--yes-playlist",
-                playlistUrl),
-            AudioDownloadService.buildPlaylistCommand(playlistUrl));
-    }
-
-    @Test
-    public void buildsTheMetadataOnlyVideoCommand() {
-        String videoUrl = "https://youtu.be/abc123";
-
-        assertEquals(
-            Arrays.asList(
-                "yt-dlp",
-                "--extractor-args",
-                "youtube:player_client=android",
-                "--dump-single-json",
-                "--skip-download",
-                "--quiet",
-                "--no-warnings",
-                "--no-playlist",
-                videoUrl),
-            AudioDownloadService.buildVideoMetadataCommand(videoUrl));
-    }
-
-    @Test
-    public void buildsTheChartDurationCommand() {
-        assertTrue(
-            AudioDownloadService.buildVideoDurationCommand(Arrays.asList("one", "two"))
-                .contains("%(id)s\\t%(duration_string)s"));
-    }
-
-    @Test
-    public void addsConfiguredBrowserCookiesToDownloadCommand() {
-        List<String> command = AudioDownloadService
-            .buildDownloadCommand(Paths.get("audio-cache", "abc123.wav"), "abc123", "chrome", "");
-
-        assertTrue(command.contains("--cookies-from-browser"));
-        assertTrue(command.contains("chrome"));
-    }
-
-    @Test
-    public void returnsExistingWavAsCacheHitWithoutStartingDownload() throws Exception {
-        Path directory = Files.createTempDirectory("horizonradio-audio-test");
-        AudioDownloadService service = new AudioDownloadService(directory, false);
-        Path expected = directory.resolve("cached-video.wav");
-        Files.createFile(expected);
-
+    public void returnsAnExistingWavAsACacheHitWithoutCallingTheBackend() throws Exception {
+        Path directory = Files.createTempDirectory("horizonradio-service-cache");
+        Path expected = directory.resolve("dQw4w9WgXcQ.wav");
+        writeCanonicalWave(expected);
+        RecordingBackend backend = new RecordingBackend();
+        AudioDownloadService service = new AudioDownloadService(directory, backend);
         try {
-            assertEquals(expected, service.getFilePath("cached-video"));
             assertEquals(
                 expected,
-                service.download("cached-video")
+                service.download("dQw4w9WgXcQ")
                     .get(2, TimeUnit.SECONDS));
+            assertEquals(0, backend.calls.get());
         } finally {
             service.shutdown();
             Files.deleteIfExists(expected);
@@ -131,684 +42,278 @@ public class AudioDownloadCommandTest {
     }
 
     @Test
-    public void boundsStoredOutputWhileDrainingTheEntireStream() throws IOException {
-        FullyReadInputStream input = new FullyReadInputStream("0123456789".getBytes(StandardCharsets.UTF_8));
-
-        String output = AudioDownloadService.collectProcessOutput(input, 4);
-
-        assertEquals("0123", output);
-        assertTrue(input.isFullyRead());
-        assertFalse(output.length() > 4);
-    }
-
-    @Test
-    public void deletesTheWavAndReportsUnavailableDependenciesWhenChecksAreSkipped() throws Exception {
-        Path directory = Files.createTempDirectory("horizonradio-audio-delete-test");
-        AudioDownloadService service = new AudioDownloadService(directory, false);
-        Path expected = directory.resolve("delete-me.wav");
-        Files.createFile(expected);
-
+    public void deletesZeroCorruptAndStaleCacheEntriesBeforeRedownloading() throws Exception {
+        Path directory = Files.createTempDirectory("horizonradio-service-invalid-cache");
+        RecordingBackend backend = new RecordingBackend();
+        backend.release();
+        AudioDownloadService service = new AudioDownloadService(directory, backend);
+        String[] ids = { "dQw4w9WgXcQ", "a234567890_", "b234567890_" };
         try {
-            assertFalse(service.isDependenciesAvailable());
-            service.delete("delete-me");
-            assertFalse(Files.exists(expected));
+            Files.createFile(directory.resolve(ids[0] + ".wav"));
+            Files.write(directory.resolve(ids[1] + ".wav"), new byte[] { 'R', 'I', 'F', 'F' });
+            writeStaleWave(directory.resolve(ids[2] + ".wav"));
+            for (String id : ids) {
+                assertEquals(
+                    directory.resolve(id + ".wav"),
+                    service.download(id)
+                        .get(2, TimeUnit.SECONDS));
+            }
+            assertEquals(3, backend.calls.get());
+            for (String id : ids) {
+                assertTrue(Files.size(directory.resolve(id + ".wav")) > 44L);
+            }
         } finally {
             service.shutdown();
-            Files.deleteIfExists(expected);
+            for (String id : ids) Files.deleteIfExists(directory.resolve(id + ".wav"));
             Files.deleteIfExists(directory);
         }
     }
 
     @Test
-    public void waitsForForcedTerminationAndClosesTheOutputCollectorInput() throws Exception {
-        TrackingProcess process = new TrackingProcess();
-        Method runProcess = AudioDownloadService.class
-            .getDeclaredMethod("runProcess", Process.class, long.class, TimeUnit.class);
-        runProcess.setAccessible(true);
-
-        runProcess.invoke(null, process, 1L, TimeUnit.MILLISECONDS);
-
-        assertTrue(process.destroyed.get());
-        assertTrue(process.destroyedForcibly.get());
-        assertTrue(process.waitedAfterForcedDestroy.get());
-        assertTrue(process.input.closed.get());
-        assertNoOutputCollectorThreadRemains();
-    }
-
-    @Test
-    public void returnsWhenForcedProcessStillRefusesTerminationAfterTheDeadline() throws Exception {
-        StubbornProcess process = new StubbornProcess(new ByteArrayInputStream(new byte[0]));
-        CountDownLatch completed = new CountDownLatch(1);
-        AtomicReference<Throwable> failure = new AtomicReference<Throwable>();
-        Thread runner = startRunProcess(process, completed, failure);
-
+    public void sharesOneInFlightDownloadAndCancellationRemovesIncompleteOutput() throws Exception {
+        Path directory = Files.createTempDirectory("horizonradio-service-active");
+        RecordingBackend backend = new RecordingBackend();
+        AudioDownloadService service = new AudioDownloadService(directory, backend);
         try {
-            assertTrue(process.destroyedForcibly.await(1L, TimeUnit.SECONDS));
-            assertTrue("process cleanup exceeded its bounded deadline", completed.await(2500L, TimeUnit.MILLISECONDS));
-            assertNoFailure(failure);
+            CompletableFuture<Path> first = service.download("dQw4w9WgXcQ");
+            CompletableFuture<Path> second = service.download("dQw4w9WgXcQ");
+            assertSame(first, second);
+            assertTrue(backend.started.await(1, TimeUnit.SECONDS));
+            service.cancelDownload("dQw4w9WgXcQ");
+            assertTrue(first.isCancelled());
+            assertEquals(1, backend.calls.get());
+            assertFalse(Files.exists(directory.resolve("dQw4w9WgXcQ.wav")));
         } finally {
-            process.release();
-            runner.join(1000L);
-        }
-    }
-
-    @Test
-    public void returnsWhenOutputCollectorStillRefusesTerminationAfterTheDeadline() throws Exception {
-        StubbornInputStream input = new StubbornInputStream();
-        FinishedProcess process = new FinishedProcess(input);
-        CountDownLatch completed = new CountDownLatch(1);
-        AtomicReference<Throwable> failure = new AtomicReference<Throwable>();
-        Thread runner = startRunProcess(process, completed, failure);
-
-        try {
-            assertTrue("output collector exceeded its bounded deadline", completed.await(2500L, TimeUnit.MILLISECONDS));
-            assertNoFailure(failure);
-        } finally {
-            input.release();
-            runner.join(1000L);
-        }
-    }
-
-    @Test
-    public void drainsNormalProcessOutputBeforeClosingProcessStreams() throws Exception {
-        final String diagnostic = "ffmpeg not found: final diagnostic";
-        final NormalOutputProcess process = new NormalOutputProcess(diagnostic);
-        final CountDownLatch completed = new CountDownLatch(1);
-        final AtomicReference<Object> result = new AtomicReference<Object>();
-        final AtomicReference<Throwable> failure = new AtomicReference<Throwable>();
-        Thread runner = new Thread(new Runnable() {
-
-            @Override
-            public void run() {
-                try {
-                    Method runProcess = AudioDownloadService.class
-                        .getDeclaredMethod("runProcess", Process.class, long.class, TimeUnit.class);
-                    runProcess.setAccessible(true);
-                    result.set(runProcess.invoke(null, process, 1L, TimeUnit.SECONDS));
-                } catch (Throwable throwable) {
-                    failure.set(throwable);
-                } finally {
-                    completed.countDown();
-                }
-            }
-        }, "HorizonRadio-Test-Normal-Process");
-        runner.setDaemon(true);
-        runner.start();
-
-        try {
-            assertTrue(process.input.readStarted.await(1L, TimeUnit.SECONDS));
-            process.input.release();
-            assertTrue(completed.await(1L, TimeUnit.SECONDS));
-            assertNoFailure(failure);
-
-            Field outputField = result.get()
-                .getClass()
-                .getDeclaredField("output");
-            outputField.setAccessible(true);
-            assertEquals(diagnostic, outputField.get(result.get()));
-            assertTrue(process.input.closed.get());
-        } finally {
-            process.input.release();
-            runner.join(1000L);
-        }
-    }
-
-    @Test
-    public void shutdownWaitsForAnActiveDownloadTaskToFinish() throws Exception {
-        Path directory = Files.createTempDirectory("horizonradio-audio-shutdown-test");
-        AudioDownloadService service = new AudioDownloadService(directory, false);
-        Field executorField = AudioDownloadService.class.getDeclaredField("downloadExecutor");
-        executorField.setAccessible(true);
-        ExecutorService executor = (ExecutorService) executorField.get(service);
-        CountDownLatch started = new CountDownLatch(1);
-        CountDownLatch release = new CountDownLatch(1);
-        CountDownLatch interrupted = new CountDownLatch(1);
-        CountDownLatch finished = new CountDownLatch(1);
-        CountDownLatch shutdownCompleted = new CountDownLatch(1);
-        Thread shutdownThread = new Thread(new Runnable() {
-
-            @Override
-            public void run() {
-                service.shutdown();
-                shutdownCompleted.countDown();
-            }
-        }, "HorizonRadio-Test-Shutdown");
-        shutdownThread.setDaemon(true);
-
-        try {
-            executor.submit(new Runnable() {
-
-                @Override
-                public void run() {
-                    started.countDown();
-                    try {
-                        while (!release.await(50L, TimeUnit.MILLISECONDS)) {
-                            // Keep the task active until shutdown has interrupted it.
-                        }
-                    } catch (InterruptedException exception) {
-                        interrupted.countDown();
-                        try {
-                            release.await(2L, TimeUnit.SECONDS);
-                        } catch (InterruptedException ignored) {
-                            Thread.currentThread()
-                                .interrupt();
-                        }
-                    } finally {
-                        finished.countDown();
-                    }
-                }
-            });
-            assertTrue(started.await(1L, TimeUnit.SECONDS));
-
-            shutdownThread.start();
-
-            assertTrue(interrupted.await(1L, TimeUnit.SECONDS));
-            assertFalse(
-                "shutdown completed while the task was still blocked",
-                shutdownCompleted.await(0L, TimeUnit.MILLISECONDS));
-            release.countDown();
-            assertTrue(finished.await(1L, TimeUnit.SECONDS));
-            assertTrue(shutdownCompleted.await(1L, TimeUnit.SECONDS));
-            shutdownThread.join(1000L);
-            assertTrue(executor.isTerminated());
-        } finally {
-            release.countDown();
-            shutdownThread.join(1000L);
+            backend.release();
             service.shutdown();
+            Files.deleteIfExists(directory.resolve("dQw4w9WgXcQ.wav"));
             Files.deleteIfExists(directory);
         }
     }
 
     @Test
-    public void shutdownReturnsAfterTheExecutorDeadlineWhenTaskRefusesInterruption() throws Exception {
-        Path directory = Files.createTempDirectory("horizonradio-audio-bounded-shutdown-test");
-        AudioDownloadService service = new AudioDownloadService(directory, false);
-        Field executorField = AudioDownloadService.class.getDeclaredField("downloadExecutor");
-        executorField.setAccessible(true);
-        ExecutorService executor = (ExecutorService) executorField.get(service);
-        CountDownLatch started = new CountDownLatch(1);
-        CountDownLatch release = new CountDownLatch(1);
-        CountDownLatch interrupted = new CountDownLatch(1);
-        CountDownLatch shutdownCompleted = new CountDownLatch(1);
-        Thread shutdownThread = new Thread(new Runnable() {
-
-            @Override
-            public void run() {
-                service.shutdown();
-                shutdownCompleted.countDown();
-            }
-        }, "HorizonRadio-Test-Shutdown");
-        shutdownThread.setDaemon(true);
-
-        try {
-            executor.submit(new Runnable() {
-
-                @Override
-                public void run() {
-                    started.countDown();
-                    try {
-                        while (!release.await(50L, TimeUnit.MILLISECONDS)) {
-                            // Keep the task active until the test releases it.
-                        }
-                    } catch (InterruptedException exception) {
-                        interrupted.countDown();
-                        try {
-                            while (!release.await(50L, TimeUnit.MILLISECONDS)) {
-                                // Ignore interruption until the test releases the task.
-                            }
-                        } catch (InterruptedException ignored) {
-                            Thread.currentThread()
-                                .interrupt();
-                        }
-                    }
-                }
-            });
-            assertTrue(started.await(1L, TimeUnit.SECONDS));
-
-            shutdownThread.start();
-
-            assertTrue(
-                "executor shutdown exceeded its bounded deadline",
-                shutdownCompleted.await(3500L, TimeUnit.MILLISECONDS));
-            assertTrue(interrupted.await(1L, TimeUnit.SECONDS));
-        } finally {
-            release.countDown();
-            shutdownThread.join(1000L);
-            service.shutdown();
-            Files.deleteIfExists(directory);
-        }
-    }
-
-    private static Thread startRunProcess(final Process process, final CountDownLatch completed,
-        final AtomicReference<Throwable> failure) {
-        Thread runner = new Thread(new Runnable() {
-
-            @Override
-            public void run() {
-                try {
-                    Method runProcess = AudioDownloadService.class
-                        .getDeclaredMethod("runProcess", Process.class, long.class, TimeUnit.class);
-                    runProcess.setAccessible(true);
-                    runProcess.invoke(null, process, 1L, TimeUnit.MILLISECONDS);
-                } catch (Throwable throwable) {
-                    failure.set(throwable);
-                } finally {
-                    completed.countDown();
-                }
-            }
-        }, "HorizonRadio-Test-Process");
-        runner.setDaemon(true);
-        runner.start();
-        return runner;
-    }
-
-    private static void assertNoFailure(AtomicReference<Throwable> failure) {
-        if (failure.get() != null) {
-            throw new AssertionError("process test failed", failure.get());
-        }
-    }
-
-    private static void assertNoOutputCollectorThreadRemains() throws InterruptedException {
-        long deadline = System.currentTimeMillis() + 1000L;
-        while (System.currentTimeMillis() < deadline) {
-            boolean collectorAlive = false;
-            for (Thread thread : Thread.getAllStackTraces()
-                .keySet()) {
-                if ("HorizonRadio-Downloader-Output".equals(thread.getName()) && thread.isAlive()) {
-                    collectorAlive = true;
-                    break;
-                }
-            }
-            if (!collectorAlive) {
-                return;
-            }
-            Thread.sleep(10L);
-        }
-        assertFalse("output collector thread is still alive", hasLiveOutputCollectorThread());
-    }
-
-    private static boolean hasLiveOutputCollectorThread() {
-        for (Thread thread : Thread.getAllStackTraces()
-            .keySet()) {
-            if ("HorizonRadio-Downloader-Output".equals(thread.getName()) && thread.isAlive()) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private static final class TrackingProcess extends Process {
-
-        private final TrackingInputStream input = new TrackingInputStream();
-        private final AtomicBoolean destroyed = new AtomicBoolean();
-        private final AtomicBoolean destroyedForcibly = new AtomicBoolean();
-        private final AtomicBoolean waitedAfterForcedDestroy = new AtomicBoolean();
-        private final AtomicBoolean terminated = new AtomicBoolean();
-
-        @Override
-        public OutputStream getOutputStream() {
-            return new ByteArrayOutputStreamAdapter();
-        }
-
-        @Override
-        public InputStream getInputStream() {
-            return input;
-        }
-
-        @Override
-        public InputStream getErrorStream() {
-            return new ByteArrayInputStream(new byte[0]);
-        }
-
-        @Override
-        public int waitFor() {
-            if (destroyedForcibly.get()) {
-                waitedAfterForcedDestroy.set(true);
-                terminated.set(true);
-            }
-            return 0;
-        }
-
-        @Override
-        public boolean waitFor(long timeout, TimeUnit unit) {
-            if (destroyedForcibly.get()) {
-                waitedAfterForcedDestroy.set(true);
-                terminated.set(true);
-                return true;
-            }
-            return false;
-        }
-
-        @Override
-        public int exitValue() {
-            return 0;
-        }
-
-        @Override
-        public void destroy() {
-            destroyed.set(true);
-        }
-
-        @Override
-        public Process destroyForcibly() {
-            destroyedForcibly.set(true);
-            return this;
-        }
-
-        @Override
-        public boolean isAlive() {
-            return !terminated.get();
-        }
-    }
-
-    private static final class StubbornProcess extends Process {
-
-        private final InputStream input;
-        private final CountDownLatch destroyedForcibly = new CountDownLatch(1);
-        private final CountDownLatch released = new CountDownLatch(1);
-
-        private StubbornProcess(InputStream input) {
-            this.input = input;
-        }
-
-        @Override
-        public OutputStream getOutputStream() {
-            return new ByteArrayOutputStreamAdapter();
-        }
-
-        @Override
-        public InputStream getInputStream() {
-            return input;
-        }
-
-        @Override
-        public InputStream getErrorStream() {
-            return new ByteArrayInputStream(new byte[0]);
-        }
-
-        @Override
-        public int waitFor() throws InterruptedException {
-            released.await();
-            return 0;
-        }
-
-        @Override
-        public boolean waitFor(long timeout, TimeUnit unit) throws InterruptedException {
-            if (destroyedForcibly.getCount() > 0L) {
-                return false;
-            }
-            return released.await(timeout, unit);
-        }
-
-        @Override
-        public int exitValue() {
-            return 0;
-        }
-
-        @Override
-        public void destroy() {
-            // This process refuses orderly destruction.
-        }
-
-        @Override
-        public Process destroyForcibly() {
-            destroyedForcibly.countDown();
-            return this;
-        }
-
-        @Override
-        public boolean isAlive() {
-            return released.getCount() > 0L;
-        }
-
-        private void release() {
-            released.countDown();
-        }
-    }
-
-    private static final class FinishedProcess extends Process {
-
-        private final InputStream input;
-
-        private FinishedProcess(InputStream input) {
-            this.input = input;
-        }
-
-        @Override
-        public OutputStream getOutputStream() {
-            return new ByteArrayOutputStreamAdapter();
-        }
-
-        @Override
-        public InputStream getInputStream() {
-            return input;
-        }
-
-        @Override
-        public InputStream getErrorStream() {
-            return new ByteArrayInputStream(new byte[0]);
-        }
-
-        @Override
-        public int waitFor() {
-            return 0;
-        }
-
-        @Override
-        public boolean waitFor(long timeout, TimeUnit unit) {
-            return true;
-        }
-
-        @Override
-        public int exitValue() {
-            return 0;
-        }
-
-        @Override
-        public void destroy() {
-            // This process has already finished.
-        }
-
-        @Override
-        public Process destroyForcibly() {
-            return this;
-        }
-
-        @Override
-        public boolean isAlive() {
-            return false;
-        }
-    }
-
-    private static final class NormalOutputProcess extends Process {
-
-        private final NormalOutputInputStream input;
-
-        private NormalOutputProcess(String output) {
-            this.input = new NormalOutputInputStream(output.getBytes(StandardCharsets.UTF_8));
-        }
-
-        @Override
-        public OutputStream getOutputStream() {
-            return new ByteArrayOutputStreamAdapter();
-        }
-
-        @Override
-        public InputStream getInputStream() {
-            return input;
-        }
-
-        @Override
-        public InputStream getErrorStream() {
-            return new ByteArrayInputStream(new byte[0]);
-        }
-
-        @Override
-        public int waitFor() {
-            return 0;
-        }
-
-        @Override
-        public boolean waitFor(long timeout, TimeUnit unit) {
-            return true;
-        }
-
-        @Override
-        public int exitValue() {
-            return 0;
-        }
-
-        @Override
-        public void destroy() {
-            // This process has already finished.
-        }
-
-        @Override
-        public Process destroyForcibly() {
-            return this;
-        }
-
-        @Override
-        public boolean isAlive() {
-            return false;
-        }
-    }
-
-    private static final class NormalOutputInputStream extends InputStream {
-
-        private final byte[] output;
-        private final CountDownLatch released = new CountDownLatch(1);
-        private final CountDownLatch readStarted = new CountDownLatch(1);
-        private final AtomicBoolean closed = new AtomicBoolean();
-        private int offset;
-
-        private NormalOutputInputStream(byte[] output) {
-            this.output = output;
-        }
-
-        @Override
-        public int read() throws IOException {
-            byte[] buffer = new byte[1];
-            int count = read(buffer, 0, 1);
-            return count == -1 ? -1 : buffer[0] & 0xff;
-        }
-
-        @Override
-        public int read(byte[] buffer, int offset, int length) throws IOException {
-            readStarted.countDown();
+    public void cancellationCannotTargetAReplacementInstalledDuringTheOldOperationInterleaving() throws Exception {
+        Path directory = Files.createTempDirectory("horizonradio-service-generation");
+        RecordingBackend backend = new RecordingBackend();
+        CountDownLatch cancellationEntered = new CountDownLatch(1);
+        CountDownLatch releaseCancellation = new CountDownLatch(1);
+        AudioDownloadService service = new AudioDownloadService(directory, backend, () -> {
+            cancellationEntered.countDown();
             try {
-                released.await();
+                releaseCancellation.await();
             } catch (InterruptedException exception) {
                 Thread.currentThread()
                     .interrupt();
-                throw new IOException("interrupted", exception);
             }
-            if (closed.get() || this.offset == output.length) {
-                return -1;
+        });
+        AtomicReference<CompletableFuture<Path>> replacement = new AtomicReference<CompletableFuture<Path>>();
+        Thread cancelling = new Thread(() -> service.cancelDownload("dQw4w9WgXcQ"), "cancel-old-generation");
+        Thread replacing = new Thread(
+            () -> replacement.set(service.download("dQw4w9WgXcQ")),
+            "start-replacement-generation");
+        try {
+            CompletableFuture<Path> first = service.download("dQw4w9WgXcQ");
+            assertTrue(backend.started.await(1, TimeUnit.SECONDS));
+            cancelling.start();
+            assertTrue(cancellationEntered.await(1, TimeUnit.SECONDS));
+            replacing.start();
+            releaseCancellation.countDown();
+            cancelling.join(1000L);
+            replacing.join(1000L);
+            assertTrue(first.isCancelled());
+            assertTrue(replacement.get() != null);
+            backend.release();
+            assertEquals(
+                directory.resolve("dQw4w9WgXcQ.wav"),
+                replacement.get()
+                    .get(2, TimeUnit.SECONDS));
+            assertEquals(2, backend.calls.get());
+        } finally {
+            releaseCancellation.countDown();
+            backend.release();
+            cancelling.join(1000L);
+            replacing.join(1000L);
+            service.shutdown();
+            Files.deleteIfExists(directory.resolve("dQw4w9WgXcQ.wav"));
+            Files.deleteIfExists(directory);
+        }
+    }
+
+    @Test
+    public void commitWinningTheOperationLockCompletesWithoutCancellationOrReplacementDeletion() throws Exception {
+        Path directory = Files.createTempDirectory("horizonradio-service-commit-race");
+        CommitRaceBackend backend = new CommitRaceBackend();
+        CountDownLatch cancellationEntered = new CountDownLatch(1);
+        AudioDownloadService service = new AudioDownloadService(
+            directory,
+            backend,
+            new AudioDownloadService.CancellationInterleavingHook() {
+
+                @Override
+                public void afterOperationRemoved() {}
+
+                @Override
+                public void beforeOperationCancellation() {
+                    cancellationEntered.countDown();
+                }
+            });
+        Thread cancelling = new Thread(() -> service.cancelDownload("dQw4w9WgXcQ"), "cancel-during-commit");
+        try {
+            CompletableFuture<Path> future = service.download("dQw4w9WgXcQ");
+            assertTrue(backend.commitEntered.await(1, TimeUnit.SECONDS));
+            cancelling.start();
+            assertTrue(cancellationEntered.await(1, TimeUnit.SECONDS));
+            backend.releaseCommit();
+            cancelling.join(1000L);
+
+            Path destination = directory.resolve("dQw4w9WgXcQ.wav");
+            assertEquals(destination, future.get(2, TimeUnit.SECONDS));
+            assertFalse(future.isCancelled());
+            assertTrue(Files.exists(destination));
+            assertEquals(
+                destination,
+                service.download("dQw4w9WgXcQ")
+                    .get(2, TimeUnit.SECONDS));
+            assertTrue(Files.exists(destination));
+        } finally {
+            backend.releaseCommit();
+            cancelling.join(1000L);
+            service.shutdown();
+            Files.deleteIfExists(directory.resolve("dQw4w9WgXcQ.wav"));
+            Files.deleteIfExists(directory);
+        }
+    }
+
+    private static final class RecordingBackend implements YouTubeMediaModels.AudioDownloadBackend {
+
+        private final AtomicInteger calls = new AtomicInteger();
+        private final CountDownLatch started = new CountDownLatch(1);
+        private final Object monitor = new Object();
+        private boolean released;
+
+        @Override
+        public Path download(String videoId, Path destination, YouTubeMediaModels.CancellationToken token)
+            throws java.io.IOException {
+            calls.incrementAndGet();
+            started.countDown();
+            synchronized (monitor) {
+                while (!released && !token.isCancelled()) {
+                    try {
+                        monitor.wait(10L);
+                    } catch (InterruptedException exception) {
+                        Thread.currentThread()
+                            .interrupt();
+                        throw new MediaException("download cancelled", exception);
+                    }
+                }
             }
-            int count = Math.min(length, output.length - this.offset);
-            System.arraycopy(output, this.offset, buffer, offset, count);
-            this.offset += count;
-            return count;
+            if (token.isCancelled()) {
+                throw new MediaException("download cancelled");
+            }
+            writeCanonicalWave(destination);
+            return destination;
         }
 
         @Override
-        public void close() {
-            closed.set(true);
-            released.countDown();
+        public boolean isReady() {
+            return true;
         }
 
         private void release() {
-            released.countDown();
+            synchronized (monitor) {
+                released = true;
+                monitor.notifyAll();
+            }
         }
     }
 
-    private static final class TrackingInputStream extends InputStream {
+    private static final class CommitRaceBackend implements YouTubeMediaModels.AudioDownloadBackend {
 
-        private final AtomicBoolean closed = new AtomicBoolean();
+        private final CountDownLatch commitEntered = new CountDownLatch(1);
+        private final CountDownLatch releaseCommit = new CountDownLatch(1);
 
         @Override
-        public int read() throws IOException {
-            while (!closed.get()) {
-                try {
-                    Thread.sleep(10L);
-                } catch (InterruptedException exception) {
-                    Thread.currentThread()
-                        .interrupt();
-                    throw new IOException("interrupted", exception);
+        public Path download(final String videoId, final Path destination, YouTubeMediaModels.CancellationToken token)
+            throws java.io.IOException {
+            token.finish(new PcmSink() {
+
+                @Override
+                public void write(byte[] data, int offset, int length) {}
+
+                @Override
+                public void abort() {}
+
+                @Override
+                public void finish() throws java.io.IOException {
+                    commitEntered.countDown();
+                    try {
+                        if (!releaseCommit.await(1, TimeUnit.SECONDS))
+                            throw new java.io.IOException("commit release timed out");
+                    } catch (InterruptedException exception) {
+                        Thread.currentThread()
+                            .interrupt();
+                        throw new java.io.IOException("commit interrupted", exception);
+                    }
+                    writeCanonicalWave(destination);
                 }
-            }
-            return -1;
+            });
+            return destination;
         }
 
         @Override
-        public void close() {
-            closed.set(true);
+        public boolean isReady() {
+            return true;
+        }
+
+        private void releaseCommit() {
+            releaseCommit.countDown();
         }
     }
 
-    private static final class StubbornInputStream extends InputStream {
-
-        private final CountDownLatch released = new CountDownLatch(1);
-
-        @Override
-        public int read() throws IOException {
-            while (released.getCount() > 0L) {
-                try {
-                    Thread.sleep(10L);
-                } catch (InterruptedException ignored) {
-                    // Ignore interruption to model a reader that will not stop promptly.
-                }
-            }
-            return -1;
-        }
-
-        @Override
-        public void close() {
-            // Ignore close until the test explicitly releases the reader.
-        }
-
-        private void release() {
-            released.countDown();
-        }
+    private static void writeCanonicalWave(Path destination) throws java.io.IOException {
+        byte[] wave = new byte[48];
+        ascii(wave, 0, "RIFF");
+        leInt(wave, 4, 40);
+        ascii(wave, 8, "WAVEfmt ");
+        leInt(wave, 16, 16);
+        leShort(wave, 20, 1);
+        leShort(wave, 22, 2);
+        leInt(wave, 24, 44100);
+        leInt(wave, 28, 176400);
+        leShort(wave, 32, 4);
+        leShort(wave, 34, 16);
+        ascii(wave, 36, "data");
+        leInt(wave, 40, 4);
+        Files.write(destination, wave);
     }
 
-    private static final class ByteArrayOutputStreamAdapter extends OutputStream {
-
-        @Override
-        public void write(int value) {
-            // No process stdin is needed by this test double.
-        }
+    private static void writeStaleWave(Path destination) throws java.io.IOException {
+        byte[] wave = new byte[48];
+        ascii(wave, 0, "RIFF");
+        leInt(wave, 4, 36);
+        ascii(wave, 8, "WAVEfmt ");
+        leInt(wave, 16, 16);
+        leShort(wave, 20, 1);
+        leShort(wave, 22, 2);
+        leInt(wave, 24, 44100);
+        leInt(wave, 28, 176400);
+        leShort(wave, 32, 4);
+        leShort(wave, 34, 16);
+        ascii(wave, 36, "data");
+        leInt(wave, 40, 4);
+        Files.write(destination, wave);
     }
 
-    private static final class FullyReadInputStream extends ByteArrayInputStream {
+    private static void ascii(byte[] bytes, int offset, String value) {
+        for (int i = 0; i < value.length(); i++) bytes[offset + i] = (byte) value.charAt(i);
+    }
 
-        private boolean fullyRead;
+    private static void leShort(byte[] bytes, int offset, int value) {
+        bytes[offset] = (byte) value;
+        bytes[offset + 1] = (byte) (value >>> 8);
+    }
 
-        private FullyReadInputStream(byte[] bytes) {
-            super(bytes);
-        }
-
-        @Override
-        public int read() {
-            int value = super.read();
-            if (value == -1) {
-                fullyRead = true;
-            }
-            return value;
-        }
-
-        @Override
-        public int read(byte[] buffer, int offset, int length) {
-            int count = super.read(buffer, offset, length);
-            if (count == -1) {
-                fullyRead = true;
-            }
-            return count;
-        }
-
-        private boolean isFullyRead() {
-            return fullyRead;
-        }
+    private static void leInt(byte[] bytes, int offset, int value) {
+        for (int i = 0; i < 4; i++) bytes[offset + i] = (byte) (value >>> (8 * i));
     }
 }

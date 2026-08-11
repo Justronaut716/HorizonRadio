@@ -1,12 +1,8 @@
 package com.horizonradio.server;
 
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -19,25 +15,24 @@ import java.util.function.Supplier;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+import com.horizonradio.server.media.JavaAudioDownloadBackend;
+import com.horizonradio.server.media.MediaException;
+import com.horizonradio.server.media.PcmSink;
+import com.horizonradio.server.media.YouTubeMediaModels;
+import com.horizonradio.server.media.YouTubeMetadataResolver;
+
 /**
- * Downloads audio from YouTube using yt-dlp as a subprocess and stores the
- * resulting WAV files on disk. The server then reads and delivers the file
- * contents to clients via Minecraft packets (no separate HTTP port needed).
+ * Downloads YouTube audio through the Java media backend and exposes the
+ * existing metadata import shapes to PlaylistManager.
  */
 public class AudioDownloadService {
 
     private static final Logger LOGGER = Logger.getLogger(AudioDownloadService.class.getName());
-    private static final int MAX_PROCESS_OUTPUT_BYTES = 1024 * 1024;
-    private static final long PROCESS_TERMINATION_TIMEOUT_MILLIS = 1000L;
-    private static final long PROCESS_OUTPUT_JOIN_TIMEOUT_MILLIS = 1000L;
     private static final long EXECUTOR_SHUTDOWN_TIMEOUT_MILLIS = 2000L;
-    private static final long DEPENDENCY_TIMEOUT_SECONDS = 5L;
-    private static final long DOWNLOAD_TIMEOUT_MINUTES = 2L;
-    private static final long METADATA_TIMEOUT_MINUTES = 5L;
 
     private final Path downloadDir;
-    private final String youtubeCookiesFromBrowser;
-    private final String youtubeCookiesFile;
+    private final YouTubeMediaModels.AudioDownloadBackend downloadBackend;
+    private final YouTubeMetadataResolver metadataResolver;
     private final ExecutorService downloadExecutor = Executors.newCachedThreadPool(new ThreadFactory() {
 
         @Override
@@ -47,190 +42,162 @@ public class AudioDownloadService {
             return thread;
         }
     });
-    private final ConcurrentMap<String, CompletableFuture<Path>> activeDownloads = new ConcurrentHashMap<String, CompletableFuture<Path>>();
-    private volatile boolean ytDlpAvailable;
-    private volatile boolean ffmpegAvailable;
+    private final ConcurrentMap<String, DownloadOperation> activeDownloads = new ConcurrentHashMap<String, DownloadOperation>();
+    private final CancellationInterleavingHook cancellationInterleavingHook;
 
     public AudioDownloadService(Path downloadDir) throws IOException {
-        this(downloadDir, true, "", "");
+        this(
+            downloadDir,
+            new JavaAudioDownloadBackend(),
+            new YouTubeMetadataResolver(),
+            CancellationInterleavingHook.NONE);
     }
 
     AudioDownloadService(Path downloadDir, boolean checkDependencies) throws IOException {
-        this(downloadDir, checkDependencies, "", "");
+        this(downloadDir);
     }
 
     public AudioDownloadService(Path downloadDir, String youtubeCookiesFromBrowser, String youtubeCookiesFile)
         throws IOException {
-        this(downloadDir, true, youtubeCookiesFromBrowser, youtubeCookiesFile);
+        this(downloadDir);
     }
 
     AudioDownloadService(Path downloadDir, boolean checkDependencies, String youtubeCookiesFromBrowser,
         String youtubeCookiesFile) throws IOException {
-        this.downloadDir = downloadDir;
-        this.youtubeCookiesFromBrowser = youtubeCookiesFromBrowser == null ? "" : youtubeCookiesFromBrowser.trim();
-        this.youtubeCookiesFile = youtubeCookiesFile == null ? "" : youtubeCookiesFile.trim();
-        Files.createDirectories(downloadDir);
-        if (checkDependencies) {
-            checkDependencies();
-        }
+        this(downloadDir);
     }
 
-    /**
-     * Downloads a YouTube video as WAV using yt-dlp.
-     * Returns a CompletableFuture with the Path to the WAV file, or null on failure.
-     */
+    AudioDownloadService(Path downloadDir, YouTubeMediaModels.AudioDownloadBackend downloadBackend) throws IOException {
+        this(downloadDir, downloadBackend, new YouTubeMetadataResolver(), CancellationInterleavingHook.NONE);
+    }
+
+    AudioDownloadService(Path downloadDir, YouTubeMediaModels.AudioDownloadBackend downloadBackend,
+        YouTubeMetadataResolver metadataResolver) throws IOException {
+        this(downloadDir, downloadBackend, metadataResolver, CancellationInterleavingHook.NONE);
+    }
+
+    AudioDownloadService(Path downloadDir, YouTubeMediaModels.AudioDownloadBackend downloadBackend,
+        CancellationInterleavingHook cancellationInterleavingHook) throws IOException {
+        this(downloadDir, downloadBackend, new YouTubeMetadataResolver(), cancellationInterleavingHook);
+    }
+
+    private AudioDownloadService(Path downloadDir, YouTubeMediaModels.AudioDownloadBackend downloadBackend,
+        YouTubeMetadataResolver metadataResolver, CancellationInterleavingHook cancellationInterleavingHook)
+        throws IOException {
+        if (downloadBackend == null) throw new IllegalArgumentException("Java audio download backend is required");
+        if (metadataResolver == null) throw new IllegalArgumentException("YouTube metadata resolver is required");
+        this.downloadDir = downloadDir;
+        this.downloadBackend = downloadBackend;
+        this.metadataResolver = metadataResolver;
+        this.cancellationInterleavingHook = cancellationInterleavingHook == null ? CancellationInterleavingHook.NONE
+            : cancellationInterleavingHook;
+        Files.createDirectories(downloadDir);
+    }
+
+    /** Downloads a YouTube video as WAV and returns its cache path, or null on failure. */
     public synchronized CompletableFuture<Path> download(final String videoId) {
-        CompletableFuture<Path> existing = activeDownloads.get(videoId);
-        if (existing != null) {
-            return existing;
+        DownloadOperation existingOperation = activeDownloads.get(videoId);
+        CompletableFuture<Path> existing = existingOperation == null ? null : existingOperation.future;
+        if (existing != null) return existing;
+        final Path filePath;
+        try {
+            filePath = getFilePath(videoId);
+        } catch (RuntimeException exception) {
+            return CompletableFuture.completedFuture(null);
         }
+        final DownloadOperation operation = new DownloadOperation();
         CompletableFuture<Path> future = CompletableFuture.supplyAsync(new Supplier<Path>() {
 
             @Override
             public Path get() {
-                Path filePath = getFilePath(videoId);
-
                 if (Files.exists(filePath)) {
-                    LOGGER.info("HorizonRadio: Using cached audio for " + videoId);
-                    return filePath;
+                    if (isCanonicalCachedWav(filePath)) {
+                        LOGGER.info("HorizonRadio: Using cached audio for " + videoId);
+                        return filePath;
+                    }
+                    try {
+                        Files.deleteIfExists(filePath);
+                    } catch (IOException exception) {
+                        LOGGER.log(Level.WARNING, "Could not remove invalid cached WAV for " + videoId, exception);
+                        return null;
+                    }
                 }
-
-                LOGGER.info("HorizonRadio: Downloading audio for " + videoId);
+                LOGGER.info("HorizonRadio: Downloading audio with the Java media backend for " + videoId);
                 try {
-                    ProcessBuilder processBuilder = new ProcessBuilder(
-                        buildDownloadCommand(filePath, videoId, youtubeCookiesFromBrowser, youtubeCookiesFile));
-                    processBuilder.redirectErrorStream(true);
-                    ProcessResult result = runProcess(processBuilder, DOWNLOAD_TIMEOUT_MINUTES, TimeUnit.MINUTES);
-
-                    if (!result.finished || result.exitCode != 0) {
-                        LOGGER.warning("yt-dlp failed for " + videoId + ": " + result.output);
-                        logFfmpegHint(result.output);
-                        return null;
-                    }
-
-                    if (!Files.exists(filePath)) {
-                        LOGGER.warning("yt-dlp produced no output file for " + videoId);
-                        return null;
-                    }
-
-                    return filePath;
+                    return downloadBackend.download(videoId, filePath, operation);
                 } catch (IOException exception) {
-                    LOGGER.log(
-                        Level.WARNING,
-                        "yt-dlp not found or failed to start for " + videoId + ". Is yt-dlp installed?",
-                        exception);
-                    return null;
-                } catch (InterruptedException exception) {
-                    Thread.currentThread()
-                        .interrupt();
-                    LOGGER.log(Level.WARNING, "Download interrupted for " + videoId, exception);
+                    LOGGER.log(Level.WARNING, "Java audio download failed for " + videoId, exception);
                     return null;
                 }
             }
         }, downloadExecutor);
-        activeDownloads.put(videoId, future);
+        operation.future = future;
+        activeDownloads.put(videoId, operation);
         future.whenComplete(new java.util.function.BiConsumer<Path, Throwable>() {
 
             @Override
             public void accept(Path path, Throwable failure) {
-                activeDownloads.remove(videoId, future);
+                synchronized (AudioDownloadService.this) {
+                    activeDownloads.remove(videoId, operation);
+                }
             }
         });
         return future;
     }
 
-    /** Cancels an in-flight yt-dlp download for the given video, if present. */
-    public void cancelDownload(String videoId) {
-        if (videoId == null) {
-            return;
-        }
-        CompletableFuture<Path> future = activeDownloads.remove(videoId);
-        if (future != null) {
-            future.cancel(true);
+    /** Cancels an in-flight Java media download for the given video, if present. */
+    public synchronized void cancelDownload(String videoId) {
+        if (videoId == null) return;
+        DownloadOperation operation = activeDownloads.get(videoId);
+        if (operation == null) return;
+        cancellationInterleavingHook.beforeOperationCancellation();
+        synchronized (operation) {
+            if (!operation.cancel()) return;
+            activeDownloads.remove(videoId, operation);
+            cancellationInterleavingHook.afterOperationRemoved();
+            operation.future.cancel(true);
         }
     }
 
     public CompletableFuture<String> extractPlaylistJson(final String playlistUrl) {
-        return CompletableFuture.supplyAsync(new Supplier<String>() {
+        return metadataFuture(new Supplier<String>() {
 
             @Override
             public String get() {
-                try {
-                    ProcessResult result = runProcess(
-                        new ProcessBuilder(
-                            buildPlaylistCommand(playlistUrl, youtubeCookiesFromBrowser, youtubeCookiesFile)),
-                        DOWNLOAD_TIMEOUT_MINUTES,
-                        TimeUnit.MINUTES);
-                    if (!result.finished || result.exitCode != 0) {
-                        LOGGER.warning("yt-dlp playlist import failed: " + result.output);
-                        return null;
-                    }
-                    return result.output;
-                } catch (IOException exception) {
-                    LOGGER.log(Level.WARNING, "yt-dlp playlist import could not start", exception);
-                    return null;
-                } catch (InterruptedException exception) {
-                    Thread.currentThread()
-                        .interrupt();
-                    LOGGER.log(Level.WARNING, "yt-dlp playlist import was interrupted", exception);
-                    return null;
-                }
+                return metadataResolver.resolvePlaylistJson(playlistUrl);
             }
-        }, downloadExecutor);
+        }, "playlist");
     }
 
     public CompletableFuture<String> extractVideoJson(final String videoUrl) {
-        return CompletableFuture.supplyAsync(new Supplier<String>() {
+        return metadataFuture(new Supplier<String>() {
 
             @Override
             public String get() {
-                try {
-                    ProcessResult result = runProcess(
-                        new ProcessBuilder(
-                            buildVideoMetadataCommand(videoUrl, youtubeCookiesFromBrowser, youtubeCookiesFile)),
-                        DOWNLOAD_TIMEOUT_MINUTES,
-                        TimeUnit.MINUTES);
-                    if (!result.finished || result.exitCode != 0) {
-                        LOGGER.warning("yt-dlp video import failed: " + result.output);
-                        return null;
-                    }
-                    return result.output;
-                } catch (IOException exception) {
-                    LOGGER.log(Level.WARNING, "yt-dlp video import could not start", exception);
-                    return null;
-                } catch (InterruptedException exception) {
-                    Thread.currentThread()
-                        .interrupt();
-                    LOGGER.log(Level.WARNING, "yt-dlp video import was interrupted", exception);
-                    return null;
-                }
+                return metadataResolver.resolveVideoJson(videoUrl);
             }
-        }, downloadExecutor);
+        }, "video");
     }
 
     public CompletableFuture<String> extractVideoDurationOutput(final List<String> videoIds) {
+        return metadataFuture(new Supplier<String>() {
+
+            @Override
+            public String get() {
+                return metadataResolver.resolveDurationOutput(videoIds);
+            }
+        }, "duration");
+    }
+
+    private CompletableFuture<String> metadataFuture(final Supplier<String> operation, final String operationName) {
         return CompletableFuture.supplyAsync(new Supplier<String>() {
 
             @Override
             public String get() {
                 try {
-                    ProcessResult result = runProcess(
-                        new ProcessBuilder(
-                            buildVideoDurationCommand(videoIds, youtubeCookiesFromBrowser, youtubeCookiesFile)),
-                        METADATA_TIMEOUT_MINUTES,
-                        TimeUnit.MINUTES);
-                    if (!result.finished || result.exitCode != 0) {
-                        LOGGER.warning("yt-dlp chart duration lookup failed: " + result.output);
-                        return null;
-                    }
-                    return result.output;
-                } catch (IOException exception) {
-                    LOGGER.log(Level.WARNING, "yt-dlp chart duration lookup could not start", exception);
-                    return null;
-                } catch (InterruptedException exception) {
-                    Thread.currentThread()
-                        .interrupt();
-                    LOGGER.log(Level.WARNING, "yt-dlp chart duration lookup was interrupted", exception);
+                    return operation.get();
+                } catch (RuntimeException exception) {
+                    LOGGER.log(Level.WARNING, "YouTube " + operationName + " metadata lookup failed", exception);
                     return null;
                 }
             }
@@ -238,7 +205,60 @@ public class AudioDownloadService {
     }
 
     public Path getFilePath(String videoId) {
-        return downloadDir.resolve(videoId + ".wav");
+        try {
+            return downloadDir.resolve(com.horizonradio.server.media.YouTubeUrlParser.requireVideoId(videoId) + ".wav");
+        } catch (IOException exception) {
+            throw new IllegalArgumentException("Invalid YouTube video ID", exception);
+        }
+    }
+
+    private static boolean isCanonicalCachedWav(Path filePath) {
+        try {
+            long length = Files.size(filePath);
+            if (length <= 44L || length > 0xffffffffL) return false;
+            byte[] header = new byte[44];
+            try (java.io.InputStream input = Files.newInputStream(filePath)) {
+                int offset = 0;
+                while (offset < header.length) {
+                    int count = input.read(header, offset, header.length - offset);
+                    if (count < 0) return false;
+                    offset += count;
+                }
+            }
+            long dataLength = unsignedInt(header, 40);
+            return matches(header, 0, "RIFF") && unsignedInt(header, 4) == length - 8L
+                && matches(header, 8, "WAVE")
+                && matches(header, 12, "fmt ")
+                && unsignedInt(header, 16) == 16L
+                && unsignedShort(header, 20) == 1
+                && unsignedShort(header, 22) == 2
+                && unsignedInt(header, 24) == 44100L
+                && unsignedInt(header, 28) == 176400L
+                && unsignedShort(header, 32) == 4
+                && unsignedShort(header, 34) == 16
+                && matches(header, 36, "data")
+                && dataLength == length - 44L
+                && dataLength > 0L
+                && dataLength % 4L == 0L;
+        } catch (IOException exception) {
+            return false;
+        }
+    }
+
+    private static boolean matches(byte[] bytes, int offset, String text) {
+        for (int index = 0; index < text.length(); index++)
+            if (bytes[offset + index] != (byte) text.charAt(index)) return false;
+        return true;
+    }
+
+    private static int unsignedShort(byte[] bytes, int offset) {
+        return (bytes[offset] & 0xff) | ((bytes[offset + 1] & 0xff) << 8);
+    }
+
+    private static long unsignedInt(byte[] bytes, int offset) {
+        return ((long) bytes[offset] & 0xffL) | (((long) bytes[offset + 1] & 0xffL) << 8)
+            | (((long) bytes[offset + 2] & 0xffL) << 16)
+            | (((long) bytes[offset + 3] & 0xffL) << 24);
     }
 
     public void delete(String videoId) {
@@ -251,59 +271,8 @@ public class AudioDownloadService {
         }
     }
 
-    private void checkDependencies() {
-        try {
-            ProcessResult result = runProcess(
-                new ProcessBuilder("yt-dlp", "--version"),
-                DEPENDENCY_TIMEOUT_SECONDS,
-                TimeUnit.SECONDS);
-            if (result.finished && result.exitCode == 0) {
-                ytDlpAvailable = true;
-                LOGGER.info("HorizonRadio: Found yt-dlp version " + result.output.trim());
-            } else {
-                LOGGER.warning("HorizonRadio: yt-dlp check failed. Audio downloads will not work!");
-            }
-        } catch (IOException exception) {
-            LOGGER.warning("HorizonRadio: yt-dlp not found! Please install yt-dlp and ensure it's on the system PATH.");
-            LOGGER.warning(
-                "HorizonRadio: See https://github.com/yt-dlp/yt-dlp#installation for installation instructions.");
-        } catch (InterruptedException exception) {
-            Thread.currentThread()
-                .interrupt();
-            LOGGER.log(Level.WARNING, "HorizonRadio: yt-dlp dependency check was interrupted", exception);
-        }
-
-        try {
-            ProcessResult result = runProcess(
-                new ProcessBuilder("ffmpeg", "-version"),
-                DEPENDENCY_TIMEOUT_SECONDS,
-                TimeUnit.SECONDS);
-            if (result.finished && result.exitCode == 0) {
-                ffmpegAvailable = true;
-                LOGGER.info("HorizonRadio: Found ffmpeg");
-            } else {
-                LOGGER.warning("HorizonRadio: ffmpeg check failed. Audio conversion will not work!");
-            }
-        } catch (IOException exception) {
-            LOGGER.warning("HorizonRadio: ffmpeg not found! Please install ffmpeg and ensure it's on the system PATH.");
-            LOGGER.warning("HorizonRadio: ffmpeg is required by yt-dlp to convert audio to WAV format.");
-            LOGGER.warning("HorizonRadio: See https://ffmpeg.org/download.html for installation instructions.");
-        } catch (InterruptedException exception) {
-            Thread.currentThread()
-                .interrupt();
-            LOGGER.log(Level.WARNING, "HorizonRadio: ffmpeg dependency check was interrupted", exception);
-        }
-
-        if (!ytDlpAvailable || !ffmpegAvailable) {
-            LOGGER.warning("HorizonRadio: ============================================================");
-            LOGGER.warning("HorizonRadio: AUDIO DOWNLOADS WILL FAIL - Missing required dependencies!");
-            LOGGER.warning("HorizonRadio: Please install both yt-dlp and ffmpeg on the server.");
-            LOGGER.warning("HorizonRadio: ============================================================");
-        }
-    }
-
     public boolean isDependenciesAvailable() {
-        return ytDlpAvailable && ffmpegAvailable;
+        return downloadBackend.isReady();
     }
 
     public void shutdown() {
@@ -312,9 +281,7 @@ public class AudioDownloadService {
         long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(EXECUTOR_SHUTDOWN_TIMEOUT_MILLIS);
         while (!downloadExecutor.isTerminated()) {
             long remaining = deadline - System.nanoTime();
-            if (remaining <= 0L) {
-                break;
-            }
+            if (remaining <= 0L) break;
             try {
                 downloadExecutor.awaitTermination(remaining, TimeUnit.NANOSECONDS);
             } catch (InterruptedException exception) {
@@ -322,10 +289,8 @@ public class AudioDownloadService {
                 downloadExecutor.shutdownNow();
             }
         }
-        if (interrupted) {
-            Thread.currentThread()
-                .interrupt();
-        }
+        if (interrupted) Thread.currentThread()
+            .interrupt();
         if (!downloadExecutor.isTerminated()) {
             LOGGER.warning(
                 "HorizonRadio: Audio download executor did not terminate within " + EXECUTOR_SHUTDOWN_TIMEOUT_MILLIS
@@ -334,370 +299,45 @@ public class AudioDownloadService {
         LOGGER.info("HorizonRadio: Audio download service shut down");
     }
 
-    static List<String> buildDownloadCommand(Path filePath, String videoId) {
-        return buildDownloadCommand(filePath, videoId, "", "");
+    interface CancellationInterleavingHook {
+
+        CancellationInterleavingHook NONE = new CancellationInterleavingHook() {
+
+            @Override
+            public void afterOperationRemoved() {}
+        };
+
+        void afterOperationRemoved();
+
+        default void beforeOperationCancellation() {}
     }
 
-    static List<String> buildDownloadCommand(Path filePath, String videoId, String cookiesFromBrowser,
-        String cookiesFile) {
-        List<String> command = new ArrayList<String>(
-            java.util.Arrays.asList(
-                "yt-dlp",
-                "--extractor-args",
-                "youtube:player_client=android",
-                "-f",
-                "bestaudio[ext=m4a]/bestaudio/best",
-                "--retries",
-                "3",
-                "--fragment-retries",
-                "3",
-                "--sleep-requests",
-                "1",
-                "-x",
-                "--audio-format",
-                "wav",
-                "--audio-quality",
-                "0",
-                "-o",
-                filePath.toString(),
-                "--no-playlist",
-                "https://www.youtube.com/watch?v=" + videoId));
-        addCookieOptions(command, cookiesFromBrowser, cookiesFile);
-        return command;
-    }
+    private static final class DownloadOperation implements YouTubeMediaModels.CancellationToken {
 
-    static List<String> buildPlaylistCommand(String playlistUrl) {
-        return buildPlaylistCommand(playlistUrl, "", "");
-    }
+        private boolean cancelled;
+        private boolean committed;
+        private volatile CompletableFuture<Path> future;
 
-    static List<String> buildPlaylistCommand(String playlistUrl, String cookiesFromBrowser, String cookiesFile) {
-        List<String> command = new ArrayList<String>(
-            java.util.Arrays.asList(
-                "yt-dlp",
-                "--extractor-args",
-                "youtube:player_client=android",
-                "--flat-playlist",
-                "--dump-single-json",
-                "--skip-download",
-                "--quiet",
-                "--no-warnings",
-                "--yes-playlist",
-                playlistUrl));
-        addCookieOptions(command, cookiesFromBrowser, cookiesFile);
-        return command;
-    }
-
-    static List<String> buildVideoMetadataCommand(String videoUrl) {
-        return buildVideoMetadataCommand(videoUrl, "", "");
-    }
-
-    static List<String> buildVideoMetadataCommand(String videoUrl, String cookiesFromBrowser, String cookiesFile) {
-        List<String> command = new ArrayList<String>(
-            java.util.Arrays.asList(
-                "yt-dlp",
-                "--extractor-args",
-                "youtube:player_client=android",
-                "--dump-single-json",
-                "--skip-download",
-                "--quiet",
-                "--no-warnings",
-                "--no-playlist",
-                videoUrl));
-        addCookieOptions(command, cookiesFromBrowser, cookiesFile);
-        return command;
-    }
-
-    static List<String> buildVideoDurationCommand(List<String> videoIds) {
-        return buildVideoDurationCommand(videoIds, "", "");
-    }
-
-    static List<String> buildVideoDurationCommand(List<String> videoIds, String cookiesFromBrowser,
-        String cookiesFile) {
-        List<String> command = new ArrayList<String>(
-            java.util.Arrays.asList(
-                "yt-dlp",
-                "--extractor-args",
-                "youtube:player_client=android",
-                "--print",
-                "%(id)s\\t%(duration_string)s",
-                "--skip-download",
-                "--quiet",
-                "--no-warnings",
-                "--ignore-errors",
-                "--no-playlist",
-                "--retries",
-                "1"));
-        if (videoIds != null) {
-            for (String videoId : videoIds) {
-                if (videoId != null && videoId.trim()
-                    .length() > 0) {
-                    command.add("https://www.youtube.com/watch?v=" + videoId.trim());
-                }
-            }
-        }
-        addCookieOptions(command, cookiesFromBrowser, cookiesFile);
-        return command;
-    }
-
-    private static void addCookieOptions(List<String> command, String cookiesFromBrowser, String cookiesFile) {
-        if (cookiesFile != null && cookiesFile.trim()
-            .length() > 0) {
-            command.add("--cookies");
-            command.add(cookiesFile.trim());
-        } else if (cookiesFromBrowser != null && cookiesFromBrowser.trim()
-            .length() > 0) {
-                command.add("--cookies-from-browser");
-                command.add(cookiesFromBrowser.trim());
-            }
-    }
-
-    static String collectProcessOutput(InputStream input, int maxBytes) throws IOException {
-        if (maxBytes < 0) {
-            throw new IllegalArgumentException("maxBytes must not be negative");
+        @Override
+        public synchronized boolean isCancelled() {
+            return cancelled || Thread.currentThread()
+                .isInterrupted();
         }
 
-        ByteArrayOutputStream output = new ByteArrayOutputStream(Math.min(maxBytes, 4096));
-        byte[] buffer = new byte[4096];
-        int storedBytes = 0;
-        int count;
-        while ((count = input.read(buffer)) != -1) {
-            if (storedBytes < maxBytes) {
-                int bytesToStore = Math.min(count, maxBytes - storedBytes);
-                output.write(buffer, 0, bytesToStore);
-                storedBytes += bytesToStore;
-            }
-        }
-        return new String(output.toByteArray(), StandardCharsets.UTF_8);
-    }
-
-    private static ProcessResult runProcess(ProcessBuilder processBuilder, long timeout, TimeUnit timeUnit)
-        throws IOException, InterruptedException {
-        processBuilder.redirectErrorStream(true);
-        return runProcess(processBuilder.start(), timeout, timeUnit);
-    }
-
-    private static ProcessResult runProcess(Process process, long timeout, TimeUnit timeUnit)
-        throws IOException, InterruptedException {
-        OutputCollector outputCollector = new OutputCollector(process.getInputStream(), MAX_PROCESS_OUTPUT_BYTES);
-        outputCollector.start();
-        boolean finished = false;
-        InterruptedException interruption = null;
-        try {
-            finished = process.waitFor(timeout, timeUnit);
-        } catch (InterruptedException exception) {
-            interruption = exception;
-        } finally {
-            try {
-                if (!finished) {
-                    terminateProcess(process);
-                }
-            } catch (InterruptedException exception) {
-                interruption = exception;
-            }
-            if (finished) {
-                outputCollector.awaitCompletionAfterNormalCompletion();
-                closeProcessStreams(process);
-            } else {
-                closeProcessStreams(process);
-                outputCollector.awaitCompletion();
-            }
-        }
-
-        if (interruption != null) {
-            throw interruption;
-        }
-        return new ProcessResult(finished, finished ? process.exitValue() : -1, outputCollector.getOutput());
-    }
-
-    private static void terminateProcess(Process process) throws InterruptedException {
-        if (!process.isAlive()) {
-            return;
-        }
-
-        boolean interrupted = false;
-        process.destroy();
-        try {
-            if (!process.waitFor(1, TimeUnit.SECONDS)) {
-                process.destroyForcibly();
-                TerminationResult termination = waitForTermination(process);
-                interrupted = termination.interrupted;
-                logProcessTerminationFailure(process, termination.terminated);
-            }
-        } catch (InterruptedException exception) {
-            interrupted = true;
-            process.destroyForcibly();
-            TerminationResult termination = waitForTermination(process);
-            interrupted = termination.interrupted || interrupted;
-            logProcessTerminationFailure(process, termination.terminated);
-        }
-        if (interrupted) {
-            Thread.currentThread()
-                .interrupt();
-            throw new InterruptedException("Interrupted while terminating process");
-        }
-    }
-
-    private static TerminationResult waitForTermination(Process process) {
-        boolean interrupted = false;
-        long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(PROCESS_TERMINATION_TIMEOUT_MILLIS);
-        while (process.isAlive()) {
-            long remaining = deadline - System.nanoTime();
-            if (remaining <= 0L) {
-                break;
-            }
-            try {
-                process.waitFor(remaining, TimeUnit.NANOSECONDS);
-            } catch (InterruptedException exception) {
-                interrupted = true;
-            }
-        }
-        return new TerminationResult(!process.isAlive(), interrupted);
-    }
-
-    private static void logProcessTerminationFailure(Process process, boolean terminated) {
-        if (!terminated && process.isAlive()) {
-            LOGGER.warning(
-                "HorizonRadio: Audio process did not terminate within " + PROCESS_TERMINATION_TIMEOUT_MILLIS
-                    + " ms after forced cleanup");
-        }
-    }
-
-    private static void closeProcessStreams(Process process) {
-        closeQuietly(process.getOutputStream());
-        closeQuietly(process.getInputStream());
-        closeQuietly(process.getErrorStream());
-    }
-
-    private static void closeQuietly(java.io.Closeable stream) {
-        if (stream == null) {
-            return;
-        }
-        try {
-            stream.close();
-        } catch (IOException ignored) {
-            // Cleanup must continue even if a process stream is already closed.
-        }
-    }
-
-    private static void logFfmpegHint(String output) {
-        if (output.contains("ffprobe and ffmpeg not found") || output.contains("ffmpeg not found")) {
-            LOGGER.warning("HorizonRadio: ffmpeg is not installed! Please install ffmpeg to enable audio downloads.");
-            LOGGER.warning(
-                "HorizonRadio: On Windows: winget install ffmpeg OR choco install ffmpeg OR scoop install ffmpeg");
-            LOGGER.warning("HorizonRadio: On Linux: sudo apt install ffmpeg OR sudo dnf install ffmpeg");
-            LOGGER.warning("HorizonRadio: On macOS: brew install ffmpeg");
-        }
-    }
-
-    private static final class TerminationResult {
-
-        private final boolean terminated;
-        private final boolean interrupted;
-
-        private TerminationResult(boolean terminated, boolean interrupted) {
-            this.terminated = terminated;
-            this.interrupted = interrupted;
-        }
-    }
-
-    private static final class ProcessResult {
-
-        private final boolean finished;
-        private final int exitCode;
-        private final String output;
-
-        private ProcessResult(boolean finished, int exitCode, String output) {
-            this.finished = finished;
-            this.exitCode = exitCode;
-            this.output = output;
-        }
-    }
-
-    private static final class OutputCollector implements Runnable {
-
-        private final InputStream input;
-        private final int maxBytes;
-        private final Thread thread;
-        private volatile String output = "";
-
-        private OutputCollector(InputStream input, int maxBytes) {
-            this.input = input;
-            this.maxBytes = maxBytes;
-            this.thread = new Thread(this, "HorizonRadio-Downloader-Output");
-            this.thread.setDaemon(true);
-        }
-
-        private void start() {
-            thread.start();
+        private boolean cancel() {
+            if (committed) return false;
+            cancelled = true;
+            return true;
         }
 
         @Override
-        public void run() {
-            try {
-                output = collectProcessOutput(input, maxBytes);
-            } catch (IOException exception) {
-                LOGGER.log(Level.FINE, "Could not collect process output", exception);
-            } finally {
-                try {
-                    input.close();
-                } catch (IOException ignored) {
-                    // The process may already have closed its output stream.
-                }
+        public synchronized void finish(PcmSink sink) throws IOException {
+            if (cancelled || Thread.currentThread()
+                .isInterrupted()) {
+                throw new MediaException("YouTube audio download cancelled");
             }
-        }
-
-        private void closeInput() {
-            try {
-                input.close();
-            } catch (IOException ignored) {
-                // The process may already have closed its output stream.
-            }
-        }
-
-        private void awaitCompletion() {
-            awaitCompletion(true);
-        }
-
-        private void awaitCompletionAfterNormalCompletion() {
-            awaitCompletion(false);
-        }
-
-        private void awaitCompletion(boolean closeBeforeJoin) {
-            if (closeBeforeJoin) {
-                closeInput();
-            }
-            boolean interrupted = false;
-            long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(PROCESS_OUTPUT_JOIN_TIMEOUT_MILLIS);
-            while (thread.isAlive()) {
-                long remaining = deadline - System.nanoTime();
-                if (remaining <= 0L) {
-                    break;
-                }
-                try {
-                    long remainingMillis = TimeUnit.NANOSECONDS.toMillis(remaining);
-                    thread.join(Math.max(1L, remainingMillis));
-                } catch (InterruptedException exception) {
-                    interrupted = true;
-                    closeInput();
-                    thread.interrupt();
-                }
-            }
-            if (thread.isAlive()) {
-                closeInput();
-                thread.interrupt();
-                LOGGER.warning(
-                    "HorizonRadio: Audio process output collector did not terminate within "
-                        + PROCESS_OUTPUT_JOIN_TIMEOUT_MILLIS
-                        + " ms");
-            }
-            if (interrupted) {
-                Thread.currentThread()
-                    .interrupt();
-            }
-        }
-
-        private String getOutput() {
-            return output;
+            sink.finish();
+            committed = true;
         }
     }
 }

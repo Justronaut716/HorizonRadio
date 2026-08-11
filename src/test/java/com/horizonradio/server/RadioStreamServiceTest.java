@@ -5,26 +5,21 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
-import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Deque;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
+import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 
 import org.junit.Test;
 
 import com.horizonradio.core.model.RadioStation;
+import com.horizonradio.server.media.RadioInputSession;
 
 public class RadioStreamServiceTest {
 
@@ -36,39 +31,17 @@ public class RadioStreamServiceTest {
         false);
 
     @Test
-    public void buildsFfmpegCommandForFixedPcmOutput() {
-        assertEquals(
-            Arrays.asList(
-                "ffmpeg",
-                "-nostdin",
-                "-hide_banner",
-                "-loglevel",
-                "warning",
-                "-i",
-                "https://stream.example/radio",
-                "-vn",
-                "-ac",
-                "2",
-                "-ar",
-                "44100",
-                "-acodec",
-                "pcm_s16le",
-                "-f",
-                "s16le",
-                "pipe:1"),
-            RadioStreamService.buildFfmpegCommand("https://stream.example/radio"));
-    }
-
-    @Test
     public void firstDataCallbackStartsAtSequenceZero() throws Exception {
-        ControlledInputStream output = new ControlledInputStream(new byte[] { 1, 2, 3, 4 });
-        FakeProcess process = new FakeProcess(output);
-        RadioStreamService service = new RadioStreamService(new FakeProcessFactory(process));
+        FakeSessionFactory sessions = new FakeSessionFactory();
+        RadioStreamService service = new RadioStreamService(sessions);
         RecordingListener listener = new RecordingListener();
         try {
             service.startCandidate(STATION, 5L, listener);
+            FakeSession session = sessions.awaitSession(0);
 
-            assertTrue(listener.awaitReady(1));
+            session.emit(new byte[] { 1, 2, 3, 4 });
+
+            assertTrue(listener.awaitReady());
             assertEquals(5L, listener.readyGeneration);
             assertEquals(STATION, listener.readyStation);
             assertEquals(0L, listener.firstSequence);
@@ -79,20 +52,23 @@ public class RadioStreamServiceTest {
     }
 
     @Test
-    public void partialPcmWaitsForACompleteFrameAndPreservesRemainder() throws Exception {
-        ControlledInputStream output = new ControlledInputStream(new byte[] { 1, 2, 3 });
-        RadioStreamService service = new RadioStreamService(new FakeProcessFactory(new FakeProcess(output)));
+    public void candidateDoesNotPublishPartialPcmFrames() throws Exception {
+        FakeSessionFactory sessions = new FakeSessionFactory();
+        RadioStreamService service = new RadioStreamService(sessions);
         RecordingListener listener = new RecordingListener();
         try {
             service.startCandidate(STATION, 6L, listener);
+            FakeSession session = sessions.awaitSession(0);
 
+            session.emit(new byte[] { 1, 2, 3 });
             assertFalse(listener.awaitReadyFor(100L));
-            output.offer(new byte[] { 4, 5 });
-            assertTrue(listener.awaitReady(1));
+            session.emit(new byte[] { 4, 5 });
+
+            assertTrue(listener.awaitReady());
             assertArrayEquals(new byte[] { 1, 2, 3, 4 }, listener.readyData);
 
             service.promoteCandidate(6L);
-            output.offer(new byte[] { 6, 7, 8 });
+            session.emit(new byte[] { 6, 7, 8 });
             assertTrue(listener.awaitChunks(1));
             assertArrayEquals(new byte[] { 5, 6, 7, 8 }, listener.chunks.get(0));
         } finally {
@@ -102,16 +78,18 @@ public class RadioStreamServiceTest {
 
     @Test
     public void promotedCandidateEmitsFollowingChunksInOrder() throws Exception {
-        ControlledInputStream output = new ControlledInputStream(new byte[] { 1, 2, 3, 4 });
-        RadioStreamService service = new RadioStreamService(new FakeProcessFactory(new FakeProcess(output)));
+        FakeSessionFactory sessions = new FakeSessionFactory();
+        RadioStreamService service = new RadioStreamService(sessions);
         RecordingListener listener = new RecordingListener();
         try {
             service.startCandidate(STATION, 3L, listener);
-            assertTrue(listener.awaitReady(1));
+            FakeSession session = sessions.awaitSession(0);
+            session.emit(new byte[] { 1, 2, 3, 4 });
+            assertTrue(listener.awaitReady());
             service.promoteCandidate(3L);
 
-            output.offer(new byte[] { 5, 6, 7, 8 });
-            output.offer(new byte[] { 9, 10, 11, 12 });
+            session.emit(new byte[] { 5, 6, 7, 8 });
+            session.emit(new byte[] { 9, 10, 11, 12 });
             assertTrue(listener.awaitChunks(2));
             assertEquals(Arrays.asList(Long.valueOf(1L), Long.valueOf(2L)), listener.chunkSequences);
             assertArrayEquals(new byte[] { 5, 6, 7, 8 }, listener.chunks.get(0));
@@ -122,78 +100,27 @@ public class RadioStreamServiceTest {
     }
 
     @Test
-    public void publishedSessionFailsWhenPcmReadHangsAfterReady() throws Exception {
-        ControlledInputStream output = new ControlledInputStream(new byte[] { 1, 2, 3, 4 });
-        FakeProcess process = new FakeProcess(output);
-        ExecutorService relayExecutor = Executors.newCachedThreadPool();
-        ScheduledExecutorService deadlineExecutor = new ScheduledThreadPoolExecutor(1);
-        RadioStreamService service = new RadioStreamService(
-            new FakeProcessFactory(process),
-            relayExecutor,
-            deadlineExecutor,
-            1000L,
-            50L,
-            RadioStreamService.TimeoutRaceHook.NONE);
-        RecordingListener listener = new RecordingListener();
-        try {
-            service.startCandidate(STATION, 7L, listener);
-            assertTrue(listener.awaitReady(1));
-            service.promoteCandidate(7L);
-
-            assertTrue(listener.awaitFailure(1));
-            assertEquals(7L, listener.failureGeneration);
-            assertTrue(listener.failureMessage.contains("stopped producing PCM data"));
-            assertTrue(waitForDestroyed(process));
-        } finally {
-            service.shutdown();
-        }
-    }
-
-    @Test
-    public void processEndingBeforeFirstDataReportsFailure() throws Exception {
-        ControlledInputStream output = new ControlledInputStream();
-        output.finish();
-        RadioStreamService service = new RadioStreamService(new FakeProcessFactory(new FakeProcess(output)));
-        RecordingListener listener = new RecordingListener();
-        try {
-            service.startCandidate(STATION, 8L, listener);
-
-            assertTrue(listener.awaitFailure(1));
-            assertEquals(8L, listener.failureGeneration);
-            assertTrue(listener.failureMessage.contains("ended"));
-        } finally {
-            service.shutdown();
-        }
-    }
-
-    @Test
-    public void stoppingCandidateLeavesPublishedSessionRunningAndSuppressesStaleCallbacks() throws Exception {
-        ControlledInputStream publishedOutput = new ControlledInputStream(new byte[] { 1, 2, 3, 4 });
-        FakeProcess publishedProcess = new FakeProcess(publishedOutput);
-        ControlledInputStream candidateOutput = new ControlledInputStream();
-        FakeProcess candidateProcess = new FakeProcess(candidateOutput);
-        FakeProcessFactory processFactory = new FakeProcessFactory(publishedProcess, candidateProcess);
-        RadioStreamService service = new RadioStreamService(processFactory);
+    public void failedCandidateLeavesPublishedSessionAlive() throws Exception {
+        FakeSessionFactory sessions = new FakeSessionFactory();
+        RadioStreamService service = new RadioStreamService(sessions);
         RecordingListener publishedListener = new RecordingListener();
         RecordingListener candidateListener = new RecordingListener();
         try {
             service.startCandidate(STATION, 1L, publishedListener);
-            assertTrue(publishedListener.awaitReady(1));
+            FakeSession published = sessions.awaitSession(0);
+            published.emit(new byte[] { 1, 2, 3, 4 });
+            assertTrue(publishedListener.awaitReady());
             service.promoteCandidate(1L);
 
             service.startCandidate(STATION, 2L, candidateListener);
-            assertTrue(processFactory.awaitStarts(2));
-            service.stopGeneration(2L);
-            assertTrue(waitForDestroyed(candidateProcess));
-            assertFalse(publishedProcess.destroyed);
+            FakeSession candidate = sessions.awaitSession(1);
+            candidate.fail("candidate failed");
 
-            publishedOutput.offer(new byte[] { 5, 6, 7, 8 });
+            assertTrue(candidateListener.awaitFailure());
+            published.emit(new byte[] { 5, 6, 7, 8 });
             assertTrue(publishedListener.awaitChunks(1));
-            assertEquals(
-                1L,
-                publishedListener.chunkSequences.get(0)
-                    .longValue());
-            assertFalse(candidateListener.hasCallbacks());
+            assertFalse(published.closed);
+            assertTrue(candidate.closed);
         } finally {
             service.shutdown();
         }
@@ -201,16 +128,18 @@ public class RadioStreamServiceTest {
 
     @Test
     public void candidateDoesNotReadPastReadyUntilPromotionKeepsSequenceContinuous() throws Exception {
-        PromotionGateInputStream output = new PromotionGateInputStream(
-            new byte[] { 1, 2, 3, 4 },
-            new byte[] { 5, 6, 7, 8 });
-        RadioStreamService service = new RadioStreamService(new FakeProcessFactory(new FakeProcess(output)));
+        FakeSessionFactory sessions = new FakeSessionFactory();
+        RadioStreamService service = new RadioStreamService(sessions);
         RecordingListener listener = new RecordingListener();
         try {
             service.startCandidate(STATION, 11L, listener);
-            assertTrue(listener.awaitReady(1));
+            FakeSession session = sessions.awaitSession(0);
+            session.emit(new byte[] { 1, 2, 3, 4 });
+            assertTrue(listener.awaitReady());
 
-            assertFalse(output.awaitSecondReadAttempt(200L));
+            session.emit(new byte[] { 5, 6, 7, 8 });
+            assertTrue(session.awaitSecondEmitAttempt());
+
             service.promoteCandidate(11L);
 
             assertTrue(listener.awaitChunks(1));
@@ -225,47 +154,118 @@ public class RadioStreamServiceTest {
     }
 
     @Test
-    public void timeoutReleasedAfterReadyPromotionDoesNotRemovePublishedSession() throws Exception {
-        ControlledInputStream output = new ControlledInputStream();
-        ExecutorService relayExecutor = Executors.newCachedThreadPool();
-        ScheduledExecutorService deadlineExecutor = new ScheduledThreadPoolExecutor(1);
-        BlockingTimeoutHook timeoutHook = new BlockingTimeoutHook();
-        RadioStreamService service = new RadioStreamService(
-            new FakeProcessFactory(new FakeProcess(output)),
-            relayExecutor,
-            deadlineExecutor,
-            1L,
-            timeoutHook);
+    public void publishedSessionFailsWhenItStopsProducingPcm() throws Exception {
+        FakeSessionFactory sessions = new FakeSessionFactory();
+        ScheduledExecutorService deadlines = new ScheduledThreadPoolExecutor(1);
+        RadioStreamService service = new RadioStreamService(sessions, deadlines, 1000L, 50L);
         RecordingListener listener = new RecordingListener();
         try {
-            service.startCandidate(STATION, 12L, listener);
-            assertTrue(timeoutHook.awaitCheck());
+            service.startCandidate(STATION, 7L, listener);
+            FakeSession session = sessions.awaitSession(0);
+            session.emit(new byte[] { 1, 2, 3, 4 });
+            assertTrue(listener.awaitReady());
+            service.promoteCandidate(7L);
 
-            output.offer(new byte[] { 1, 2, 3, 4 });
-            assertTrue(listener.awaitReady(1));
-            service.promoteCandidate(12L);
-            timeoutHook.releaseCheck();
-
-            assertFalse(listener.awaitFailureFor(200L));
-            output.offer(new byte[] { 5, 6, 7, 8 });
-            assertTrue(listener.awaitChunks(1));
-            assertEquals(
-                1L,
-                listener.chunkSequences.get(0)
-                    .longValue());
+            assertTrue(listener.awaitFailure());
+            assertEquals(7L, listener.failureGeneration);
+            assertTrue(listener.failureMessage.contains("stopped producing PCM"));
+            assertTrue(session.closed);
         } finally {
             service.shutdown();
         }
     }
 
     @Test
-    public void stopWaitsForAdmittedReadyCallbackBeforeInvalidatingSession() throws Exception {
-        ControlledInputStream output = new ControlledInputStream(new byte[] { 1, 2, 3, 4 });
-        RadioStreamService service = new RadioStreamService(new FakeProcessFactory(new FakeProcess(output)));
+    public void timeoutReleasedAfterReadyPromotionDoesNotRemovePublishedSession() throws Exception {
+        FakeSessionFactory sessions = new FakeSessionFactory();
+        ScheduledExecutorService deadlines = new ScheduledThreadPoolExecutor(1);
+        BlockingTimeoutHook timeoutHook = new BlockingTimeoutHook();
+        RadioStreamService service = new RadioStreamService(sessions, deadlines, 1L, 1000L, timeoutHook);
+        RecordingListener listener = new RecordingListener();
+        try {
+            service.startCandidate(STATION, 12L, listener);
+            assertTrue(timeoutHook.awaitCheck());
+            FakeSession session = sessions.awaitSession(0);
+            session.emit(new byte[] { 1, 2, 3, 4 });
+            assertTrue(listener.awaitReady());
+            service.promoteCandidate(12L);
+            timeoutHook.releaseCheck();
+
+            assertFalse(listener.awaitFailureFor(200L));
+            session.emit(new byte[] { 5, 6, 7, 8 });
+            assertTrue(listener.awaitChunks(1));
+            assertEquals(
+                1L,
+                listener.chunkSequences.get(0)
+                    .longValue());
+        } finally {
+            timeoutHook.releaseCheck();
+            service.shutdown();
+        }
+    }
+
+    @Test
+    public void staleGenerationCallbacksAreIgnoredAfterReplacement() throws Exception {
+        FakeSessionFactory sessions = new FakeSessionFactory();
+        RadioStreamService service = new RadioStreamService(sessions);
+        RecordingListener staleListener = new RecordingListener();
+        RecordingListener currentListener = new RecordingListener();
+        try {
+            service.startCandidate(STATION, 20L, staleListener);
+            FakeSession stale = sessions.awaitSession(0);
+            service.startCandidate(STATION, 21L, currentListener);
+            FakeSession current = sessions.awaitSession(1);
+
+            stale.emit(new byte[] { 1, 2, 3, 4 });
+            assertFalse(staleListener.hasCallbacks());
+            current.emit(new byte[] { 5, 6, 7, 8 });
+            assertTrue(currentListener.awaitReady());
+            assertEquals(21L, currentListener.readyGeneration);
+        } finally {
+            service.shutdown();
+        }
+    }
+
+    @Test
+    public void stopAllClosesPublishedAndCandidateSessions() throws Exception {
+        FakeSessionFactory sessions = new FakeSessionFactory();
+        RadioStreamService service = new RadioStreamService(sessions);
+        RecordingListener publishedListener = new RecordingListener();
+        try {
+            service.startCandidate(STATION, 30L, publishedListener);
+            FakeSession published = sessions.awaitSession(0);
+            published.emit(new byte[] { 1, 2, 3, 4 });
+            assertTrue(publishedListener.awaitReady());
+            service.promoteCandidate(30L);
+            service.startCandidate(STATION, 31L, new RecordingListener());
+            FakeSession candidate = sessions.awaitSession(1);
+
+            service.stopAll();
+
+            assertTrue(published.closed);
+            assertTrue(candidate.closed);
+        } finally {
+            service.shutdown();
+        }
+    }
+
+    @Test
+    public void stopWaitsForAnAdmittedReadyCallbackBeforeInvalidatingSession() throws Exception {
+        FakeSessionFactory sessions = new FakeSessionFactory();
+        RadioStreamService service = new RadioStreamService(sessions);
         BlockingReadyListener listener = new BlockingReadyListener();
         final CountDownLatch stopReturned = new CountDownLatch(1);
         try {
             service.startCandidate(STATION, 13L, listener);
+            FakeSession session = sessions.awaitSession(0);
+            Thread emitter = new Thread(new Runnable() {
+
+                @Override
+                public void run() {
+                    session.emit(new byte[] { 1, 2, 3, 4 });
+                }
+            });
+            emitter.start();
             assertTrue(listener.awaitReadyEntry());
 
             Thread stopper = new Thread(new Runnable() {
@@ -289,28 +289,9 @@ public class RadioStreamServiceTest {
     }
 
     @Test
-    public void forcedTerminationWaitsForTheForcedProcessExit() throws Exception {
-        ControlledInputStream output = new ControlledInputStream(new byte[] { 1, 2, 3, 4 });
-        FakeProcess process = new FakeProcess(output, true);
-        RadioStreamService service = new RadioStreamService(new FakeProcessFactory(process));
-        RecordingListener listener = new RecordingListener();
-        try {
-            service.startCandidate(STATION, 14L, listener);
-            assertTrue(listener.awaitReady(1));
-            service.promoteCandidate(14L);
-
-            service.stopGeneration(14L);
-
-            assertTrue(process.forceDestroyCalled);
-            assertTrue(process.waitAfterForceCalled);
-        } finally {
-            service.shutdown();
-        }
-    }
-
-    @Test
     public void shutdownRejectionDoesNotInvokeFailureListenerWhileHoldingLifecycleLock() throws Exception {
-        RadioStreamService service = new RadioStreamService(new FakeProcessFactory());
+        FakeSessionFactory sessions = new FakeSessionFactory();
+        RadioStreamService service = new RadioStreamService(sessions);
         CrossThreadFailureListener listener = new CrossThreadFailureListener(service);
         try {
             service.shutdown();
@@ -322,237 +303,100 @@ public class RadioStreamServiceTest {
         }
     }
 
-    private boolean waitForDestroyed(FakeProcess process) throws InterruptedException {
-        long deadline = System.currentTimeMillis() + 1000L;
-        while (!process.destroyed && System.currentTimeMillis() < deadline) {
-            Thread.sleep(10L);
-        }
-        return process.destroyed;
-    }
+    private static final class FakeSessionFactory implements RadioStreamService.SessionFactory {
 
-    private static final class FakeProcessFactory implements RadioStreamService.ProcessFactory {
-
-        private final Deque<FakeProcess> processes = new ArrayDeque<FakeProcess>();
-        private int starts;
-
-        private FakeProcessFactory(FakeProcess... processes) {
-            this.processes.addAll(Arrays.asList(processes));
-        }
+        private final List<FakeSession> sessions = new ArrayList<FakeSession>();
 
         @Override
-        public synchronized Process start(List<String> command) throws IOException {
-            if (processes.isEmpty()) {
-                throw new IOException("No fake process configured");
-            }
-            starts++;
+        public synchronized RadioStreamService.SessionHandle create(String streamUrl,
+            RadioInputSession.RadioPcmListener listener) {
+            FakeSession session = new FakeSession(listener);
+            sessions.add(session);
             notifyAll();
-            return processes.removeFirst();
+            return session;
         }
 
-        private synchronized boolean awaitStarts(int count) throws InterruptedException {
+        private synchronized FakeSession awaitSession(int index) throws InterruptedException {
             long deadline = System.currentTimeMillis() + 1000L;
-            while (starts < count && System.currentTimeMillis() < deadline) {
+            while (sessions.size() <= index && System.currentTimeMillis() < deadline) {
                 wait(Math.max(1L, deadline - System.currentTimeMillis()));
             }
-            return starts >= count;
+            assertTrue("session was not created", sessions.size() > index);
+            return sessions.get(index);
         }
     }
 
-    private static final class FakeProcess extends Process {
+    private static final class FakeSession implements RadioStreamService.SessionHandle {
 
-        private final InputStream input;
-        private final InputStream error = new ByteArrayInputStream(new byte[0]);
-        private final OutputStream output = new ByteArrayOutputStream();
-        private final boolean requiresForce;
-        private volatile boolean destroyed;
-        private volatile boolean forceDestroyCalled;
-        private volatile boolean waitAfterForceCalled;
+        private final RadioInputSession.RadioPcmListener listener;
+        private final CountDownLatch secondEmitAttempt = new CountDownLatch(1);
+        private final ExecutorService callbacks = Executors.newSingleThreadExecutor(new ThreadFactory() {
 
-        private FakeProcess(InputStream input) {
-            this(input, false);
-        }
+            @Override
+            public Thread newThread(Runnable runnable) {
+                Thread thread = new Thread(runnable, "HorizonRadio-RadioStreamServiceTest-Input");
+                thread.setDaemon(true);
+                return thread;
+            }
+        });
+        private volatile boolean closed;
+        private volatile int emitCount;
 
-        private FakeProcess(InputStream input, boolean requiresForce) {
-            this.input = input;
-            this.requiresForce = requiresForce;
+        private FakeSession(RadioInputSession.RadioPcmListener listener) {
+            this.listener = listener;
         }
 
         @Override
-        public OutputStream getOutputStream() {
-            return output;
-        }
-
-        @Override
-        public InputStream getInputStream() {
-            return input;
-        }
-
-        @Override
-        public InputStream getErrorStream() {
-            return error;
-        }
-
-        @Override
-        public int waitFor() throws InterruptedException {
-            while (!destroyed) {
-                Thread.sleep(10L);
-            }
-            return 143;
-        }
-
-        @Override
-        public int exitValue() {
-            if (!destroyed) {
-                throw new IllegalThreadStateException("Fake process is still running");
-            }
-            return 143;
-        }
-
-        @Override
-        public void destroy() {
-            if (requiresForce) {
-                return;
-            }
-            destroyed = true;
-            closeStreams();
-        }
-
-        @Override
-        public boolean waitFor(long timeout, TimeUnit unit) {
-            if (requiresForce && !forceDestroyCalled) {
-                return false;
-            }
-            if (forceDestroyCalled) {
-                waitAfterForceCalled = true;
-            }
-            return destroyed;
-        }
-
-        @Override
-        public Process destroyForcibly() {
-            forceDestroyCalled = true;
-            destroyed = true;
-            closeStreams();
-            return this;
-        }
-
-        private void closeStreams() {
-            try {
-                input.close();
-                error.close();
-                output.close();
-            } catch (IOException ignored) {
-                // Test process cleanup is best effort like a real process cleanup.
-            }
-        }
-    }
-
-    private static final class PromotionGateInputStream extends InputStream {
-
-        private final byte[] first;
-        private final byte[] second;
-        private final CountDownLatch secondReadAttempt = new CountDownLatch(1);
-        private int reads;
-        private boolean closed;
-
-        private PromotionGateInputStream(byte[] first, byte[] second) {
-            this.first = Arrays.copyOf(first, first.length);
-            this.second = Arrays.copyOf(second, second.length);
-        }
-
-        @Override
-        public synchronized int read(byte[] bytes, int offset, int length) throws IOException {
-            if (closed) {
-                return -1;
-            }
-            byte[] next;
-            if (reads == 0) {
-                next = first;
-            } else if (reads == 1) {
-                secondReadAttempt.countDown();
-                next = second;
-            } else {
-                return -1;
-            }
-            if (next.length > length) {
-                throw new IOException("Test chunk exceeds requested buffer");
-            }
-            reads++;
-            System.arraycopy(next, 0, bytes, offset, next.length);
-            return next.length;
-        }
-
-        @Override
-        public int read() throws IOException {
-            byte[] one = new byte[1];
-            return read(one, 0, 1) == -1 ? -1 : one[0] & 0xFF;
-        }
-
-        private boolean awaitSecondReadAttempt(long timeoutMillis) throws InterruptedException {
-            return secondReadAttempt.await(timeoutMillis, TimeUnit.MILLISECONDS);
-        }
-
-        @Override
-        public synchronized void close() {
-            closed = true;
-        }
-    }
-
-    private static final class ControlledInputStream extends InputStream {
-
-        private final Deque<byte[]> chunks = new ArrayDeque<byte[]>();
-        private boolean finished;
-
-        private ControlledInputStream(byte[]... initialChunks) {
-            for (byte[] chunk : initialChunks) {
-                offer(chunk);
-            }
-        }
-
-        @Override
-        public synchronized int read(byte[] bytes, int offset, int length) throws IOException {
-            while (chunks.isEmpty() && !finished) {
-                try {
-                    wait();
-                } catch (InterruptedException exception) {
-                    Thread.currentThread()
-                        .interrupt();
-                    throw new IOException("Interrupted while waiting for PCM", exception);
-                }
-            }
-            if (chunks.isEmpty()) {
-                return -1;
-            }
-            byte[] chunk = chunks.removeFirst();
-            if (chunk.length > length) {
-                throw new IOException("Test chunk exceeds requested buffer");
-            }
-            System.arraycopy(chunk, 0, bytes, offset, chunk.length);
-            return chunk.length;
-        }
-
-        @Override
-        public int read() throws IOException {
-            byte[] one = new byte[1];
-            return read(one, 0, 1) == -1 ? -1 : one[0] & 0xFF;
-        }
-
-        private synchronized void offer(byte[] chunk) {
-            if (finished) {
-                throw new IllegalStateException("Input stream is closed");
-            }
-            chunks.add(Arrays.copyOf(chunk, chunk.length));
-            notifyAll();
-        }
-
-        private synchronized void finish() {
-            finished = true;
-            notifyAll();
-        }
+        public void start() {}
 
         @Override
         public void close() {
-            finish();
+            closed = true;
+            callbacks.shutdownNow();
+        }
+
+        private void emit(final byte[] data) {
+            if (closed) {
+                return;
+            }
+            final boolean second = ++emitCount > 1;
+            if (second) {
+                secondEmitAttempt.countDown();
+            }
+            executeCallback(new Runnable() {
+
+                @Override
+                public void run() {
+                    listener.onPcm(data);
+                }
+            });
+        }
+
+        private void fail(final String message) {
+            if (closed) {
+                return;
+            }
+            executeCallback(new Runnable() {
+
+                @Override
+                public void run() {
+                    listener.onFailure(message);
+                }
+            });
+        }
+
+        private void executeCallback(Runnable callback) {
+            try {
+                callbacks.execute(callback);
+            } catch (java.util.concurrent.RejectedExecutionException exception) {
+                if (!closed) {
+                    throw exception;
+                }
+            }
+        }
+
+        private boolean awaitSecondEmitAttempt() throws InterruptedException {
+            return secondEmitAttempt.await(1L, TimeUnit.SECONDS);
         }
     }
 
@@ -569,10 +413,10 @@ public class RadioStreamServiceTest {
 
         @Override
         public synchronized void onReady(long generation, RadioStation station, long firstSequence, byte[] data) {
-            this.readyGeneration = generation;
-            this.readyStation = station;
+            readyGeneration = generation;
+            readyStation = station;
             this.firstSequence = firstSequence;
-            this.readyData = Arrays.copyOf(data, data.length);
+            readyData = Arrays.copyOf(data, data.length);
             notifyAll();
         }
 
@@ -590,48 +434,38 @@ public class RadioStreamServiceTest {
             notifyAll();
         }
 
-        private synchronized boolean awaitReady(int count) throws InterruptedException {
-            return await(count, 0);
+        private synchronized boolean awaitReady() throws InterruptedException {
+            return awaitReadyFor(1000L);
         }
 
         private synchronized boolean awaitReadyFor(long timeoutMillis) throws InterruptedException {
-            if (readyData != null) {
-                return true;
+            long deadline = System.currentTimeMillis() + timeoutMillis;
+            while (readyData == null && System.currentTimeMillis() < deadline) {
+                wait(Math.max(1L, deadline - System.currentTimeMillis()));
             }
-            wait(timeoutMillis);
             return readyData != null;
         }
 
         private synchronized boolean awaitChunks(int count) throws InterruptedException {
-            return await(count, 1);
-        }
-
-        private synchronized boolean awaitFailure(int count) throws InterruptedException {
-            return await(count, 2);
-        }
-
-        private synchronized boolean awaitFailureFor(long timeoutMillis) throws InterruptedException {
-            if (failureMessage != null) {
-                return true;
+            long deadline = System.currentTimeMillis() + 1000L;
+            while (chunkSequences.size() < count && System.currentTimeMillis() < deadline) {
+                wait(Math.max(1L, deadline - System.currentTimeMillis()));
             }
-            wait(timeoutMillis);
+            return chunkSequences.size() >= count;
+        }
+
+        private synchronized boolean awaitFailure() throws InterruptedException {
+            long deadline = System.currentTimeMillis() + 1000L;
+            while (failureMessage == null && System.currentTimeMillis() < deadline) {
+                wait(Math.max(1L, deadline - System.currentTimeMillis()));
+            }
             return failureMessage != null;
         }
 
-        private boolean await(int count, int type) throws InterruptedException {
-            long deadline = System.currentTimeMillis() + 1000L;
-            while (!hasCount(count, type) && System.currentTimeMillis() < deadline) {
+        private synchronized boolean awaitFailureFor(long timeoutMillis) throws InterruptedException {
+            long deadline = System.currentTimeMillis() + timeoutMillis;
+            while (failureMessage == null && System.currentTimeMillis() < deadline) {
                 wait(Math.max(1L, deadline - System.currentTimeMillis()));
-            }
-            return hasCount(count, type);
-        }
-
-        private boolean hasCount(int count, int type) {
-            if (type == 0) {
-                return readyData != null;
-            }
-            if (type == 1) {
-                return chunkSequences.size() >= count;
             }
             return failureMessage != null;
         }
