@@ -33,7 +33,9 @@ public class OggPageReaderTest {
             finite.nextPacket();
             fail("Expected finite Ogg input without EOS to be rejected");
         } catch (MediaException expected) {
-            assertTrue(expected.getMessage().contains("EOS"));
+            assertTrue(
+                expected.getMessage()
+                    .contains("EOS"));
         }
 
         OggPageReader streaming = OggPageReader.allowNoEos(new ByteArrayInputStream(noEos));
@@ -62,7 +64,9 @@ public class OggPageReaderTest {
             new OggPageReader(new ByteArrayInputStream(page), 3, 3).nextPacket();
             fail("Expected page body bound to be enforced");
         } catch (MediaException expected) {
-            assertTrue(expected.getMessage().contains("page"));
+            assertTrue(
+                expected.getMessage()
+                    .contains("page"));
         }
 
         byte[] continued = join(
@@ -72,7 +76,9 @@ public class OggPageReaderTest {
             new OggPageReader(new ByteArrayInputStream(continued), 1024, 255).nextPacket();
             fail("Expected packet bound to be enforced");
         } catch (MediaException expected) {
-            assertTrue(expected.getMessage().contains("packet"));
+            assertTrue(
+                expected.getMessage()
+                    .contains("packet"));
         }
     }
 
@@ -81,11 +87,16 @@ public class OggPageReaderTest {
             new OggPageReader(new ByteArrayInputStream(bytes)).nextPacket();
             fail("Expected malformed Ogg page to be rejected");
         } catch (MediaException expected) {
-            assertTrue(expected.getMessage().toLowerCase().contains(messagePart));
+            assertTrue(
+                expected.getMessage()
+                    .toLowerCase()
+                    .contains(messagePart));
         }
     }
 
-    private static byte[] page(int pageNumber, int[] lacing, byte[] body) { return page(pageNumber == 0 ? 2 : 1, pageNumber, lacing, body); }
+    private static byte[] page(int pageNumber, int[] lacing, byte[] body) {
+        return page(pageNumber == 0 ? 2 : 1, pageNumber, lacing, body);
+    }
 
     private static byte[] page(int flags, int pageNumber, int[] lacing, byte[] body) {
         ByteArrayOutputStream output = new ByteArrayOutputStream();
@@ -124,6 +135,17 @@ public class OggPageReaderTest {
         return bytes;
     }
 
-    private static void putLeInt(byte[] bytes, int offset, int value) { for (int i = 0; i < 4; i++) bytes[offset + i] = (byte) (value >>> (8 * i)); }
-    private static int oggCrc(byte[] bytes) { int crc = 0; for (int i = 0; i < bytes.length; i++) { int value = i >= 22 && i < 26 ? 0 : bytes[i] & 255; crc ^= value << 24; for (int bit = 0; bit < 8; bit++) crc = (crc << 1) ^ ((crc & 0x80000000) == 0 ? 0 : 0x04c11db7); } return crc; }
+    private static void putLeInt(byte[] bytes, int offset, int value) {
+        for (int i = 0; i < 4; i++) bytes[offset + i] = (byte) (value >>> (8 * i));
+    }
+
+    private static int oggCrc(byte[] bytes) {
+        int crc = 0;
+        for (int i = 0; i < bytes.length; i++) {
+            int value = i >= 22 && i < 26 ? 0 : bytes[i] & 255;
+            crc ^= value << 24;
+            for (int bit = 0; bit < 8; bit++) crc = (crc << 1) ^ ((crc & 0x80000000) == 0 ? 0 : 0x04c11db7);
+        }
+        return crc;
+    }
 }

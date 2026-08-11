@@ -8,8 +8,11 @@ public final class AudioDecoderRegistry {
 
     /** Format-selection policy for future resolvers: detected is not necessarily decodable. */
     public boolean supports(MediaFormat format) {
-        return format == MediaFormat.WAV || format == MediaFormat.MP3 || format == MediaFormat.AAC
-            || format == MediaFormat.M4A || format == MediaFormat.OGG_VORBIS || format == MediaFormat.OGG_OPUS
+        return format == MediaFormat.WAV || format == MediaFormat.MP3
+            || format == MediaFormat.AAC
+            || format == MediaFormat.M4A
+            || format == MediaFormat.OGG_VORBIS
+            || format == MediaFormat.OGG_OPUS
             || format == MediaFormat.WEBM_OPUS;
     }
 

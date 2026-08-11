@@ -8,7 +8,6 @@ import java.net.URL;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -77,7 +76,8 @@ public final class YouTubeMetadataResolver {
             for (int page = 0; page < MAX_PLAYLIST_PAGES && entries.size() < MAX_PLAYLIST_ENTRIES
                 && rawRendererCount < MAX_RAW_PLAYLIST_RENDERERS; page++) {
                 checkInterrupted();
-                JsonObject response = continuation == null ? browsePlaylist(playlistId) : browseContinuation(continuation);
+                JsonObject response = continuation == null ? browsePlaylist(playlistId)
+                    : browseContinuation(continuation);
                 if (response == null) break;
                 PlaylistItems items = collectPlaylistItems(
                     response,
@@ -122,7 +122,9 @@ public final class YouTubeMetadataResolver {
             } catch (IOException ignored) {
                 // Every valid requested ID retains one parseable output line.
             }
-            output.append(videoId).append('\t').append(duration);
+            output.append(videoId)
+                .append('\t')
+                .append(duration);
         }
         return output.toString();
     }
@@ -157,7 +159,8 @@ public final class YouTubeMetadataResolver {
     }
 
     private JsonObject postJson(String endpoint, JsonObject request, long maximumBytes) throws IOException {
-        byte[] body = gson.toJson(request).getBytes(StandardCharsets.UTF_8);
+        byte[] body = gson.toJson(request)
+            .getBytes(StandardCharsets.UTF_8);
         Map<String, String> headers = new java.util.LinkedHashMap<String, String>();
         headers.put("Content-Type", "application/json");
         headers.put("Accept", "application/json");
@@ -166,8 +169,14 @@ public final class YouTubeMetadataResolver {
         headers.put("X-YouTube-Client-Name", "3");
         headers.put("X-YouTube-Client-Version", CLIENT_VERSION);
         try (YouTubeMediaModels.HttpResponse response = http.post(
-            new URL(endpoint), headers, body, TIMEOUT_MILLIS, maximumBytes, YouTubeMediaModels.RedirectPolicy.INNER_TUBE)) {
-            return new JsonParser().parse(readExactly(response, maximumBytes)).getAsJsonObject();
+            new URL(endpoint),
+            headers,
+            body,
+            TIMEOUT_MILLIS,
+            maximumBytes,
+            YouTubeMediaModels.RedirectPolicy.INNER_TUBE)) {
+            return new JsonParser().parse(readExactly(response, maximumBytes))
+                .getAsJsonObject();
         } catch (RuntimeException exception) {
             throw new MediaException("Invalid YouTube JSON response", exception);
         }
@@ -201,10 +210,13 @@ public final class YouTubeMetadataResolver {
     }
 
     private static void collectPlaylistItems(JsonElement value, PlaylistItems result, Set<String> seenIds, int depth) {
-        if (value == null || value.isJsonNull() || depth > 64 || result.entries.size() >= result.entryLimit
+        if (value == null || value.isJsonNull()
+            || depth > 64
+            || result.entries.size() >= result.entryLimit
             || result.rawRendererCount >= result.rawRendererLimit) return;
         if (value.isJsonArray()) {
-            for (JsonElement element : value.getAsJsonArray()) collectPlaylistItems(element, result, seenIds, depth + 1);
+            for (JsonElement element : value.getAsJsonArray())
+                collectPlaylistItems(element, result, seenIds, depth + 1);
             return;
         }
         if (!value.isJsonObject()) return;
@@ -266,15 +278,19 @@ public final class YouTubeMetadataResolver {
     }
 
     private static String parsePlaylistId(String value) throws IOException {
-        if (value == null || value.length() == 0 || value.length() > MAX_URL_LENGTH) throw new MediaException("Invalid YouTube playlist URL");
+        if (value == null || value.length() == 0 || value.length() > MAX_URL_LENGTH)
+            throw new MediaException("Invalid YouTube playlist URL");
         try {
             URI uri = new URI(value);
-            if (!"https".equalsIgnoreCase(uri.getScheme()) || uri.getRawUserInfo() != null || !YouTubeUrlParser.isYouTubeHost(uri.getHost())) {
+            if (!"https".equalsIgnoreCase(uri.getScheme()) || uri.getRawUserInfo() != null
+                || !YouTubeUrlParser.isYouTubeHost(uri.getHost())) {
                 throw new MediaException("URL is not a safe YouTube playlist URL");
             }
-            if (queryValue(uri.getRawQuery(), "redirect") != null) throw new MediaException("YouTube URL contains an unsafe redirect");
+            if (queryValue(uri.getRawQuery(), "redirect") != null)
+                throw new MediaException("YouTube URL contains an unsafe redirect");
             String id = queryValue(uri.getRawQuery(), "list");
-            if (id == null || !id.matches("[A-Za-z0-9_-]{1,128}")) throw new MediaException("Invalid YouTube playlist ID");
+            if (id == null || !id.matches("[A-Za-z0-9_-]{1,128}"))
+                throw new MediaException("Invalid YouTube playlist ID");
             return id;
         } catch (MediaException exception) {
             throw exception;
@@ -302,7 +318,8 @@ public final class YouTubeMetadataResolver {
     }
 
     private static boolean isSafeContinuation(String continuation) {
-        return continuation != null && continuation.length() > 0 && continuation.length() <= MAX_CONTINUATION_LENGTH
+        return continuation != null && continuation.length() > 0
+            && continuation.length() <= MAX_CONTINUATION_LENGTH
             && continuation.matches("[A-Za-z0-9._~=-]+");
     }
 
@@ -313,7 +330,8 @@ public final class YouTubeMetadataResolver {
 
     private static String string(JsonObject object, String name) {
         JsonElement value = object == null ? null : object.get(name);
-        return value != null && value.isJsonPrimitive() ? value.getAsString().trim() : "";
+        return value != null && value.isJsonPrimitive() ? value.getAsString()
+            .trim() : "";
     }
 
     private static boolean bool(JsonObject object, String name) {
@@ -328,8 +346,10 @@ public final class YouTubeMetadataResolver {
         JsonElement runs = object.get("runs");
         if (runs == null || !runs.isJsonArray()) return "";
         StringBuilder text = new StringBuilder();
-        for (JsonElement run : runs.getAsJsonArray()) if (run.isJsonObject()) text.append(string(run.getAsJsonObject(), "text"));
-        return text.toString().trim();
+        for (JsonElement run : runs.getAsJsonArray())
+            if (run.isJsonObject()) text.append(string(run.getAsJsonObject(), "text"));
+        return text.toString()
+            .trim();
     }
 
     private static long positiveDuration(String seconds) {
@@ -361,13 +381,17 @@ public final class YouTubeMetadataResolver {
             : minutes + ":" + twoDigits(remaining);
     }
 
-    private static String twoDigits(long value) { return value < 10L ? "0" + value : String.valueOf(value); }
+    private static String twoDigits(long value) {
+        return value < 10L ? "0" + value : String.valueOf(value);
+    }
 
     private static void checkInterrupted() throws MediaException {
-        if (Thread.currentThread().isInterrupted()) throw new MediaException("YouTube metadata lookup cancelled");
+        if (Thread.currentThread()
+            .isInterrupted()) throw new MediaException("YouTube metadata lookup cancelled");
     }
 
     private static final class PlaylistItems {
+
         private final List<VideoMetadata> entries = new ArrayList<VideoMetadata>();
         private final int entryLimit;
         private int rawRendererCount;
@@ -382,6 +406,7 @@ public final class YouTubeMetadataResolver {
     }
 
     private static final class VideoMetadata {
+
         private final String id;
         private final String title;
         private final long duration;

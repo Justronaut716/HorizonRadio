@@ -46,7 +46,11 @@ public class AudioDownloadService {
     private final CancellationInterleavingHook cancellationInterleavingHook;
 
     public AudioDownloadService(Path downloadDir) throws IOException {
-        this(downloadDir, new JavaAudioDownloadBackend(), new YouTubeMetadataResolver(), CancellationInterleavingHook.NONE);
+        this(
+            downloadDir,
+            new JavaAudioDownloadBackend(),
+            new YouTubeMetadataResolver(),
+            CancellationInterleavingHook.NONE);
     }
 
     AudioDownloadService(Path downloadDir, boolean checkDependencies) throws IOException {
@@ -157,24 +161,37 @@ public class AudioDownloadService {
 
     public CompletableFuture<String> extractPlaylistJson(final String playlistUrl) {
         return metadataFuture(new Supplier<String>() {
-            @Override public String get() { return metadataResolver.resolvePlaylistJson(playlistUrl); }
+
+            @Override
+            public String get() {
+                return metadataResolver.resolvePlaylistJson(playlistUrl);
+            }
         }, "playlist");
     }
 
     public CompletableFuture<String> extractVideoJson(final String videoUrl) {
         return metadataFuture(new Supplier<String>() {
-            @Override public String get() { return metadataResolver.resolveVideoJson(videoUrl); }
+
+            @Override
+            public String get() {
+                return metadataResolver.resolveVideoJson(videoUrl);
+            }
         }, "video");
     }
 
     public CompletableFuture<String> extractVideoDurationOutput(final List<String> videoIds) {
         return metadataFuture(new Supplier<String>() {
-            @Override public String get() { return metadataResolver.resolveDurationOutput(videoIds); }
+
+            @Override
+            public String get() {
+                return metadataResolver.resolveDurationOutput(videoIds);
+            }
         }, "duration");
     }
 
     private CompletableFuture<String> metadataFuture(final Supplier<String> operation, final String operationName) {
         return CompletableFuture.supplyAsync(new Supplier<String>() {
+
             @Override
             public String get() {
                 try {
@@ -209,19 +226,40 @@ public class AudioDownloadService {
                 }
             }
             long dataLength = unsignedInt(header, 40);
-            return matches(header, 0, "RIFF") && unsignedInt(header, 4) == length - 8L && matches(header, 8, "WAVE")
-                && matches(header, 12, "fmt ") && unsignedInt(header, 16) == 16L && unsignedShort(header, 20) == 1
-                && unsignedShort(header, 22) == 2 && unsignedInt(header, 24) == 44100L && unsignedInt(header, 28) == 176400L
-                && unsignedShort(header, 32) == 4 && unsignedShort(header, 34) == 16 && matches(header, 36, "data")
-                && dataLength == length - 44L && dataLength > 0L && dataLength % 4L == 0L;
+            return matches(header, 0, "RIFF") && unsignedInt(header, 4) == length - 8L
+                && matches(header, 8, "WAVE")
+                && matches(header, 12, "fmt ")
+                && unsignedInt(header, 16) == 16L
+                && unsignedShort(header, 20) == 1
+                && unsignedShort(header, 22) == 2
+                && unsignedInt(header, 24) == 44100L
+                && unsignedInt(header, 28) == 176400L
+                && unsignedShort(header, 32) == 4
+                && unsignedShort(header, 34) == 16
+                && matches(header, 36, "data")
+                && dataLength == length - 44L
+                && dataLength > 0L
+                && dataLength % 4L == 0L;
         } catch (IOException exception) {
             return false;
         }
     }
 
-    private static boolean matches(byte[] bytes, int offset, String text) { for (int index = 0; index < text.length(); index++) if (bytes[offset + index] != (byte) text.charAt(index)) return false; return true; }
-    private static int unsignedShort(byte[] bytes, int offset) { return (bytes[offset] & 0xff) | ((bytes[offset + 1] & 0xff) << 8); }
-    private static long unsignedInt(byte[] bytes, int offset) { return ((long) bytes[offset] & 0xffL) | (((long) bytes[offset + 1] & 0xffL) << 8) | (((long) bytes[offset + 2] & 0xffL) << 16) | (((long) bytes[offset + 3] & 0xffL) << 24); }
+    private static boolean matches(byte[] bytes, int offset, String text) {
+        for (int index = 0; index < text.length(); index++)
+            if (bytes[offset + index] != (byte) text.charAt(index)) return false;
+        return true;
+    }
+
+    private static int unsignedShort(byte[] bytes, int offset) {
+        return (bytes[offset] & 0xff) | ((bytes[offset + 1] & 0xff) << 8);
+    }
+
+    private static long unsignedInt(byte[] bytes, int offset) {
+        return ((long) bytes[offset] & 0xffL) | (((long) bytes[offset + 1] & 0xffL) << 8)
+            | (((long) bytes[offset + 2] & 0xffL) << 16)
+            | (((long) bytes[offset + 3] & 0xffL) << 24);
+    }
 
     public void delete(String videoId) {
         Path filePath = getFilePath(videoId);
@@ -251,32 +289,39 @@ public class AudioDownloadService {
                 downloadExecutor.shutdownNow();
             }
         }
-        if (interrupted) Thread.currentThread().interrupt();
+        if (interrupted) Thread.currentThread()
+            .interrupt();
         if (!downloadExecutor.isTerminated()) {
-            LOGGER.warning("HorizonRadio: Audio download executor did not terminate within "
-                + EXECUTOR_SHUTDOWN_TIMEOUT_MILLIS + " ms");
+            LOGGER.warning(
+                "HorizonRadio: Audio download executor did not terminate within " + EXECUTOR_SHUTDOWN_TIMEOUT_MILLIS
+                    + " ms");
         }
         LOGGER.info("HorizonRadio: Audio download service shut down");
     }
 
     interface CancellationInterleavingHook {
+
         CancellationInterleavingHook NONE = new CancellationInterleavingHook() {
-            @Override public void afterOperationRemoved() { }
+
+            @Override
+            public void afterOperationRemoved() {}
         };
 
         void afterOperationRemoved();
 
-        default void beforeOperationCancellation() { }
+        default void beforeOperationCancellation() {}
     }
 
     private static final class DownloadOperation implements YouTubeMediaModels.CancellationToken {
+
         private boolean cancelled;
         private boolean committed;
         private volatile CompletableFuture<Path> future;
 
         @Override
         public synchronized boolean isCancelled() {
-            return cancelled || Thread.currentThread().isInterrupted();
+            return cancelled || Thread.currentThread()
+                .isInterrupted();
         }
 
         private boolean cancel() {
@@ -287,7 +332,8 @@ public class AudioDownloadService {
 
         @Override
         public synchronized void finish(PcmSink sink) throws IOException {
-            if (cancelled || Thread.currentThread().isInterrupted()) {
+            if (cancelled || Thread.currentThread()
+                .isInterrupted()) {
                 throw new MediaException("YouTube audio download cancelled");
             }
             sink.finish();

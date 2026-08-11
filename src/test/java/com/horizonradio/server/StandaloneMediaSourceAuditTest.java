@@ -26,12 +26,10 @@ import org.junit.Test;
 /** Audits production inputs and, when supplied, the standalone artifact. */
 public class StandaloneMediaSourceAuditTest {
 
-    private static final Pattern[] FORBIDDEN_SOURCE_PATTERNS = {
-        Pattern.compile("(?i)\\bProcessBuilder\\b"),
+    private static final Pattern[] FORBIDDEN_SOURCE_PATTERNS = { Pattern.compile("(?i)\\bProcessBuilder\\b"),
         Pattern.compile("(?i)Runtime\\.getRuntime\\s*\\(\\s*\\)\\s*\\.exec\\s*\\("),
         Pattern.compile("(?i)\\b(ffmpeg|yt-dlp|youtube-dl)\\b"),
-        Pattern.compile("(?i)(^|[^A-Za-z0-9_])\\.(?:dll|so|dylib)(?=$|[^A-Za-z0-9_])")
-    };
+        Pattern.compile("(?i)(^|[^A-Za-z0-9_])\\.(?:dll|so|dylib)(?=$|[^A-Za-z0-9_])") };
 
     @Test
     public void productionSourcesContainNoExternalMediaRuntimeReferences() throws Exception {
@@ -39,7 +37,8 @@ public class StandaloneMediaSourceAuditTest {
         for (Path file : productionTextFiles()) {
             String source = new String(Files.readAllBytes(file), StandardCharsets.UTF_8);
             for (Pattern pattern : FORBIDDEN_SOURCE_PATTERNS) {
-                if (pattern.matcher(source).find()) {
+                if (pattern.matcher(source)
+                    .find()) {
                     violations.add(file.toString() + " matches " + pattern.pattern());
                 }
             }
@@ -64,7 +63,8 @@ public class StandaloneMediaSourceAuditTest {
                 if (!entry.isDirectory() && isTextArtifact(name)) {
                     String content = new String(readAll(zip.getInputStream(entry)), StandardCharsets.UTF_8);
                     for (Pattern pattern : FORBIDDEN_SOURCE_PATTERNS) {
-                        if (pattern.matcher(content).find()) {
+                        if (pattern.matcher(content)
+                            .find()) {
                             violations.add(name + " matches " + pattern.pattern());
                         }
                     }
@@ -80,9 +80,11 @@ public class StandaloneMediaSourceAuditTest {
         addProductionTextFiles(files, Paths.get("src", "main", "java"));
         addProductionTextFiles(files, Paths.get("src", "main", "resources"));
         Collections.sort(files, new Comparator<Path>() {
+
             @Override
             public int compare(Path left, Path right) {
-                return left.toString().compareTo(right.toString());
+                return left.toString()
+                    .compareTo(right.toString());
             }
         });
         return files;
@@ -100,22 +102,31 @@ public class StandaloneMediaSourceAuditTest {
     }
 
     private static boolean isSourceOrTextResource(Path path) {
-        String name = path.getFileName().toString().toLowerCase(Locale.ENGLISH);
-        return name.endsWith(".java") || name.endsWith(".txt") || name.endsWith(".json")
-            || name.endsWith(".info") || name.endsWith(".properties") || name.endsWith(".xml")
+        String name = path.getFileName()
+            .toString()
+            .toLowerCase(Locale.ENGLISH);
+        return name.endsWith(".java") || name.endsWith(".txt")
+            || name.endsWith(".json")
+            || name.endsWith(".info")
+            || name.endsWith(".properties")
+            || name.endsWith(".xml")
             || name.endsWith(".mf");
     }
 
     private static boolean isForbiddenArtifactName(String name) {
         String normalized = name.toLowerCase(Locale.ENGLISH);
-        return normalized.contains("ffmpeg") || normalized.contains("yt-dlp") || normalized.contains("youtube-dl")
+        return normalized.contains("ffmpeg") || normalized.contains("yt-dlp")
+            || normalized.contains("youtube-dl")
             || normalized.matches(".*\\.(dll|so|dylib)(\\.[0-9]+)?$");
     }
 
     private static boolean isTextArtifact(String name) {
         String normalized = name.toLowerCase(Locale.ENGLISH);
-        return normalized.endsWith(".txt") || normalized.endsWith(".json") || normalized.endsWith(".info")
-            || normalized.endsWith(".properties") || normalized.endsWith(".xml") || normalized.endsWith(".mf");
+        return normalized.endsWith(".txt") || normalized.endsWith(".json")
+            || normalized.endsWith(".info")
+            || normalized.endsWith(".properties")
+            || normalized.endsWith(".xml")
+            || normalized.endsWith(".mf");
     }
 
     private static byte[] readAll(InputStream input) throws IOException {

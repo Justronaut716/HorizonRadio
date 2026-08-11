@@ -16,8 +16,8 @@ public class AudioDecoderRegistryTest {
     @Test
     public void selectsTheWavAdapterAndStreamsOnlyTheDeclaredPcmPayload() throws Exception {
         byte[] wav = wave(new byte[] { 1, 0, 2, 0, 3, 0, 4, 0 });
-        AudioDecoder decoder = new AudioDecoderRegistry().find(
-            MediaFormat.WAV, new ByteArrayInputStream(wav), new ByteArrayInputStream(wav));
+        AudioDecoder decoder = new AudioDecoderRegistry()
+            .find(MediaFormat.WAV, new ByteArrayInputStream(wav), new ByteArrayInputStream(wav));
         RecordingSink sink = new RecordingSink();
 
         decoder.decode(new ByteArrayInputStream(wav), sink);
@@ -30,10 +30,15 @@ public class AudioDecoderRegistryTest {
     @Test
     public void rejectsUnknownFormatsRatherThanFallingBackToAnArbitraryDecoder() throws Exception {
         try {
-            new AudioDecoderRegistry().find(MediaFormat.UNKNOWN, new ByteArrayInputStream(new byte[0]), new ByteArrayInputStream(new byte[0]));
+            new AudioDecoderRegistry().find(
+                MediaFormat.UNKNOWN,
+                new ByteArrayInputStream(new byte[0]),
+                new ByteArrayInputStream(new byte[0]));
             fail("Expected unknown media format to be rejected");
         } catch (MediaException expected) {
-            assertTrue(expected.getMessage().contains("Unsupported"));
+            assertTrue(
+                expected.getMessage()
+                    .contains("Unsupported"));
         }
     }
 
@@ -43,7 +48,11 @@ public class AudioDecoderRegistryTest {
         assertTrue(registry.supports(MediaFormat.M4A));
         assertTrue(registry.supports(MediaFormat.WEBM_OPUS));
         assertTrue(registry.supports(MediaFormat.AAC));
-        assertTrue(registry.find(MediaFormat.WEBM_OPUS, new ByteArrayInputStream(new byte[0]), new ByteArrayInputStream(new byte[0])) instanceof WebmOpusDecoder);
+        assertTrue(
+            registry.find(
+                MediaFormat.WEBM_OPUS,
+                new ByteArrayInputStream(new byte[0]),
+                new ByteArrayInputStream(new byte[0])) instanceof WebmOpusDecoder);
     }
 
     private static byte[] wave(byte[] pcm) {
@@ -103,7 +112,6 @@ public class AudioDecoderRegistryTest {
         }
 
         @Override
-        public void close() {
-        }
+        public void close() {}
     }
 }

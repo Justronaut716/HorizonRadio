@@ -58,6 +58,7 @@ final class IsoBmffPreflight {
     }
 
     private static final class Scanner {
+
         private final byte[] bytes;
         private int boxCount;
         private boolean ftypSeen;
@@ -223,7 +224,8 @@ final class IsoBmffPreflight {
 
         private long unsignedInt(int offset) {
             return ((long) bytes[offset] & 255L) << 24 | ((long) bytes[offset + 1] & 255L) << 16
-                | ((long) bytes[offset + 2] & 255L) << 8 | (long) bytes[offset + 3] & 255L;
+                | ((long) bytes[offset + 2] & 255L) << 8
+                | (long) bytes[offset + 3] & 255L;
         }
 
         private long unsignedLong(int offset) throws IOException {
@@ -237,8 +239,13 @@ final class IsoBmffPreflight {
     }
 
     private static boolean isContainer(int type) {
-        return type == TRAK || type == MDIA || type == MINF || type == STBL || type == EDTS || type == DINF
-            || type == UDTA || type == META;
+        return type == TRAK || type == MDIA
+            || type == MINF
+            || type == STBL
+            || type == EDTS
+            || type == DINF
+            || type == UDTA
+            || type == META;
     }
 
     private static int type(String value) {
@@ -247,10 +254,12 @@ final class IsoBmffPreflight {
 
     private static int readInt(byte[] bytes, int offset) {
         return (bytes[offset] & 255) << 24 | (bytes[offset + 1] & 255) << 16
-            | (bytes[offset + 2] & 255) << 8 | bytes[offset + 3] & 255;
+            | (bytes[offset + 2] & 255) << 8
+            | bytes[offset + 3] & 255;
     }
 
     private static final class Box {
+
         private final int type;
         private final int dataOffset;
         private final int end;

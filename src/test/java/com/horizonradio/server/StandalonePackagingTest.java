@@ -1,5 +1,8 @@
 package com.horizonradio.server;
 
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
+
 import java.util.Enumeration;
 import java.util.Locale;
 import java.util.zip.ZipEntry;
@@ -7,9 +10,6 @@ import java.util.zip.ZipFile;
 
 import org.junit.Assume;
 import org.junit.Test;
-
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotNull;
 
 public class StandalonePackagingTest {
 
@@ -31,15 +31,15 @@ public class StandalonePackagingTest {
                 String name = entries.nextElement()
                     .getName()
                     .toLowerCase(Locale.ROOT);
-                assertFalse("artifact must not contain prohibited runtime entry: " + name,
+                assertFalse(
+                    "artifact must not contain prohibited runtime entry: " + name,
                     isProhibitedRuntimeEntry(name));
             }
         }
     }
 
     private static boolean isProhibitedRuntimeEntry(String name) {
-        return name.contains("ffmpeg")
-            || name.contains("yt-dlp")
+        return name.contains("ffmpeg") || name.contains("yt-dlp")
             || name.startsWith("net/minecraft/")
             || name.startsWith("net/minecraftforge/")
             || name.startsWith("cpw/mods/fml/")

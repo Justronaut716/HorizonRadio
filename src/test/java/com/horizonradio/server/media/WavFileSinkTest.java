@@ -2,7 +2,6 @@ package com.horizonradio.server.media;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 import java.nio.file.Files;
@@ -64,9 +63,15 @@ public class WavFileSinkTest {
         Path directory = Files.createTempDirectory("horizonradio-wav-atomic");
         Path destination = directory.resolve("dQw4w9WgXcQ.wav");
         try {
-            WavFileSink sink = new WavFileSink(destination, 64L, (source, target) -> {
-                throw new java.nio.file.AtomicMoveNotSupportedException(source.toString(), target.toString(), "test");
-            });
+            WavFileSink sink = new WavFileSink(
+                destination,
+                64L,
+                (source, target) -> {
+                    throw new java.nio.file.AtomicMoveNotSupportedException(
+                        source.toString(),
+                        target.toString(),
+                        "test");
+                });
             sink.write(new byte[] { 1, 0, 2, 0 }, 0, 4);
             try {
                 sink.finish();
@@ -75,7 +80,10 @@ public class WavFileSinkTest {
                 // A finite cache entry must never be published non-atomically.
             }
             assertFalse(Files.exists(destination));
-            assertEquals(0L, Files.list(directory).count());
+            assertEquals(
+                0L,
+                Files.list(directory)
+                    .count());
         } finally {
             Files.deleteIfExists(destination);
             Files.deleteIfExists(directory);
@@ -92,6 +100,7 @@ public class WavFileSinkTest {
 
     private static int leInt(byte[] bytes, int offset) {
         return (bytes[offset] & 0xff) | ((bytes[offset + 1] & 0xff) << 8)
-            | ((bytes[offset + 2] & 0xff) << 16) | ((bytes[offset + 3] & 0xff) << 24);
+            | ((bytes[offset + 2] & 0xff) << 16)
+            | ((bytes[offset + 3] & 0xff) << 24);
     }
 }

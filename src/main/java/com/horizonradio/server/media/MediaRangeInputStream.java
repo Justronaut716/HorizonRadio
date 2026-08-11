@@ -11,8 +11,8 @@ import java.util.regex.Pattern;
 /** Reads a media object through bounded, sequential HTTP byte ranges. */
 final class MediaRangeInputStream extends InputStream {
 
-    private static final Pattern CONTENT_RANGE = Pattern.compile("^bytes\\s+(\\d+)-(\\d+)/(\\d+)$",
-        Pattern.CASE_INSENSITIVE);
+    private static final Pattern CONTENT_RANGE = Pattern
+        .compile("^bytes\\s+(\\d+)-(\\d+)/(\\d+)$", Pattern.CASE_INSENSITIVE);
 
     private final URL url;
     private final YouTubeMediaModels.HttpRequester requester;
@@ -27,9 +27,9 @@ final class MediaRangeInputStream extends InputStream {
     private InputStream currentInput;
     private boolean closed;
 
-    private MediaRangeInputStream(URL url, YouTubeMediaModels.HttpRequester requester,
-        Map<String, String> baseHeaders, int timeoutMillis, long maximumBytes, long chunkBytes,
-        long totalBytes, YouTubeMediaModels.HttpResponse firstResponse, Range firstRange) throws IOException {
+    private MediaRangeInputStream(URL url, YouTubeMediaModels.HttpRequester requester, Map<String, String> baseHeaders,
+        int timeoutMillis, long maximumBytes, long chunkBytes, long totalBytes,
+        YouTubeMediaModels.HttpResponse firstResponse, Range firstRange) throws IOException {
         this.url = url;
         this.requester = requester;
         this.baseHeaders = new HashMap<String, String>(baseHeaders);
@@ -43,13 +43,25 @@ final class MediaRangeInputStream extends InputStream {
     static MediaRangeInputStream open(URL url, YouTubeMediaModels.HttpRequester requester,
         Map<String, String> baseHeaders, int timeoutMillis, long maximumBytes, long chunkBytes,
         YouTubeMediaModels.HttpResponse firstResponse) throws IOException {
-        if (url == null || requester == null || baseHeaders == null || timeoutMillis <= 0
-            || maximumBytes <= 0L || chunkBytes <= 0L || firstResponse == null) {
+        if (url == null || requester == null
+            || baseHeaders == null
+            || timeoutMillis <= 0
+            || maximumBytes <= 0L
+            || chunkBytes <= 0L
+            || firstResponse == null) {
             throw new IllegalArgumentException("Range stream dependencies must be valid");
         }
         Range first = range(firstResponse, 0L, chunkBytes, -1L, maximumBytes);
-        return new MediaRangeInputStream(url, requester, baseHeaders, timeoutMillis, maximumBytes, chunkBytes,
-            first.totalBytes, firstResponse, first);
+        return new MediaRangeInputStream(
+            url,
+            requester,
+            baseHeaders,
+            timeoutMillis,
+            maximumBytes,
+            chunkBytes,
+            first.totalBytes,
+            firstResponse,
+            first);
     }
 
     long getTotalBytes() {
@@ -96,12 +108,8 @@ final class MediaRangeInputStream extends InputStream {
         long end = Math.min(totalBytes - 1L, position + chunkBytes - 1L);
         Map<String, String> headers = new HashMap<String, String>(baseHeaders);
         headers.put("Range", rangeHeader(position, end));
-        YouTubeMediaModels.HttpResponse response = requester.get(
-            url,
-            headers,
-            timeoutMillis,
-            maximumBytes,
-            YouTubeMediaModels.RedirectPolicy.MEDIA);
+        YouTubeMediaModels.HttpResponse response = requester
+            .get(url, headers, timeoutMillis, maximumBytes, YouTubeMediaModels.RedirectPolicy.MEDIA);
         try {
             Range next = range(response, position, chunkBytes, totalBytes, maximumBytes);
             setCurrent(response, next);
@@ -147,11 +155,12 @@ final class MediaRangeInputStream extends InputStream {
         if (closed) throw new MediaException("HTTP media range stream is closed");
     }
 
-    private static Range range(YouTubeMediaModels.HttpResponse response, long expectedStart,
-        long requestedChunkBytes, long expectedTotal, long maximumBytes) throws IOException {
+    private static Range range(YouTubeMediaModels.HttpResponse response, long expectedStart, long requestedChunkBytes,
+        long expectedTotal, long maximumBytes) throws IOException {
         if (response == null || response.getStatusCode() != 206
             || !YouTubeStreamResolver.isSafeMediaUrl(response.getUrl())
-            || response.getContentLength() <= 0L || response.getContentLength() > maximumBytes) {
+            || response.getContentLength() <= 0L
+            || response.getContentLength() > maximumBytes) {
             throw new MediaException("HTTP media range response is not trusted");
         }
         String value = response.getContentRange();
@@ -176,8 +185,11 @@ final class MediaRangeInputStream extends InputStream {
                 throw new MediaException("HTTP media response has an invalid Content-Range", exception);
             }
         }
-        if (start != expectedStart || end < start || total <= 0L || end >= total
-            || total > maximumBytes || end - start + 1L > requestedChunkBytes) {
+        if (start != expectedStart || end < start
+            || total <= 0L
+            || end >= total
+            || total > maximumBytes
+            || end - start + 1L > requestedChunkBytes) {
             throw new MediaException("HTTP media response has an invalid byte range");
         }
         if (expectedTotal > 0L && total != expectedTotal) {
@@ -191,6 +203,7 @@ final class MediaRangeInputStream extends InputStream {
     }
 
     private static final class Range {
+
         private final long start;
         private final long end;
         private final long totalBytes;

@@ -13,9 +13,9 @@ import java.net.URLConnection;
 import java.net.URLStreamHandler;
 import java.util.Collections;
 
-import com.sun.net.httpserver.HttpServer;
-
 import org.junit.Test;
+
+import com.sun.net.httpserver.HttpServer;
 
 public class MediaHttpClientTest {
 
@@ -34,11 +34,18 @@ public class MediaHttpClientTest {
         TrackingHttpURLConnection connection = new TrackingHttpURLConnection(200, 4L, new byte[] { 0, 1, 2, 3 });
         MediaHttpClient client = new MediaHttpClient(4L);
 
-        MediaHttpClient.MediaHttpResponse response = client.open(urlFor(connection), Collections.<String, String>emptyMap(), 1000);
+        MediaHttpClient.MediaHttpResponse response = client
+            .open(urlFor(connection), Collections.<String, String>emptyMap(), 1000);
         try {
             byte[] bytes = new byte[4];
-            assertEquals(4, response.getInputStream().read(bytes));
-            assertEquals(-1, response.getInputStream().read());
+            assertEquals(
+                4,
+                response.getInputStream()
+                    .read(bytes));
+            assertEquals(
+                -1,
+                response.getInputStream()
+                    .read());
         } finally {
             response.close();
         }
@@ -70,8 +77,8 @@ public class MediaHttpClientTest {
     @Test
     public void responseCloseClosesInputAndDisconnects() throws Exception {
         TrackingHttpURLConnection connection = new TrackingHttpURLConnection(200, 1L, new byte[] { 1 });
-        MediaHttpClient.MediaHttpResponse response = new MediaHttpClient().open(
-            urlFor(connection), Collections.<String, String>emptyMap(), 1000);
+        MediaHttpClient.MediaHttpResponse response = new MediaHttpClient()
+            .open(urlFor(connection), Collections.<String, String>emptyMap(), 1000);
 
         response.close();
 
@@ -83,23 +90,30 @@ public class MediaHttpClientTest {
     public void followsRedirectsBeforeOpeningAKnownLengthResponse() throws Exception {
         HttpServer server = HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/redirect", exchange -> {
-            exchange.getResponseHeaders().add("Location", "/audio");
+            exchange.getResponseHeaders()
+                .add("Location", "/audio");
             exchange.sendResponseHeaders(302, -1L);
             exchange.close();
         });
         server.createContext("/audio", exchange -> {
             byte[] body = new byte[] { 7 };
             exchange.sendResponseHeaders(200, body.length);
-            exchange.getResponseBody().write(body);
+            exchange.getResponseBody()
+                .write(body);
             exchange.close();
         });
         server.start();
         try {
-            URL redirect = new URL("http://127.0.0.1:" + server.getAddress().getPort() + "/redirect");
-            MediaHttpClient.MediaHttpResponse response = new MediaHttpClient().open(
-                redirect, Collections.<String, String>emptyMap(), 1000);
+            URL redirect = new URL(
+                "http://127.0.0.1:" + server.getAddress()
+                    .getPort() + "/redirect");
+            MediaHttpClient.MediaHttpResponse response = new MediaHttpClient()
+                .open(redirect, Collections.<String, String>emptyMap(), 1000);
             try {
-                assertEquals(7, response.getInputStream().read());
+                assertEquals(
+                    7,
+                    response.getInputStream()
+                        .read());
             } finally {
                 response.close();
             }
@@ -116,28 +130,35 @@ public class MediaHttpClientTest {
             client.open(urlFor(connection), Collections.<String, String>emptyMap(), 0);
             fail("Expected zero timeout to be rejected");
         } catch (IllegalArgumentException expected) {
-            assertTrue(expected.getMessage().contains("positive"));
+            assertTrue(
+                expected.getMessage()
+                    .contains("positive"));
         }
         try {
             client.open(urlFor(connection), Collections.<String, String>emptyMap(), -1);
             fail("Expected negative timeout to be rejected");
         } catch (IllegalArgumentException expected) {
-            assertTrue(expected.getMessage().contains("positive"));
+            assertTrue(
+                expected.getMessage()
+                    .contains("positive"));
         }
     }
 
-    private static void assertOpenFails(MediaHttpClient client, TrackingHttpURLConnection connection, String messagePart)
-        throws Exception {
+    private static void assertOpenFails(MediaHttpClient client, TrackingHttpURLConnection connection,
+        String messagePart) throws Exception {
         try {
             client.open(urlFor(connection), Collections.<String, String>emptyMap(), 1000);
             fail("Expected HTTP media request to fail");
         } catch (MediaException expected) {
-            assertTrue(expected.getMessage().contains(messagePart));
+            assertTrue(
+                expected.getMessage()
+                    .contains(messagePart));
         }
     }
 
     private static URL urlFor(final TrackingHttpURLConnection connection) throws Exception {
         return new URL(null, "test://media/response", new URLStreamHandler() {
+
             @Override
             protected URLConnection openConnection(URL url) {
                 return connection;
@@ -171,8 +192,7 @@ public class MediaHttpClientTest {
         }
 
         @Override
-        public void connect() {
-        }
+        public void connect() {}
 
         @Override
         public int getResponseCode() {

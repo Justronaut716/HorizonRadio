@@ -29,7 +29,10 @@ public class AudioDecoderAdapterTest {
         new OggOpusDecoder().decode(new ByteArrayInputStream(opusSilenceOgg()), sink);
 
         assertTrue("Expected the one-frame Opus fixture to produce PCM", sink.bytes.size() > 0);
-        assertEquals(0, sink.bytes.size() % PcmFormat.normalized().getFrameSize());
+        assertEquals(
+            0,
+            sink.bytes.size() % PcmFormat.normalized()
+                .getFrameSize());
         assertEquals(1, sink.finishCalls);
         assertEquals(0, sink.abortCalls);
         for (byte value : sink.bytes.toByteArray()) {
@@ -69,16 +72,14 @@ public class AudioDecoderAdapterTest {
         return new ByteArrayInputStream(new byte[0]);
     }
 
-    private static byte[] opusSilenceOgg() { return opusSilenceOgg(960L); }
+    private static byte[] opusSilenceOgg() {
+        return opusSilenceOgg(960L);
+    }
 
     private static byte[] opusSilenceOgg(long granule) {
-        byte[] opusHead = new byte[] {
-            'O', 'p', 'u', 's', 'H', 'e', 'a', 'd', 1, 1,
-            56, 1, (byte) 0x80, (byte) 0xbb, 0, 0, 0, 0, 0
-        };
-        byte[] opusTags = new byte[] {
-            'O', 'p', 'u', 's', 'T', 'a', 'g', 's', 0, 0, 0, 0, 0, 0, 0, 0
-        };
+        byte[] opusHead = new byte[] { 'O', 'p', 'u', 's', 'H', 'e', 'a', 'd', 1, 1, 56, 1, (byte) 0x80, (byte) 0xbb, 0,
+            0, 0, 0, 0 };
+        byte[] opusTags = new byte[] { 'O', 'p', 'u', 's', 'T', 'a', 'g', 's', 0, 0, 0, 0, 0, 0, 0, 0 };
         return join(
             oggPage(2, 0, new byte[][] { opusHead }),
             oggPage(0, 1, new byte[][] { opusTags }),
@@ -86,22 +87,22 @@ public class AudioDecoderAdapterTest {
     }
 
     private static byte[] opusSilenceOggWithoutEos() {
-        byte[] opusHead = new byte[] {
-            'O', 'p', 'u', 's', 'H', 'e', 'a', 'd', 1, 1,
-            56, 1, (byte) 0x80, (byte) 0xbb, 0, 0, 0, 0, 0
-        };
-        byte[] opusTags = new byte[] {
-            'O', 'p', 'u', 's', 'T', 'a', 'g', 's', 0, 0, 0, 0, 0, 0, 0, 0
-        };
+        byte[] opusHead = new byte[] { 'O', 'p', 'u', 's', 'H', 'e', 'a', 'd', 1, 1, 56, 1, (byte) 0x80, (byte) 0xbb, 0,
+            0, 0, 0, 0 };
+        byte[] opusTags = new byte[] { 'O', 'p', 'u', 's', 'T', 'a', 'g', 's', 0, 0, 0, 0, 0, 0, 0, 0 };
         return join(
             oggPage(2, 0, new byte[][] { opusHead }),
             oggPage(0, 1, new byte[][] { opusTags }),
             oggPage(0, 2, 0L, new byte[][] { new byte[] { (byte) 0xf8, (byte) 0xff, (byte) 0xfe } }));
     }
 
-    private static byte[] oggPage(int flags, byte[][] packets) { return oggPage(flags, 0, packets); }
+    private static byte[] oggPage(int flags, byte[][] packets) {
+        return oggPage(flags, 0, packets);
+    }
 
-    private static byte[] oggPage(int flags, int sequence, byte[][] packets) { return oggPage(flags, sequence, 0L, packets); }
+    private static byte[] oggPage(int flags, int sequence, byte[][] packets) {
+        return oggPage(flags, sequence, 0L, packets);
+    }
 
     private static byte[] oggPage(int flags, int sequence, long granule, byte[][] packets) {
         ByteArrayOutputStream body = new ByteArrayOutputStream();
@@ -161,9 +162,23 @@ public class AudioDecoderAdapterTest {
         return joined;
     }
 
-    private static void putLeInt(byte[] bytes, int offset, int value) { for (int i = 0; i < 4; i++) bytes[offset + i] = (byte) (value >>> (8 * i)); }
-    private static void writeLeLong(ByteArrayOutputStream output, long value) { for (int i = 0; i < 8; i++) output.write((int) (value >>> (8 * i))); }
-    private static int oggCrc(byte[] bytes) { int crc = 0; for (int i = 0; i < bytes.length; i++) { int value = i >= 22 && i < 26 ? 0 : bytes[i] & 255; crc ^= value << 24; for (int bit = 0; bit < 8; bit++) crc = (crc << 1) ^ ((crc & 0x80000000) == 0 ? 0 : 0x04c11db7); } return crc; }
+    private static void putLeInt(byte[] bytes, int offset, int value) {
+        for (int i = 0; i < 4; i++) bytes[offset + i] = (byte) (value >>> (8 * i));
+    }
+
+    private static void writeLeLong(ByteArrayOutputStream output, long value) {
+        for (int i = 0; i < 8; i++) output.write((int) (value >>> (8 * i)));
+    }
+
+    private static int oggCrc(byte[] bytes) {
+        int crc = 0;
+        for (int i = 0; i < bytes.length; i++) {
+            int value = i >= 22 && i < 26 ? 0 : bytes[i] & 255;
+            crc ^= value << 24;
+            for (int bit = 0; bit < 8; bit++) crc = (crc << 1) ^ ((crc & 0x80000000) == 0 ? 0 : 0x04c11db7);
+        }
+        return crc;
+    }
 
     private static final class RecordingSink implements PcmSink {
 
@@ -187,7 +202,6 @@ public class AudioDecoderAdapterTest {
         }
 
         @Override
-        public void close() {
-        }
+        public void close() {}
     }
 }

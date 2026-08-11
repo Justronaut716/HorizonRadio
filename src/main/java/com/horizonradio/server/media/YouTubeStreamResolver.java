@@ -38,10 +38,14 @@ public final class YouTubeStreamResolver {
     private static final long MAX_WATCH_PAGE_BYTES = 4L * 1024L * 1024L;
     private static final long VISITOR_DATA_CACHE_MILLIS = 10L * 60L * 1000L;
     private static final int MAX_MEDIA_URL_LENGTH = 4096;
-    private static final Pattern VISITOR_DATA_PATTERN = Pattern.compile("\\\"(?:VISITOR_DATA|visitorData)\\\"\\s*:\\s*\\\"([^\\\"]+)\\\"");
+    private static final Pattern VISITOR_DATA_PATTERN = Pattern
+        .compile("\\\"(?:VISITOR_DATA|visitorData)\\\"\\s*:\\s*\\\"([^\\\"]+)\\\"");
     static {
-        try { PLAYER_URL = new URL("https://www.youtube.com/youtubei/v1/player?prettyPrint=false"); }
-        catch (Exception exception) { throw new ExceptionInInitializerError(exception); }
+        try {
+            PLAYER_URL = new URL("https://www.youtube.com/youtubei/v1/player?prettyPrint=false");
+        } catch (Exception exception) {
+            throw new ExceptionInInitializerError(exception);
+        }
     }
 
     private final YouTubeMediaModels.HttpRequester requester;
@@ -56,22 +60,28 @@ public final class YouTubeStreamResolver {
 
     public YouTubeStreamResolver() {
         this(new YouTubeMediaModels.UrlConnectionHttpRequester(), new AudioDecoderRegistry(), new LongSupplier() {
-            @Override public long getAsLong() { return System.currentTimeMillis(); }
+
+            @Override
+            public long getAsLong() {
+                return System.currentTimeMillis();
+            }
         });
     }
 
-    public YouTubeStreamResolver(YouTubeMediaModels.HttpRequester requester, AudioDecoderRegistry registry, LongSupplier clock) {
+    public YouTubeStreamResolver(YouTubeMediaModels.HttpRequester requester, AudioDecoderRegistry registry,
+        LongSupplier clock) {
         this(requester, registry, clock, null, null, true);
     }
 
-    public YouTubeStreamResolver(YouTubeMediaModels.HttpRequester requester, AudioDecoderRegistry registry, LongSupplier clock,
-        String signaturePlan, String nPlan) {
+    public YouTubeStreamResolver(YouTubeMediaModels.HttpRequester requester, AudioDecoderRegistry registry,
+        LongSupplier clock, String signaturePlan, String nPlan) {
         this(requester, registry, clock, signaturePlan, nPlan, false);
     }
 
-    private YouTubeStreamResolver(YouTubeMediaModels.HttpRequester requester, AudioDecoderRegistry registry, LongSupplier clock,
-        String signaturePlan, String nPlan, boolean extractPlayerTransforms) {
-        if (requester == null || registry == null || clock == null) throw new IllegalArgumentException("Resolver dependencies are required");
+    private YouTubeStreamResolver(YouTubeMediaModels.HttpRequester requester, AudioDecoderRegistry registry,
+        LongSupplier clock, String signaturePlan, String nPlan, boolean extractPlayerTransforms) {
+        if (requester == null || registry == null || clock == null)
+            throw new IllegalArgumentException("Resolver dependencies are required");
         this.requester = requester;
         this.registry = registry;
         this.clock = clock;
@@ -99,14 +109,21 @@ public final class YouTubeStreamResolver {
             TIMEOUT_MILLIS,
             MAX_PLAYER_BYTES,
             YouTubeMediaModels.RedirectPolicy.INNER_TUBE)) {
-            if (response.getStatusCode() < 200 || response.getStatusCode() >= 300 || !YouTubeUrlParser.isYouTubeHost(response.getUrl().getHost())) {
+            if (response.getStatusCode() < 200 || response.getStatusCode() >= 300
+                || !YouTubeUrlParser.isYouTubeHost(
+                    response.getUrl()
+                        .getHost())) {
                 throw new MediaException("InnerTube player response is not trusted");
             }
             if (response.getContentLength() < 0L || response.getContentLength() > MAX_PLAYER_BYTES) {
                 throw new MediaException("InnerTube player response exceeds its byte limit");
             }
-            JsonObject root = parse(readExact(response.getInputStream(), response.getContentLength(), MAX_PLAYER_BYTES,
-                "InnerTube player response"));
+            JsonObject root = parse(
+                readExact(
+                    response.getInputStream(),
+                    response.getContentLength(),
+                    MAX_PLAYER_BYTES,
+                    "InnerTube player response"));
             return select(root, resolveTransformPlans(root), visitorData);
         }
     }
@@ -131,11 +148,16 @@ public final class YouTubeStreamResolver {
                 MAX_WATCH_PAGE_BYTES,
                 YouTubeMediaModels.RedirectPolicy.INNER_TUBE)) {
                 if (response.getStatusCode() < 200 || response.getStatusCode() >= 300
-                    || !YouTubeUrlParser.isYouTubeHost(response.getUrl().getHost())) {
+                    || !YouTubeUrlParser.isYouTubeHost(
+                        response.getUrl()
+                            .getHost())) {
                     throw new MediaException("YouTube watch page response is not trusted");
                 }
-                String page = readExact(response.getInputStream(), response.getContentLength(),
-                    MAX_WATCH_PAGE_BYTES, "YouTube watch page");
+                String page = readExact(
+                    response.getInputStream(),
+                    response.getContentLength(),
+                    MAX_WATCH_PAGE_BYTES,
+                    "YouTube watch page");
                 Matcher matcher = VISITOR_DATA_PATTERN.matcher(page);
                 if (!matcher.find()) throw new MediaException("YouTube watch page has no visitor data");
                 String visitorData = matcher.group(1);
@@ -150,12 +172,23 @@ public final class YouTubeStreamResolver {
         String transformed = value == null ? "" : value;
         for (String operation : safePlan(plan).split(",")) {
             if ("identity".equals(operation)) continue;
-            if ("reverse".equals(operation)) { transformed = new StringBuilder(transformed).reverse().toString(); continue; }
-            if (operation.startsWith("slice:") || operation.startsWith("splice:")) { transformed = transformed.substring(boundedIndex(operation, transformed.length())); continue; }
+            if ("reverse".equals(operation)) {
+                transformed = new StringBuilder(transformed).reverse()
+                    .toString();
+                continue;
+            }
+            if (operation.startsWith("slice:") || operation.startsWith("splice:")) {
+                transformed = transformed.substring(boundedIndex(operation, transformed.length()));
+                continue;
+            }
             if (operation.startsWith("swap:")) {
                 int index = boundedIndex(operation, transformed.length());
                 if (transformed.length() > 0) {
-                    char[] chars = transformed.toCharArray(); char first = chars[0]; chars[0] = chars[index]; chars[index] = first; transformed = new String(chars);
+                    char[] chars = transformed.toCharArray();
+                    char first = chars[0];
+                    chars[0] = chars[index];
+                    chars[index] = first;
+                    transformed = new String(chars);
                 }
                 continue;
             }
@@ -168,7 +201,8 @@ public final class YouTubeStreamResolver {
         String visitorData) throws IOException {
         JsonObject streaming = object(root, "streamingData");
         JsonArray formats = streaming == null ? null : streaming.getAsJsonArray("adaptiveFormats");
-        if (formats == null || formats.size() == 0) throw new MediaException("YouTube player response has no adaptive audio formats");
+        if (formats == null || formats.size() == 0)
+            throw new MediaException("YouTube player response has no adaptive audio formats");
         long rootExpiry = relativeExpiry(root);
         List<Candidate> candidates = new ArrayList<Candidate>();
         for (JsonElement element : formats) {
@@ -178,7 +212,9 @@ public final class YouTubeStreamResolver {
         }
         if (candidates.isEmpty()) throw new MediaException("YouTube player response has no supported audio stream");
         Collections.sort(candidates, new Comparator<Candidate>() {
-            @Override public int compare(Candidate left, Candidate right) {
+
+            @Override
+            public int compare(Candidate left, Candidate right) {
                 int preference = left.preference - right.preference;
                 return preference != 0 ? preference : right.bitrate - left.bitrate;
             }
@@ -186,7 +222,11 @@ public final class YouTubeStreamResolver {
         Candidate selected = candidates.get(0);
         if (selected.expiresAtMillis <= clock.getAsLong()) throw new MediaException("YouTube stream URL has expired");
         return new YouTubeMediaModels.ResolvedAudioStream(
-            selected.url, selected.format, selected.bitrate, selected.expiresAtMillis, visitorData);
+            selected.url,
+            selected.format,
+            selected.bitrate,
+            selected.expiresAtMillis,
+            visitorData);
     }
 
     private Candidate candidate(JsonObject format, long rootExpiry, TransformPlans transformPlans) throws IOException {
@@ -217,7 +257,10 @@ public final class YouTubeStreamResolver {
         if (source == null || source.length() == 0) return null;
         URL url = new URL(source);
         String signature = parameters.get("s");
-        if (signature != null) url = replaceParameter(url, parameters.containsKey("sp") ? parameters.get("sp") : "signature", applyTransform(signature, transformPlans.signaturePlan));
+        if (signature != null) url = replaceParameter(
+            url,
+            parameters.containsKey("sp") ? parameters.get("sp") : "signature",
+            applyTransform(signature, transformPlans.signaturePlan));
         String n = queryValue(url.getQuery(), "n");
         return n == null ? url : replaceParameter(url, "n", applyTransform(n, transformPlans.nPlan));
     }
@@ -233,7 +276,8 @@ public final class YouTubeStreamResolver {
         client.addProperty("osName", "Android");
         client.addProperty("osVersion", "12L");
         client.addProperty("hl", "en");
-        JsonObject context = new JsonObject(); context.add("client", client);
+        JsonObject context = new JsonObject();
+        context.add("client", client);
         JsonObject request = new JsonObject();
         request.add("context", context);
         request.addProperty("videoId", videoId);
@@ -248,8 +292,13 @@ public final class YouTubeStreamResolver {
     }
 
     private static JsonObject parse(String json) throws IOException {
-        try { JsonObject result = new Gson().fromJson(json, JsonObject.class); if (result == null) throw new MediaException("Empty InnerTube player response"); return result; }
-        catch (RuntimeException exception) { throw new MediaException("Invalid InnerTube player JSON", exception); }
+        try {
+            JsonObject result = new Gson().fromJson(json, JsonObject.class);
+            if (result == null) throw new MediaException("Empty InnerTube player response");
+            return result;
+        } catch (RuntimeException exception) {
+            throw new MediaException("Invalid InnerTube player JSON", exception);
+        }
     }
 
     private TransformPlans resolveTransformPlans(JsonObject root) throws IOException {
@@ -265,7 +314,8 @@ public final class YouTubeStreamResolver {
             throw new MediaException("Ciphered YouTube stream has no player JavaScript URL");
         }
         URL scriptUrl = new URL(playerScript);
-        if (!"https".equalsIgnoreCase(scriptUrl.getProtocol()) || !YouTubeUrlParser.isYouTubeHost(scriptUrl.getHost())) {
+        if (!"https".equalsIgnoreCase(scriptUrl.getProtocol())
+            || !YouTubeUrlParser.isYouTubeHost(scriptUrl.getHost())) {
             throw new MediaException("YouTube player JavaScript URL is not trusted");
         }
         try (YouTubeMediaModels.HttpResponse response = requester.get(
@@ -275,12 +325,19 @@ public final class YouTubeStreamResolver {
             MAX_PLAYER_SCRIPT_BYTES,
             YouTubeMediaModels.RedirectPolicy.INNER_TUBE)) {
             if (response.getStatusCode() < 200 || response.getStatusCode() >= 300
-                || !YouTubeUrlParser.isYouTubeHost(response.getUrl().getHost())
-                || response.getContentLength() < 0L || response.getContentLength() > MAX_PLAYER_SCRIPT_BYTES) {
+                || !YouTubeUrlParser.isYouTubeHost(
+                    response.getUrl()
+                        .getHost())
+                || response.getContentLength() < 0L
+                || response.getContentLength() > MAX_PLAYER_SCRIPT_BYTES) {
                 throw new MediaException("YouTube player JavaScript response is not trusted");
             }
-            return PlayerScriptTransformExtractor.extract(readExact(
-                response.getInputStream(), response.getContentLength(), MAX_PLAYER_SCRIPT_BYTES, "YouTube player JavaScript"));
+            return PlayerScriptTransformExtractor.extract(
+                readExact(
+                    response.getInputStream(),
+                    response.getContentLength(),
+                    MAX_PLAYER_SCRIPT_BYTES,
+                    "YouTube player JavaScript"));
         }
     }
 
@@ -302,13 +359,22 @@ public final class YouTubeStreamResolver {
         return false;
     }
 
-    private static String readExact(InputStream input, long declaredLength, long maximum, String description) throws IOException {
+    private static String readExact(InputStream input, long declaredLength, long maximum, String description)
+        throws IOException {
         if (declaredLength < 0L || declaredLength > maximum) {
             throw new MediaException(description + " exceeds its byte limit");
         }
-        ByteArrayOutputStream output = new ByteArrayOutputStream(); byte[] buffer = new byte[4096]; long total = 0L; int count;
-        while ((count = input.read(buffer)) != -1) { if (total > maximum - count) throw new MediaException(description + " exceeds its byte limit"); output.write(buffer, 0, count); total += count; }
-        if (total != declaredLength) throw new MediaException(description + " does not match its declared Content-Length");
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        byte[] buffer = new byte[4096];
+        long total = 0L;
+        int count;
+        while ((count = input.read(buffer)) != -1) {
+            if (total > maximum - count) throw new MediaException(description + " exceeds its byte limit");
+            output.write(buffer, 0, count);
+            total += count;
+        }
+        if (total != declaredLength)
+            throw new MediaException(description + " does not match its declared Content-Length");
         return new String(output.toByteArray(), StandardCharsets.UTF_8);
     }
 
@@ -330,31 +396,95 @@ public final class YouTubeStreamResolver {
     }
 
     static boolean isSafeMediaUrl(URL url) {
-        if (url.toExternalForm().length() > MAX_MEDIA_URL_LENGTH || url.getUserInfo() != null || url.getRef() != null || !"https".equalsIgnoreCase(url.getProtocol())) return false;
-        String host = url.getHost() == null ? "" : url.getHost().toLowerCase(Locale.ROOT);
-        return host.endsWith(".googlevideo.com") || "googlevideo.com".equals(host) || YouTubeUrlParser.isYouTubeHost(host);
+        if (url.toExternalForm()
+            .length() > MAX_MEDIA_URL_LENGTH || url.getUserInfo() != null
+            || url.getRef() != null
+            || !"https".equalsIgnoreCase(url.getProtocol())) return false;
+        String host = url.getHost() == null ? ""
+            : url.getHost()
+                .toLowerCase(Locale.ROOT);
+        return host.endsWith(".googlevideo.com") || "googlevideo.com".equals(host)
+            || YouTubeUrlParser.isYouTubeHost(host);
     }
 
     private static long urlExpiry(URL url) throws IOException {
         String value = queryValue(url.getQuery(), "expire");
         if (value == null || value.length() == 0) return Long.MAX_VALUE;
-        try { long seconds = Long.parseLong(value); return seconds > Long.MAX_VALUE / 1000L ? Long.MAX_VALUE : seconds * 1000L; }
-        catch (NumberFormatException exception) { throw new MediaException("Invalid YouTube stream expiry", exception); }
+        try {
+            long seconds = Long.parseLong(value);
+            return seconds > Long.MAX_VALUE / 1000L ? Long.MAX_VALUE : seconds * 1000L;
+        } catch (NumberFormatException exception) {
+            throw new MediaException("Invalid YouTube stream expiry", exception);
+        }
     }
 
     private long relativeExpiry(JsonObject root) {
         int seconds = integer(root, "expiresInSeconds");
         return seconds > 0 && seconds <= 21600 ? clock.getAsLong() + seconds * 1000L : Long.MAX_VALUE;
     }
-    private static long minPositive(long first, long second) { return Math.min(first, second); }
-    private static JsonObject object(JsonObject object, String name) { JsonElement value = object == null ? null : object.get(name); return value != null && value.isJsonObject() ? value.getAsJsonObject() : null; }
-    private static String string(JsonObject object, String name) { try { JsonElement value = object.get(name); return value == null || value.isJsonNull() ? "" : value.getAsString(); } catch (RuntimeException exception) { return ""; } }
-    private static int integer(JsonObject object, String name) { try { JsonElement value = object.get(name); return value == null ? 0 : value.getAsInt(); } catch (RuntimeException exception) { return 0; } }
-    private static String safePlan(String plan) { return plan == null || plan.trim().length() == 0 ? "identity" : plan.trim(); }
-    private static int boundedIndex(String operation, int length) throws MediaException { try { int index = Integer.parseInt(operation.substring(operation.indexOf(':') + 1)); if (index < 0 || index > length || (operation.startsWith("swap:") && index == length && length > 0)) throw new NumberFormatException(); return index; } catch (NumberFormatException exception) { throw new MediaException("Invalid YouTube transform index", exception); } }
-    private static Map<String, String> decodeQuery(String query) throws IOException { Map<String, String> result = new HashMap<String, String>(); for (String part : query.split("&")) { int equals = part.indexOf('='); result.put(decode(equals < 0 ? part : part.substring(0, equals)), decode(equals < 0 ? "" : part.substring(equals + 1))); } return result; }
-    private static String queryValue(String query, String name) throws IOException { return decodeQuery(query == null ? "" : query).get(name); }
-    private static String decode(String value) throws IOException { return URLDecoder.decode(value, "UTF-8"); }
+
+    private static long minPositive(long first, long second) {
+        return Math.min(first, second);
+    }
+
+    private static JsonObject object(JsonObject object, String name) {
+        JsonElement value = object == null ? null : object.get(name);
+        return value != null && value.isJsonObject() ? value.getAsJsonObject() : null;
+    }
+
+    private static String string(JsonObject object, String name) {
+        try {
+            JsonElement value = object.get(name);
+            return value == null || value.isJsonNull() ? "" : value.getAsString();
+        } catch (RuntimeException exception) {
+            return "";
+        }
+    }
+
+    private static int integer(JsonObject object, String name) {
+        try {
+            JsonElement value = object.get(name);
+            return value == null ? 0 : value.getAsInt();
+        } catch (RuntimeException exception) {
+            return 0;
+        }
+    }
+
+    private static String safePlan(String plan) {
+        return plan == null || plan.trim()
+            .length() == 0 ? "identity" : plan.trim();
+    }
+
+    private static int boundedIndex(String operation, int length) throws MediaException {
+        try {
+            int index = Integer.parseInt(operation.substring(operation.indexOf(':') + 1));
+            if (index < 0 || index > length || (operation.startsWith("swap:") && index == length && length > 0))
+                throw new NumberFormatException();
+            return index;
+        } catch (NumberFormatException exception) {
+            throw new MediaException("Invalid YouTube transform index", exception);
+        }
+    }
+
+    private static Map<String, String> decodeQuery(String query) throws IOException {
+        Map<String, String> result = new HashMap<String, String>();
+        for (String part : query.split("&")) {
+            int equals = part.indexOf('=');
+            result.put(
+                decode(equals < 0 ? part : part.substring(0, equals)),
+                decode(equals < 0 ? "" : part.substring(equals + 1)));
+        }
+        return result;
+    }
+
+    private static String queryValue(String query, String name) throws IOException {
+        return decodeQuery(query == null ? "" : query).get(name);
+    }
+
+    private static String decode(String value) throws IOException {
+        return URLDecoder.decode(value, "UTF-8");
+    }
+
     private static URL replaceParameter(URL url, String name, String value) throws IOException {
         StringBuilder query = new StringBuilder();
         String raw = url.getQuery();
@@ -381,11 +511,24 @@ public final class YouTubeStreamResolver {
     }
 
     private static final class Candidate {
-        private final URL url; private final MediaFormat format; private final int bitrate; private final long expiresAtMillis; private final int preference;
-        private Candidate(URL url, MediaFormat format, int bitrate, long expiresAtMillis, int preference) { this.url = url; this.format = format; this.bitrate = bitrate; this.expiresAtMillis = expiresAtMillis; this.preference = preference; }
+
+        private final URL url;
+        private final MediaFormat format;
+        private final int bitrate;
+        private final long expiresAtMillis;
+        private final int preference;
+
+        private Candidate(URL url, MediaFormat format, int bitrate, long expiresAtMillis, int preference) {
+            this.url = url;
+            this.format = format;
+            this.bitrate = bitrate;
+            this.expiresAtMillis = expiresAtMillis;
+            this.preference = preference;
+        }
     }
 
     private static final class TransformPlans {
+
         private final String signaturePlan;
         private final String nPlan;
 
@@ -397,20 +540,26 @@ public final class YouTubeStreamResolver {
 
     /** Parses only split-array transform calls; no JavaScript is evaluated or executed. */
     private static final class PlayerScriptTransformExtractor {
+
         private static TransformPlans extract(String script) throws IOException {
             if (script == null || script.length() == 0) throw new MediaException("YouTube player JavaScript is empty");
             List<FunctionDefinition> functions = functions(script);
             Map<String, String> operations = operations(script);
             List<FunctionDefinition> signatureTargets = targets(script, functions, true);
             List<FunctionDefinition> nTargets = targets(script, functions, false);
-            return new TransformPlans(transformPlan("signature", signatureTargets, operations), transformPlan("n", nTargets, operations));
+            return new TransformPlans(
+                transformPlan("signature", signatureTargets, operations),
+                transformPlan("n", nTargets, operations));
         }
 
         private static Map<String, String> operations(String script) throws IOException {
             Map<String, String> result = new HashMap<String, String>();
             for (int index = 0; index < script.length();) {
                 index = skipIgnored(script, index);
-                if (index >= script.length() || !isIdentifierStart(script.charAt(index))) { index++; continue; }
+                if (index >= script.length() || !isIdentifierStart(script.charAt(index))) {
+                    index++;
+                    continue;
+                }
                 int end = identifierEnd(script, index);
                 String objectName = script.substring(index, end);
                 int cursor = skipIgnored(script, end);
@@ -432,14 +581,19 @@ public final class YouTubeStreamResolver {
             Map<String, FunctionDefinition> definitions = new HashMap<String, FunctionDefinition>();
             for (int index = 0; index < script.length();) {
                 index = skipIgnored(script, index);
-                if (index >= script.length() || !isIdentifierStart(script.charAt(index))) { index++; continue; }
+                if (index >= script.length() || !isIdentifierStart(script.charAt(index))) {
+                    index++;
+                    continue;
+                }
                 int end = identifierEnd(script, index);
                 String token = script.substring(index, end);
                 if ("function".equals(token)) {
                     int cursor = skipIgnored(script, end);
                     if (cursor < script.length() && isIdentifierStart(script.charAt(cursor))) {
                         int nameEnd = identifierEnd(script, cursor);
-                        addFunction(definitions, parseFunction(script, index, cursor, script.substring(cursor, nameEnd), cursor));
+                        addFunction(
+                            definitions,
+                            parseFunction(script, index, cursor, script.substring(cursor, nameEnd), cursor));
                     }
                 } else {
                     int cursor = skipIgnored(script, end);
@@ -463,27 +617,36 @@ public final class YouTubeStreamResolver {
             }
         }
 
-        private static FunctionDefinition parseFunction(String script, int functionStart, int declaredNameStart, String name,
-            int nameStart) throws IOException {
+        private static FunctionDefinition parseFunction(String script, int functionStart, int declaredNameStart,
+            String name, int nameStart) throws IOException {
             int cursor = skipIgnored(script, functionStart + "function".length());
             if (declaredNameStart >= 0) cursor = identifierEnd(script, declaredNameStart);
             cursor = skipIgnored(script, cursor);
-            if (cursor >= script.length() || script.charAt(cursor) != '(') throw new MediaException("Malformed YouTube function");
+            if (cursor >= script.length() || script.charAt(cursor) != '(')
+                throw new MediaException("Malformed YouTube function");
             int closingParameters = matching(script, cursor, '(', ')');
             List<String> parameters = arguments(script.substring(cursor + 1, closingParameters));
-            if (parameters.isEmpty() || parameters.size() > 2 || !isIdentifier(parameters.get(0))
+            if (parameters.isEmpty() || parameters.size() > 2
+                || !isIdentifier(parameters.get(0))
                 || (parameters.size() == 2 && !isIdentifier(parameters.get(1)))) {
                 throw new MediaException("Unsupported YouTube transform function parameters");
             }
             int openingBody = skipIgnored(script, closingParameters + 1);
-            if (openingBody >= script.length() || script.charAt(openingBody) != '{') throw new MediaException("Malformed YouTube function body");
+            if (openingBody >= script.length() || script.charAt(openingBody) != '{')
+                throw new MediaException("Malformed YouTube function body");
             int closingBody = matching(script, openingBody, '{', '}');
-            return new FunctionDefinition(name, parameters.get(0), parameters.size() == 2 ? parameters.get(1) : null,
-                script.substring(openingBody + 1, closingBody), functionStart, closingBody + 1, nameStart);
+            return new FunctionDefinition(
+                name,
+                parameters.get(0),
+                parameters.size() == 2 ? parameters.get(1) : null,
+                script.substring(openingBody + 1, closingBody),
+                functionStart,
+                closingBody + 1,
+                nameStart);
         }
 
-        private static void objectOperations(String script, int start, int end, String objectName, Map<String, String> result)
-            throws IOException {
+        private static void objectOperations(String script, int start, int end, String objectName,
+            Map<String, String> result) throws IOException {
             int index = start;
             while (index < end) {
                 index = skipTrivia(script, index);
@@ -491,14 +654,19 @@ public final class YouTubeStreamResolver {
                 Property property = objectProperty(script, index, end);
                 if (property == null) throw new MediaException("Unsupported YouTube player helper property");
                 int cursor = skipIgnored(script, property.end);
-                if (cursor >= end || script.charAt(cursor) != ':') throw new MediaException("Unsupported YouTube player helper property");
+                if (cursor >= end || script.charAt(cursor) != ':')
+                    throw new MediaException("Unsupported YouTube player helper property");
                 cursor = skipIgnored(script, cursor + 1);
-                if (!wordAt(script, cursor, "function")) throw new MediaException("Unsupported YouTube player helper method");
+                if (!wordAt(script, cursor, "function"))
+                    throw new MediaException("Unsupported YouTube player helper method");
                 FunctionDefinition method = parseFunction(script, cursor, -1, objectName + "." + property.name, -1);
                 if (method.end > end + 1) throw new MediaException("Malformed YouTube player helper method");
                 result.put(objectName + "." + property.name, operation(method));
                 index = skipIgnored(script, method.end);
-                if (index < end && script.charAt(index) == ',') { index++; continue; }
+                if (index < end && script.charAt(index) == ',') {
+                    index++;
+                    continue;
+                }
                 if (index < end) throw new MediaException("Unsupported YouTube player helper syntax");
             }
         }
@@ -508,26 +676,48 @@ public final class YouTubeStreamResolver {
             String array = method.argument;
             String escapedArray = Pattern.quote(array);
             if (compact.matches(escapedArray + "\\.reverse\\(\\);?")) return "reverse";
-            if (method.secondArgument != null && compact.matches(escapedArray + "\\.splice\\(0," + Pattern.quote(method.secondArgument) + "\\);?")) return "splice:";
-            if (method.secondArgument != null && compact.matches("(?:return)?" + escapedArray + "\\.slice\\(" + Pattern.quote(method.secondArgument) + "\\);?")) return "slice:";
-            if (method.secondArgument != null && compact.matches("(?:var|let|const)([A-Za-z_$][A-Za-z0-9_$]*)="
-                + escapedArray + "\\[0\\];" + escapedArray + "\\[0\\]=" + escapedArray + "\\[" + Pattern.quote(method.secondArgument)
-                + "%" + escapedArray + "\\.length\\];" + escapedArray + "\\[" + Pattern.quote(method.secondArgument) + "\\]=\\1;?")) return "swap:";
+            if (method.secondArgument != null
+                && compact.matches(escapedArray + "\\.splice\\(0," + Pattern.quote(method.secondArgument) + "\\);?"))
+                return "splice:";
+            if (method.secondArgument != null && compact
+                .matches("(?:return)?" + escapedArray + "\\.slice\\(" + Pattern.quote(method.secondArgument) + "\\);?"))
+                return "slice:";
+            if (method.secondArgument != null && compact.matches(
+                "(?:var|let|const)([A-Za-z_$][A-Za-z0-9_$]*)=" + escapedArray
+                    + "\\[0\\];"
+                    + escapedArray
+                    + "\\[0\\]="
+                    + escapedArray
+                    + "\\["
+                    + Pattern.quote(method.secondArgument)
+                    + "%"
+                    + escapedArray
+                    + "\\.length\\];"
+                    + escapedArray
+                    + "\\["
+                    + Pattern.quote(method.secondArgument)
+                    + "\\]=\\1;?"))
+                return "swap:";
             throw new MediaException("Unsupported YouTube player transform operation");
         }
 
-        private static List<FunctionDefinition> targets(String script, List<FunctionDefinition> functions, boolean signature)
-            throws IOException {
+        private static List<FunctionDefinition> targets(String script, List<FunctionDefinition> functions,
+            boolean signature) throws IOException {
             Map<String, FunctionDefinition> byName = new HashMap<String, FunctionDefinition>();
             for (FunctionDefinition function : functions) byName.put(function.name, function);
             List<FunctionDefinition> targets = new ArrayList<FunctionDefinition>();
             for (int index = 0; index < script.length();) {
                 index = skipIgnored(script, index);
-                if (index >= script.length() || !isIdentifierStart(script.charAt(index))) { index++; continue; }
+                if (index >= script.length() || !isIdentifierStart(script.charAt(index))) {
+                    index++;
+                    continue;
+                }
                 int end = identifierEnd(script, index);
                 FunctionDefinition function = byName.get(script.substring(index, end));
                 int opening = skipIgnored(script, end);
-                if (function != null && function.nameStart != index && opening < script.length() && script.charAt(opening) == '(') {
+                if (function != null && function.nameStart != index
+                    && opening < script.length()
+                    && script.charAt(opening) == '(') {
                     int closing = matching(script, opening, '(', ')');
                     String context = callContext(script, index, closing);
                     boolean signatureContext = signatureContext(context);
@@ -539,8 +729,9 @@ public final class YouTubeStreamResolver {
                 }
                 index = end;
             }
-            if (targets.size() != 1) throw new MediaException("YouTube player JavaScript has no unambiguous "
-                + (signature ? "signature" : "n") + " transform target");
+            if (targets.size() != 1) throw new MediaException(
+                "YouTube player JavaScript has no unambiguous " + (signature ? "signature" : "n")
+                    + " transform target");
             return targets;
         }
 
@@ -557,9 +748,18 @@ public final class YouTubeStreamResolver {
             int delimiter = -1;
             for (int cursor = 0; cursor <= index && cursor < script.length();) {
                 char value = script.charAt(cursor);
-                if (value == '\'' || value == '\"' || value == '`') { cursor = quotedEnd(script, cursor) + 1; continue; }
-                if (value == '/' && cursor + 1 < script.length() && script.charAt(cursor + 1) == '/') { cursor = lineCommentEnd(script, cursor + 2) + 1; continue; }
-                if (value == '/' && cursor + 1 < script.length() && script.charAt(cursor + 1) == '*') { cursor = blockCommentEnd(script, cursor + 2) + 1; continue; }
+                if (value == '\'' || value == '\"' || value == '`') {
+                    cursor = quotedEnd(script, cursor) + 1;
+                    continue;
+                }
+                if (value == '/' && cursor + 1 < script.length() && script.charAt(cursor + 1) == '/') {
+                    cursor = lineCommentEnd(script, cursor + 2) + 1;
+                    continue;
+                }
+                if (value == '/' && cursor + 1 < script.length() && script.charAt(cursor + 1) == '*') {
+                    cursor = blockCommentEnd(script, cursor + 2) + 1;
+                    continue;
+                }
                 if (value == ';' || value == '{' || value == '}') delimiter = cursor;
                 cursor++;
             }
@@ -569,9 +769,18 @@ public final class YouTubeStreamResolver {
         private static int delimiterAfter(String script, int index) throws IOException {
             while (index < script.length()) {
                 char value = script.charAt(index);
-                if (value == '\'' || value == '\"' || value == '`') { index = quotedEnd(script, index) + 1; continue; }
-                if (value == '/' && index + 1 < script.length() && script.charAt(index + 1) == '/') { index = lineCommentEnd(script, index + 2) + 1; continue; }
-                if (value == '/' && index + 1 < script.length() && script.charAt(index + 1) == '*') { index = blockCommentEnd(script, index + 2) + 1; continue; }
+                if (value == '\'' || value == '\"' || value == '`') {
+                    index = quotedEnd(script, index) + 1;
+                    continue;
+                }
+                if (value == '/' && index + 1 < script.length() && script.charAt(index + 1) == '/') {
+                    index = lineCommentEnd(script, index + 2) + 1;
+                    continue;
+                }
+                if (value == '/' && index + 1 < script.length() && script.charAt(index + 1) == '*') {
+                    index = blockCommentEnd(script, index + 2) + 1;
+                    continue;
+                }
                 if (value == ';' || value == '{' || value == '}') return index;
                 index++;
             }
@@ -587,20 +796,24 @@ public final class YouTubeStreamResolver {
 
         private static boolean signatureContext(String context) throws IOException {
             String code = codeOnly(context);
-            return hasProperty(code, "sig") || hasAssignment(code, "sig") || hasAssignment(code, "signature")
-                || hasLiteralCall(context, "set", "sig") || hasLiteralCall(context, "set", "signature");
+            return hasProperty(code, "sig") || hasAssignment(code, "sig")
+                || hasAssignment(code, "signature")
+                || hasLiteralCall(context, "set", "sig")
+                || hasLiteralCall(context, "set", "signature");
         }
 
         private static boolean nContext(String context) throws IOException {
             String code = codeOnly(context);
-            return hasProperty(code, "n") || hasAssignment(code, "n") || hasLiteralCall(context, "get", "n")
+            return hasProperty(code, "n") || hasAssignment(code, "n")
+                || hasLiteralCall(context, "get", "n")
                 || hasLiteralCall(context, "set", "n");
         }
 
-        private static String transformPlan(String kind, List<FunctionDefinition> targets, Map<String, String> operations)
-            throws IOException {
+        private static String transformPlan(String kind, List<FunctionDefinition> targets,
+            Map<String, String> operations) throws IOException {
             FunctionDefinition function = targets.get(0);
-            if (function.secondArgument != null) throw new MediaException("Unsupported YouTube " + kind + " transform function parameters");
+            if (function.secondArgument != null)
+                throw new MediaException("Unsupported YouTube " + kind + " transform function parameters");
             List<String> plan = new ArrayList<String>();
             boolean split = false;
             boolean join = false;
@@ -639,17 +852,21 @@ public final class YouTubeStreamResolver {
                     plan.add("reverse");
                 } else if (!arguments.isEmpty() && function.argument.equals(arguments.get(0))) {
                     String operation = operations.get(base + "." + property.name);
-                    if (operation == null) throw new MediaException("Unsupported YouTube " + kind + " transform helper");
+                    if (operation == null)
+                        throw new MediaException("Unsupported YouTube " + kind + " transform helper");
                     if (operation.endsWith(":")) {
-                        if (arguments.size() != 2) throw new MediaException("Unsupported YouTube " + kind + " transform argument");
+                        if (arguments.size() != 2)
+                            throw new MediaException("Unsupported YouTube " + kind + " transform argument");
                         operation += nonNegativeInteger(arguments.get(1));
-                    } else if (arguments.size() != 1) throw new MediaException("Unsupported YouTube " + kind + " transform argument");
+                    } else if (arguments.size() != 1)
+                        throw new MediaException("Unsupported YouTube " + kind + " transform argument");
                     plan.add(operation);
                 } else {
                     throw new MediaException("Unsupported YouTube " + kind + " transform operation");
                 }
             }
-            if (!split || !join || plan.isEmpty()) throw new MediaException("Unsupported YouTube " + kind + " transform function");
+            if (!split || !join || plan.isEmpty())
+                throw new MediaException("Unsupported YouTube " + kind + " transform function");
             return join(plan, ",");
         }
 
@@ -658,11 +875,27 @@ public final class YouTubeStreamResolver {
             int start = 0;
             for (int index = 0; index < source.length();) {
                 char character = source.charAt(index);
-                if (character == '\'' || character == '\"' || character == '`') { index = quotedEnd(source, index) + 1; continue; }
-                if (character == '/' && index + 1 < source.length() && source.charAt(index + 1) == '/') { index = lineCommentEnd(source, index + 2) + 1; continue; }
-                if (character == '/' && index + 1 < source.length() && source.charAt(index + 1) == '*') { index = blockCommentEnd(source, index + 2) + 1; continue; }
-                if (character == '(' || character == '[' || character == '{') { index = matching(source, index, character, matchingClose(character)) + 1; continue; }
-                if (character == ';') { result.add(source.substring(start, index)); start = ++index; continue; }
+                if (character == '\'' || character == '\"' || character == '`') {
+                    index = quotedEnd(source, index) + 1;
+                    continue;
+                }
+                if (character == '/' && index + 1 < source.length() && source.charAt(index + 1) == '/') {
+                    index = lineCommentEnd(source, index + 2) + 1;
+                    continue;
+                }
+                if (character == '/' && index + 1 < source.length() && source.charAt(index + 1) == '*') {
+                    index = blockCommentEnd(source, index + 2) + 1;
+                    continue;
+                }
+                if (character == '(' || character == '[' || character == '{') {
+                    index = matching(source, index, character, matchingClose(character)) + 1;
+                    continue;
+                }
+                if (character == ';') {
+                    result.add(source.substring(start, index));
+                    start = ++index;
+                    continue;
+                }
                 index++;
             }
             result.add(source.substring(start));
@@ -681,7 +914,9 @@ public final class YouTubeStreamResolver {
             if (source.charAt(cursor) != '[') return null;
             int closing = matching(source, cursor, '[', ']');
             if (closing > limit) return null;
-            String name = quoted(source.substring(cursor + 1, closing).trim());
+            String name = quoted(
+                source.substring(cursor + 1, closing)
+                    .trim());
             return name == null ? null : new Property(name, closing + 1);
         }
 
@@ -706,11 +941,21 @@ public final class YouTubeStreamResolver {
                 index = skipIgnored(source, index);
                 if (index >= source.length()) break;
                 char character = source.charAt(index);
-                if (character == '(' || character == '[' || character == '{') { index = matching(source, index, character, matchingClose(character)) + 1; continue; }
-                if (character == ',') { values.add(source.substring(start, index).trim()); start = ++index; continue; }
+                if (character == '(' || character == '[' || character == '{') {
+                    index = matching(source, index, character, matchingClose(character)) + 1;
+                    continue;
+                }
+                if (character == ',') {
+                    values.add(
+                        source.substring(start, index)
+                            .trim());
+                    start = ++index;
+                    continue;
+                }
                 index++;
             }
-            String last = source.substring(start).trim();
+            String last = source.substring(start)
+                .trim();
             if (last.length() > 0) values.add(last);
             return values;
         }
@@ -719,9 +964,18 @@ public final class YouTubeStreamResolver {
             int depth = 0;
             for (int index = opening; index < source.length(); index++) {
                 char character = source.charAt(index);
-                if (character == '\'' || character == '\"' || character == '`') { index = quotedEnd(source, index); continue; }
-                if (character == '/' && index + 1 < source.length() && source.charAt(index + 1) == '/') { index = lineCommentEnd(source, index + 2); continue; }
-                if (character == '/' && index + 1 < source.length() && source.charAt(index + 1) == '*') { index = blockCommentEnd(source, index + 2); continue; }
+                if (character == '\'' || character == '\"' || character == '`') {
+                    index = quotedEnd(source, index);
+                    continue;
+                }
+                if (character == '/' && index + 1 < source.length() && source.charAt(index + 1) == '/') {
+                    index = lineCommentEnd(source, index + 2);
+                    continue;
+                }
+                if (character == '/' && index + 1 < source.length() && source.charAt(index + 1) == '*') {
+                    index = blockCommentEnd(source, index + 2);
+                    continue;
+                }
                 if (character == open) depth++;
                 if (character == close && --depth == 0) return index;
             }
@@ -731,10 +985,22 @@ public final class YouTubeStreamResolver {
         private static int skipIgnored(String source, int index) throws IOException {
             while (index < source.length()) {
                 char character = source.charAt(index);
-                if (Character.isWhitespace(character)) { index++; continue; }
-                if (character == '\'' || character == '\"' || character == '`') { index = quotedEnd(source, index) + 1; continue; }
-                if (character == '/' && index + 1 < source.length() && source.charAt(index + 1) == '/') { index = lineCommentEnd(source, index + 2) + 1; continue; }
-                if (character == '/' && index + 1 < source.length() && source.charAt(index + 1) == '*') { index = blockCommentEnd(source, index + 2) + 1; continue; }
+                if (Character.isWhitespace(character)) {
+                    index++;
+                    continue;
+                }
+                if (character == '\'' || character == '\"' || character == '`') {
+                    index = quotedEnd(source, index) + 1;
+                    continue;
+                }
+                if (character == '/' && index + 1 < source.length() && source.charAt(index + 1) == '/') {
+                    index = lineCommentEnd(source, index + 2) + 1;
+                    continue;
+                }
+                if (character == '/' && index + 1 < source.length() && source.charAt(index + 1) == '*') {
+                    index = blockCommentEnd(source, index + 2) + 1;
+                    continue;
+                }
                 return index;
             }
             return index;
@@ -743,9 +1009,18 @@ public final class YouTubeStreamResolver {
         private static int skipTrivia(String source, int index) throws IOException {
             while (index < source.length()) {
                 char character = source.charAt(index);
-                if (Character.isWhitespace(character)) { index++; continue; }
-                if (character == '/' && index + 1 < source.length() && source.charAt(index + 1) == '/') { index = lineCommentEnd(source, index + 2) + 1; continue; }
-                if (character == '/' && index + 1 < source.length() && source.charAt(index + 1) == '*') { index = blockCommentEnd(source, index + 2) + 1; continue; }
+                if (Character.isWhitespace(character)) {
+                    index++;
+                    continue;
+                }
+                if (character == '/' && index + 1 < source.length() && source.charAt(index + 1) == '/') {
+                    index = lineCommentEnd(source, index + 2) + 1;
+                    continue;
+                }
+                if (character == '/' && index + 1 < source.length() && source.charAt(index + 1) == '*') {
+                    index = blockCommentEnd(source, index + 2) + 1;
+                    continue;
+                }
                 return index;
             }
             return index;
@@ -754,39 +1029,210 @@ public final class YouTubeStreamResolver {
         private static int quotedEnd(String source, int opening) throws IOException {
             char quote = source.charAt(opening);
             for (int index = opening + 1; index < source.length(); index++) {
-                if (source.charAt(index) == '\\') { index++; continue; }
+                if (source.charAt(index) == '\\') {
+                    index++;
+                    continue;
+                }
                 if (source.charAt(index) == quote) return index;
             }
             throw new MediaException("Unterminated string in YouTube player JavaScript");
         }
 
-        private static int lineCommentEnd(String source, int index) { while (index < source.length() && source.charAt(index) != '\n' && source.charAt(index) != '\r') index++; return index; }
-        private static int blockCommentEnd(String source, int index) throws IOException { while (index + 1 < source.length()) { if (source.charAt(index) == '*' && source.charAt(index + 1) == '/') return index + 1; index++; } throw new MediaException("Unterminated comment in YouTube player JavaScript"); }
-        private static char matchingClose(char opening) { return opening == '(' ? ')' : opening == '[' ? ']' : '}'; }
-        private static boolean isIdentifierStart(char value) { return value == '$' || value == '_' || Character.isLetter(value); }
-        private static boolean isIdentifierPart(char value) { return isIdentifierStart(value) || Character.isDigit(value); }
-        private static int identifierEnd(String source, int start) { int index = start + 1; while (index < source.length() && isIdentifierPart(source.charAt(index))) index++; return index; }
-        private static boolean isIdentifier(String value) { return value.length() > 0 && isIdentifierStart(value.charAt(0)) && identifierEnd(value, 0) == value.length(); }
-        private static boolean wordAt(String source, int index, String word) { return index >= 0 && index + word.length() <= source.length() && source.regionMatches(index, word, 0, word.length()) && (index == 0 || !isIdentifierPart(source.charAt(index - 1))) && (index + word.length() == source.length() || !isIdentifierPart(source.charAt(index + word.length()))); }
-        private static String quoted(String value) throws IOException { if (value.length() < 2 || (value.charAt(0) != '\'' && value.charAt(0) != '\"') || value.charAt(value.length() - 1) != value.charAt(0)) return null; if (value.indexOf('\\') >= 0) throw new MediaException("Escaped YouTube player helper property is unsupported"); return value.substring(1, value.length() - 1); }
-        private static boolean emptyString(String value) throws IOException { String unquoted = quoted(value); return unquoted != null && unquoted.length() == 0; }
-        private static int nonNegativeInteger(String value) throws IOException { try { if (!value.matches("[0-9]+")) throw new NumberFormatException(); return Integer.parseInt(value); } catch (NumberFormatException exception) { throw new MediaException("Invalid YouTube transform argument", exception); } }
-        private static String compact(String value) { StringBuilder result = new StringBuilder(); for (int index = 0; index < value.length(); index++) if (!Character.isWhitespace(value.charAt(index))) result.append(value.charAt(index)); return result.toString(); }
-        private static String codeOnly(String source) throws IOException { StringBuilder result = new StringBuilder(source.length()); for (int index = 0; index < source.length();) { char value = source.charAt(index); if (value == '\'' || value == '\"' || value == '`') { int end = quotedEnd(source, index); while (index <= end) { result.append(' '); index++; } continue; } if (value == '/' && index + 1 < source.length() && source.charAt(index + 1) == '/') { int end = lineCommentEnd(source, index + 2); while (index <= end && index < source.length()) { result.append(' '); index++; } continue; } if (value == '/' && index + 1 < source.length() && source.charAt(index + 1) == '*') { int end = blockCommentEnd(source, index + 2); while (index <= end) { result.append(' '); index++; } continue; } result.append(value); index++; } return result.toString(); }
-        private static boolean hasProperty(String value, String expected) { return value.contains("." + expected); }
-        private static boolean hasLiteralCall(String source, String method, String expected) throws IOException { for (int index = 0; index < source.length();) { index = skipIgnored(source, index); if (index >= source.length() || !isIdentifierStart(source.charAt(index))) { index++; continue; } int end = identifierEnd(source, index); if (!method.equals(source.substring(index, end))) { index = end; continue; } int opening = skipIgnored(source, end); if (opening >= source.length() || source.charAt(opening) != '(') { index = end; continue; } int closing = matching(source, opening, '(', ')'); List<String> arguments = arguments(source.substring(opening + 1, closing)); if (!arguments.isEmpty() && expected.equals(quoted(arguments.get(0)))) return true; index = closing + 1; } return false; }
-        private static boolean hasAssignment(String value, String expected) { for (int index = 0; index < value.length();) { if (!isIdentifierStart(value.charAt(index))) { index++; continue; } int end = identifierEnd(value, index); if (expected.equals(value.substring(index, end)) && skipWhitespace(value, end) < value.length() && value.charAt(skipWhitespace(value, end)) == '=') return true; index = end; } return false; }
-        private static int skipWhitespace(String value, int index) { while (index < value.length() && Character.isWhitespace(value.charAt(index))) index++; return index; }
-        private static String join(List<String> values, String separator) { StringBuilder result = new StringBuilder(); for (String value : values) { if (result.length() > 0) result.append(separator); result.append(value); } return result.toString(); }
+        private static int lineCommentEnd(String source, int index) {
+            while (index < source.length() && source.charAt(index) != '\n' && source.charAt(index) != '\r') index++;
+            return index;
+        }
+
+        private static int blockCommentEnd(String source, int index) throws IOException {
+            while (index + 1 < source.length()) {
+                if (source.charAt(index) == '*' && source.charAt(index + 1) == '/') return index + 1;
+                index++;
+            }
+            throw new MediaException("Unterminated comment in YouTube player JavaScript");
+        }
+
+        private static char matchingClose(char opening) {
+            return opening == '(' ? ')' : opening == '[' ? ']' : '}';
+        }
+
+        private static boolean isIdentifierStart(char value) {
+            return value == '$' || value == '_' || Character.isLetter(value);
+        }
+
+        private static boolean isIdentifierPart(char value) {
+            return isIdentifierStart(value) || Character.isDigit(value);
+        }
+
+        private static int identifierEnd(String source, int start) {
+            int index = start + 1;
+            while (index < source.length() && isIdentifierPart(source.charAt(index))) index++;
+            return index;
+        }
+
+        private static boolean isIdentifier(String value) {
+            return value.length() > 0 && isIdentifierStart(value.charAt(0))
+                && identifierEnd(value, 0) == value.length();
+        }
+
+        private static boolean wordAt(String source, int index, String word) {
+            return index >= 0 && index + word.length() <= source.length()
+                && source.regionMatches(index, word, 0, word.length())
+                && (index == 0 || !isIdentifierPart(source.charAt(index - 1)))
+                && (index + word.length() == source.length()
+                    || !isIdentifierPart(source.charAt(index + word.length())));
+        }
+
+        private static String quoted(String value) throws IOException {
+            if (value.length() < 2 || (value.charAt(0) != '\'' && value.charAt(0) != '\"')
+                || value.charAt(value.length() - 1) != value.charAt(0)) return null;
+            if (value.indexOf('\\') >= 0)
+                throw new MediaException("Escaped YouTube player helper property is unsupported");
+            return value.substring(1, value.length() - 1);
+        }
+
+        private static boolean emptyString(String value) throws IOException {
+            String unquoted = quoted(value);
+            return unquoted != null && unquoted.length() == 0;
+        }
+
+        private static int nonNegativeInteger(String value) throws IOException {
+            try {
+                if (!value.matches("[0-9]+")) throw new NumberFormatException();
+                return Integer.parseInt(value);
+            } catch (NumberFormatException exception) {
+                throw new MediaException("Invalid YouTube transform argument", exception);
+            }
+        }
+
+        private static String compact(String value) {
+            StringBuilder result = new StringBuilder();
+            for (int index = 0; index < value.length(); index++)
+                if (!Character.isWhitespace(value.charAt(index))) result.append(value.charAt(index));
+            return result.toString();
+        }
+
+        private static String codeOnly(String source) throws IOException {
+            StringBuilder result = new StringBuilder(source.length());
+            for (int index = 0; index < source.length();) {
+                char value = source.charAt(index);
+                if (value == '\'' || value == '\"' || value == '`') {
+                    int end = quotedEnd(source, index);
+                    while (index <= end) {
+                        result.append(' ');
+                        index++;
+                    }
+                    continue;
+                }
+                if (value == '/' && index + 1 < source.length() && source.charAt(index + 1) == '/') {
+                    int end = lineCommentEnd(source, index + 2);
+                    while (index <= end && index < source.length()) {
+                        result.append(' ');
+                        index++;
+                    }
+                    continue;
+                }
+                if (value == '/' && index + 1 < source.length() && source.charAt(index + 1) == '*') {
+                    int end = blockCommentEnd(source, index + 2);
+                    while (index <= end) {
+                        result.append(' ');
+                        index++;
+                    }
+                    continue;
+                }
+                result.append(value);
+                index++;
+            }
+            return result.toString();
+        }
+
+        private static boolean hasProperty(String value, String expected) {
+            return value.contains("." + expected);
+        }
+
+        private static boolean hasLiteralCall(String source, String method, String expected) throws IOException {
+            for (int index = 0; index < source.length();) {
+                index = skipIgnored(source, index);
+                if (index >= source.length() || !isIdentifierStart(source.charAt(index))) {
+                    index++;
+                    continue;
+                }
+                int end = identifierEnd(source, index);
+                if (!method.equals(source.substring(index, end))) {
+                    index = end;
+                    continue;
+                }
+                int opening = skipIgnored(source, end);
+                if (opening >= source.length() || source.charAt(opening) != '(') {
+                    index = end;
+                    continue;
+                }
+                int closing = matching(source, opening, '(', ')');
+                List<String> arguments = arguments(source.substring(opening + 1, closing));
+                if (!arguments.isEmpty() && expected.equals(quoted(arguments.get(0)))) return true;
+                index = closing + 1;
+            }
+            return false;
+        }
+
+        private static boolean hasAssignment(String value, String expected) {
+            for (int index = 0; index < value.length();) {
+                if (!isIdentifierStart(value.charAt(index))) {
+                    index++;
+                    continue;
+                }
+                int end = identifierEnd(value, index);
+                if (expected.equals(value.substring(index, end)) && skipWhitespace(value, end) < value.length()
+                    && value.charAt(skipWhitespace(value, end)) == '=') return true;
+                index = end;
+            }
+            return false;
+        }
+
+        private static int skipWhitespace(String value, int index) {
+            while (index < value.length() && Character.isWhitespace(value.charAt(index))) index++;
+            return index;
+        }
+
+        private static String join(List<String> values, String separator) {
+            StringBuilder result = new StringBuilder();
+            for (String value : values) {
+                if (result.length() > 0) result.append(separator);
+                result.append(value);
+            }
+            return result.toString();
+        }
 
         private static final class FunctionDefinition {
-            private final String name; private final String argument; private final String secondArgument; private final String body; private final int start; private final int end; private final int nameStart;
-            private FunctionDefinition(String name, String argument, String secondArgument, String body, int start, int end, int nameStart) { this.name = name; this.argument = argument; this.secondArgument = secondArgument; this.body = body; this.start = start; this.end = end; this.nameStart = nameStart; }
+
+            private final String name;
+            private final String argument;
+            private final String secondArgument;
+            private final String body;
+            private final int start;
+            private final int end;
+            private final int nameStart;
+
+            private FunctionDefinition(String name, String argument, String secondArgument, String body, int start,
+                int end, int nameStart) {
+                this.name = name;
+                this.argument = argument;
+                this.secondArgument = secondArgument;
+                this.body = body;
+                this.start = start;
+                this.end = end;
+                this.nameStart = nameStart;
+            }
         }
 
         private static final class Property {
-            private final String name; private final int end;
-            private Property(String name, int end) { this.name = name; this.end = end; }
+
+            private final String name;
+            private final int end;
+
+            private Property(String name, int end) {
+                this.name = name;
+                this.end = end;
+            }
         }
     }
 }

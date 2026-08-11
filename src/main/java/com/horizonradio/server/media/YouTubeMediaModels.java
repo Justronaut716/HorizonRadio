@@ -1,11 +1,11 @@
 package com.horizonradio.server.media;
 
-import java.io.Closeable;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.Closeable;
+import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.FilterInputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
@@ -16,18 +16,21 @@ import java.util.Map;
 /** Small transport and value types shared by the finite YouTube download path. */
 public final class YouTubeMediaModels {
 
-    private YouTubeMediaModels() {
-    }
+    private YouTubeMediaModels() {}
 
     public interface CancellationToken {
+
         boolean isCancelled();
 
-        /** Checks cancellation and publishes one completed PCM sink as one operation when overridden by an owner token. */
+        /**
+         * Checks cancellation and publishes one completed PCM sink as one operation when overridden by an owner token.
+         */
         default void finish(PcmSink sink) throws IOException {
             if (sink == null) {
                 throw new IllegalArgumentException("PCM sink is required");
             }
-            if (isCancelled() || Thread.currentThread().isInterrupted()) {
+            if (isCancelled() || Thread.currentThread()
+                .isInterrupted()) {
                 throw new MediaException("YouTube audio download cancelled");
             }
             sink.finish();
@@ -35,12 +38,14 @@ public final class YouTubeMediaModels {
     }
 
     public interface AudioDownloadBackend {
+
         Path download(String videoId, Path destination, CancellationToken token) throws IOException;
 
         boolean isReady();
     }
 
     public interface HttpRequester {
+
         HttpResponse post(URL url, Map<String, String> headers, byte[] body, int timeoutMillis, long maximumBytes)
             throws IOException;
 
@@ -63,10 +68,12 @@ public final class YouTubeMediaModels {
     }
 
     interface ConnectionOpener {
+
         HttpURLConnection open(URL url) throws IOException;
     }
 
     public static final class HttpResponse implements Closeable {
+
         private final URL url;
         private final int statusCode;
         private final String contentType;
@@ -91,12 +98,29 @@ public final class YouTubeMediaModels {
             this.contentRange = contentRange == null ? "" : contentRange;
         }
 
-        public URL getUrl() { return url; }
-        public int getStatusCode() { return statusCode; }
-        public String getContentType() { return contentType; }
-        public long getContentLength() { return contentLength; }
-        public String getContentRange() { return contentRange; }
-        public InputStream getInputStream() { return input; }
+        public URL getUrl() {
+            return url;
+        }
+
+        public int getStatusCode() {
+            return statusCode;
+        }
+
+        public String getContentType() {
+            return contentType;
+        }
+
+        public long getContentLength() {
+            return contentLength;
+        }
+
+        public String getContentRange() {
+            return contentRange;
+        }
+
+        public InputStream getInputStream() {
+            return input;
+        }
 
         @Override
         public void close() throws IOException {
@@ -105,6 +129,7 @@ public final class YouTubeMediaModels {
     }
 
     public static final class ResolvedAudioStream {
+
         private final URL url;
         private final MediaFormat format;
         private final int bitrate;
@@ -115,8 +140,7 @@ public final class YouTubeMediaModels {
             this(url, format, bitrate, expiresAtMillis, "");
         }
 
-        public ResolvedAudioStream(URL url, MediaFormat format, int bitrate, long expiresAtMillis,
-            String visitorData) {
+        public ResolvedAudioStream(URL url, MediaFormat format, int bitrate, long expiresAtMillis, String visitorData) {
             this.url = url;
             this.format = format;
             this.bitrate = bitrate;
@@ -124,20 +148,36 @@ public final class YouTubeMediaModels {
             this.visitorData = visitorData == null ? "" : visitorData;
         }
 
-        public URL getUrl() { return url; }
-        public MediaFormat getFormat() { return format; }
-        public int getBitrate() { return bitrate; }
-        public long getExpiresAtMillis() { return expiresAtMillis; }
-        public String getVisitorData() { return visitorData; }
+        public URL getUrl() {
+            return url;
+        }
+
+        public MediaFormat getFormat() {
+            return format;
+        }
+
+        public int getBitrate() {
+            return bitrate;
+        }
+
+        public long getExpiresAtMillis() {
+            return expiresAtMillis;
+        }
+
+        public String getVisitorData() {
+            return visitorData;
+        }
     }
 
     /** JDK-only requester used in production; tests inject deterministic responders. */
     public static final class UrlConnectionHttpRequester implements HttpRequester {
+
         private static final int MAX_REDIRECTS = 3;
         private final ConnectionOpener connectionOpener;
 
         public UrlConnectionHttpRequester() {
             this(new ConnectionOpener() {
+
                 @Override
                 public HttpURLConnection open(URL url) throws IOException {
                     return (HttpURLConnection) url.openConnection();
@@ -153,15 +193,21 @@ public final class YouTubeMediaModels {
         }
 
         @Override
-        public HttpResponse post(URL url, Map<String, String> headers, byte[] body, int timeoutMillis, long maximumBytes)
-            throws IOException {
+        public HttpResponse post(URL url, Map<String, String> headers, byte[] body, int timeoutMillis,
+            long maximumBytes) throws IOException {
             return post(url, headers, body, timeoutMillis, maximumBytes, RedirectPolicy.INNER_TUBE);
         }
 
         @Override
         public HttpResponse post(URL url, Map<String, String> headers, byte[] body, int timeoutMillis,
             long maximumBytes, RedirectPolicy redirectPolicy) throws IOException {
-            return open(url, "POST", headers, body == null ? new byte[0] : body, timeoutMillis, maximumBytes,
+            return open(
+                url,
+                "POST",
+                headers,
+                body == null ? new byte[0] : body,
+                timeoutMillis,
+                maximumBytes,
                 redirectPolicy);
         }
 
@@ -177,8 +223,8 @@ public final class YouTubeMediaModels {
             return open(url, "GET", headers, null, timeoutMillis, maximumBytes, redirectPolicy);
         }
 
-        private HttpResponse open(URL initial, String method, Map<String, String> headers, byte[] body, int timeoutMillis,
-            long maximumBytes, RedirectPolicy redirectPolicy) throws IOException {
+        private HttpResponse open(URL initial, String method, Map<String, String> headers, byte[] body,
+            int timeoutMillis, long maximumBytes, RedirectPolicy redirectPolicy) throws IOException {
             if (initial == null || redirectPolicy == null || timeoutMillis <= 0 || maximumBytes <= 0L) {
                 throw new IllegalArgumentException("HTTP URL, timeout, and limit must be positive");
             }
@@ -191,7 +237,8 @@ public final class YouTubeMediaModels {
                 connection.setReadTimeout(timeoutMillis);
                 connection.setUseCaches(false);
                 connection.setRequestMethod(method);
-                for (Map.Entry<String, String> entry : (headers == null ? Collections.<String, String>emptyMap() : headers).entrySet()) {
+                for (Map.Entry<String, String> entry : (headers == null ? Collections.<String, String>emptyMap()
+                    : headers).entrySet()) {
                     connection.setRequestProperty(entry.getKey(), entry.getValue());
                 }
                 if (body != null) {
@@ -232,10 +279,23 @@ public final class YouTubeMediaModels {
                     throw new MediaException("HTTP response exceeds a finite byte limit");
                 }
                 final HttpURLConnection responseConnection = connection;
-                return new HttpResponse(current, status, connection.getContentType(), contentLength,
+                return new HttpResponse(
+                    current,
+                    status,
+                    connection.getContentType(),
+                    contentLength,
                     new FilterInputStream(new BoundedInputStream(connection.getInputStream(), maximumBytes)) {
-                        @Override public void close() throws IOException { try { super.close(); } finally { responseConnection.disconnect(); } }
-                    }, connection.getHeaderField("Content-Range"));
+
+                        @Override
+                        public void close() throws IOException {
+                            try {
+                                super.close();
+                            } finally {
+                                responseConnection.disconnect();
+                            }
+                        }
+                    },
+                    connection.getHeaderField("Content-Range"));
             }
             throw new MediaException("Too many HTTP redirects");
         }
@@ -254,7 +314,11 @@ public final class YouTubeMediaModels {
                     output.write(buffer, 0, count);
                     total += count;
                 }
-                return new HttpResponse(url, status, connection.getContentType(), total,
+                return new HttpResponse(
+                    url,
+                    status,
+                    connection.getContentType(),
+                    total,
                     new ByteArrayInputStream(output.toByteArray()));
             } finally {
                 connection.disconnect();
@@ -262,11 +326,15 @@ public final class YouTubeMediaModels {
         }
 
         private static void validateRedirectTarget(URL url, RedirectPolicy redirectPolicy) throws MediaException {
-            if (url == null || !"https".equalsIgnoreCase(url.getProtocol()) || url.getUserInfo() != null
-                || url.getHost() == null || url.getHost().length() == 0) {
+            if (url == null || !"https".equalsIgnoreCase(url.getProtocol())
+                || url.getUserInfo() != null
+                || url.getHost() == null
+                || url.getHost()
+                    .length() == 0) {
                 throw new MediaException("Redirect target must be a safe HTTPS URL");
             }
-            String host = url.getHost().toLowerCase(java.util.Locale.ROOT);
+            String host = url.getHost()
+                .toLowerCase(java.util.Locale.ROOT);
             boolean allowed = redirectPolicy == RedirectPolicy.INNER_TUBE ? YouTubeUrlParser.isYouTubeHost(host)
                 : YouTubeStreamResolver.isSafeMediaUrl(url);
             if (!allowed) {

@@ -22,7 +22,11 @@ public class JavaAudioDownloadBackendTest {
     public void resolvesFreshFixtureAudioAndAtomicallyPublishesNormalizedWave() throws Exception {
         FakeHttp http = new FakeHttp(wave(new byte[] { 1, 0, 2, 0, 3, 0, 4, 0 }));
         YouTubeStreamResolver resolver = new YouTubeStreamResolver(http, new AudioDecoderRegistry(), () -> 1000000L);
-        JavaAudioDownloadBackend backend = new JavaAudioDownloadBackend(resolver, http, new AudioDecoderRegistry(), 1024L);
+        JavaAudioDownloadBackend backend = new JavaAudioDownloadBackend(
+            resolver,
+            http,
+            new AudioDecoderRegistry(),
+            1024L);
         Path directory = Files.createTempDirectory("horizonradio-download");
         Path destination = directory.resolve("dQw4w9WgXcQ.wav");
         try {
@@ -42,8 +46,10 @@ public class JavaAudioDownloadBackendTest {
         byte[] audio = wave(new byte[] { 1, 0, 2, 0, 3, 0, 4, 0 });
         RangeFallbackHttp http = new RangeFallbackHttp(audio);
         JavaAudioDownloadBackend backend = new JavaAudioDownloadBackend(
-            new YouTubeStreamResolver(http, new AudioDecoderRegistry(), () -> 1000000L), http,
-            new AudioDecoderRegistry(), 1024L);
+            new YouTubeStreamResolver(http, new AudioDecoderRegistry(), () -> 1000000L),
+            http,
+            new AudioDecoderRegistry(),
+            1024L);
         Path directory = Files.createTempDirectory("horizonradio-download-range");
         Path destination = directory.resolve("dQw4w9WgXcQ.wav");
         try {
@@ -64,8 +70,10 @@ public class JavaAudioDownloadBackendTest {
         byte[] audio = wave(pcm);
         RangeFallbackHttp http = new RangeFallbackHttp(audio);
         JavaAudioDownloadBackend backend = new JavaAudioDownloadBackend(
-            new YouTubeStreamResolver(http, new AudioDecoderRegistry(), () -> 1000000L), http,
-            new AudioDecoderRegistry(), 3L * 1024L * 1024L);
+            new YouTubeStreamResolver(http, new AudioDecoderRegistry(), () -> 1000000L),
+            http,
+            new AudioDecoderRegistry(),
+            3L * 1024L * 1024L);
         Path directory = Files.createTempDirectory("horizonradio-download-multi-range");
         Path destination = directory.resolve("dQw4w9WgXcQ.wav");
         try {
@@ -83,8 +91,10 @@ public class JavaAudioDownloadBackendTest {
     public void cancellationLeavesNoCacheEntryOrTemporaryOutput() throws Exception {
         FakeHttp http = new FakeHttp(wave(new byte[] { 1, 0, 2, 0, 3, 0, 4, 0 }));
         JavaAudioDownloadBackend backend = new JavaAudioDownloadBackend(
-            new YouTubeStreamResolver(http, new AudioDecoderRegistry(), () -> 1000000L), http,
-            new AudioDecoderRegistry(), 1024L);
+            new YouTubeStreamResolver(http, new AudioDecoderRegistry(), () -> 1000000L),
+            http,
+            new AudioDecoderRegistry(),
+            1024L);
         Path directory = Files.createTempDirectory("horizonradio-download-cancel");
         Path destination = directory.resolve("dQw4w9WgXcQ.wav");
         try {
@@ -103,10 +113,14 @@ public class JavaAudioDownloadBackendTest {
 
     @Test
     public void rejectsAnUnsafeAudioRedirectBeforePublishingTheCacheEntry() throws Exception {
-        FakeHttp http = new FakeHttp(wave(new byte[] { 1, 0, 2, 0, 3, 0, 4, 0 }), new URL("https://evil.example/audio"));
+        FakeHttp http = new FakeHttp(
+            wave(new byte[] { 1, 0, 2, 0, 3, 0, 4, 0 }),
+            new URL("https://evil.example/audio"));
         JavaAudioDownloadBackend backend = new JavaAudioDownloadBackend(
-            new YouTubeStreamResolver(http, new AudioDecoderRegistry(), () -> 1000000L), http,
-            new AudioDecoderRegistry(), 1024L);
+            new YouTubeStreamResolver(http, new AudioDecoderRegistry(), () -> 1000000L),
+            http,
+            new AudioDecoderRegistry(),
+            1024L);
         Path directory = Files.createTempDirectory("horizonradio-download-redirect");
         Path destination = directory.resolve("dQw4w9WgXcQ.wav");
         try {
@@ -138,8 +152,10 @@ public class JavaAudioDownloadBackendTest {
         byte[] second = wave(new byte[] { 9, 0, 8, 0, 7, 0, 6, 0 });
         CancelThenSucceedHttp http = new CancelThenSucceedHttp(first, second, cancelled);
         JavaAudioDownloadBackend backend = new JavaAudioDownloadBackend(
-            new YouTubeStreamResolver(http, new AudioDecoderRegistry(), () -> 1000000L), http,
-            new AudioDecoderRegistry(), 1024L);
+            new YouTubeStreamResolver(http, new AudioDecoderRegistry(), () -> 1000000L),
+            http,
+            new AudioDecoderRegistry(),
+            1024L);
         Path directory = Files.createTempDirectory("horizonradio-download-restart");
         Path destination = directory.resolve("dQw4w9WgXcQ.wav");
         try {
@@ -163,8 +179,10 @@ public class JavaAudioDownloadBackendTest {
     private static void assertBodyRejected(byte[] body, long declaredLength) throws Exception {
         FakeHttp http = new FakeHttp(body, null, declaredLength);
         JavaAudioDownloadBackend backend = new JavaAudioDownloadBackend(
-            new YouTubeStreamResolver(http, new AudioDecoderRegistry(), () -> 1000000L), http,
-            new AudioDecoderRegistry(), 1024L);
+            new YouTubeStreamResolver(http, new AudioDecoderRegistry(), () -> 1000000L),
+            http,
+            new AudioDecoderRegistry(),
+            1024L);
         Path directory = Files.createTempDirectory("horizonradio-download-length");
         Path destination = directory.resolve("dQw4w9WgXcQ.wav");
         try {
@@ -182,6 +200,7 @@ public class JavaAudioDownloadBackendTest {
     }
 
     private static final class FakeHttp implements YouTubeMediaModels.HttpRequester {
+
         private final byte[] audio;
         private final URL audioResponseUrl;
         private final long declaredAudioLength;
@@ -206,7 +225,11 @@ public class JavaAudioDownloadBackendTest {
             int timeoutMillis, long maximumBytes) {
             String json = "{\"streamingData\":{\"adaptiveFormats\":[{\"mimeType\":\"audio/wav; codecs=\\\"1\\\"\",\"bitrate\":128000,\"url\":\"https://r1.googlevideo.com/videoplayback?expire=2000000000\"}]}}";
             byte[] response = json.getBytes(StandardCharsets.UTF_8);
-            return new YouTubeMediaModels.HttpResponse(url, 200, "application/json", response.length,
+            return new YouTubeMediaModels.HttpResponse(
+                url,
+                200,
+                "application/json",
+                response.length,
                 new ByteArrayInputStream(response));
         }
 
@@ -215,16 +238,25 @@ public class JavaAudioDownloadBackendTest {
             long maximumBytes) {
             if ("/watch".equals(url.getPath())) {
                 byte[] visitor = "{\"VISITOR_DATA\":\"test-visitor\"}".getBytes(StandardCharsets.UTF_8);
-                return new YouTubeMediaModels.HttpResponse(url, 200, "text/html", visitor.length,
+                return new YouTubeMediaModels.HttpResponse(
+                    url,
+                    200,
+                    "text/html",
+                    visitor.length,
                     new ByteArrayInputStream(visitor));
             }
             audioRequests++;
-            return new YouTubeMediaModels.HttpResponse(audioResponseUrl == null ? url : audioResponseUrl, 200, "audio/wav", declaredAudioLength,
+            return new YouTubeMediaModels.HttpResponse(
+                audioResponseUrl == null ? url : audioResponseUrl,
+                200,
+                "audio/wav",
+                declaredAudioLength,
                 new ByteArrayInputStream(audio));
         }
     }
 
     private static final class CancelThenSucceedHttp implements YouTubeMediaModels.HttpRequester {
+
         private final byte[] first;
         private final byte[] second;
         private final AtomicBoolean cancelled;
@@ -241,7 +273,11 @@ public class JavaAudioDownloadBackendTest {
             int timeoutMillis, long maximumBytes) {
             String json = "{\"streamingData\":{\"adaptiveFormats\":[{\"mimeType\":\"audio/wav; codecs=\\\"1\\\"\",\"bitrate\":128000,\"url\":\"https://r1.googlevideo.com/videoplayback?expire=2000000000\"}]}}";
             byte[] response = json.getBytes(StandardCharsets.UTF_8);
-            return new YouTubeMediaModels.HttpResponse(url, 200, "application/json", response.length,
+            return new YouTubeMediaModels.HttpResponse(
+                url,
+                200,
+                "application/json",
+                response.length,
                 new ByteArrayInputStream(response));
         }
 
@@ -250,7 +286,11 @@ public class JavaAudioDownloadBackendTest {
             long maximumBytes) {
             if ("/watch".equals(url.getPath())) {
                 byte[] visitor = "{\"VISITOR_DATA\":\"test-visitor\"}".getBytes(StandardCharsets.UTF_8);
-                return new YouTubeMediaModels.HttpResponse(url, 200, "text/html", visitor.length,
+                return new YouTubeMediaModels.HttpResponse(
+                    url,
+                    200,
+                    "text/html",
+                    visitor.length,
                     new ByteArrayInputStream(visitor));
             }
             requests++;
@@ -262,6 +302,7 @@ public class JavaAudioDownloadBackendTest {
     }
 
     private static final class RangeFallbackHttp implements YouTubeMediaModels.HttpRequester {
+
         private final byte[] audio;
         private int fullRequests;
         private int rangeRequests;
@@ -277,7 +318,11 @@ public class JavaAudioDownloadBackendTest {
             String json = "{\"streamingData\":{\"adaptiveFormats\":[{\"mimeType\":\"audio/wav; codecs=\\\"1\\\"\","
                 + "\"bitrate\":128000,\"url\":\"https://r1.googlevideo.com/videoplayback?expire=2000000000\"}]}}";
             byte[] response = json.getBytes(StandardCharsets.UTF_8);
-            return new YouTubeMediaModels.HttpResponse(url, 200, "application/json", response.length,
+            return new YouTubeMediaModels.HttpResponse(
+                url,
+                200,
+                "application/json",
+                response.length,
                 new ByteArrayInputStream(response));
         }
 
@@ -286,13 +331,21 @@ public class JavaAudioDownloadBackendTest {
             long maximumBytes) {
             if ("/watch".equals(url.getPath())) {
                 byte[] visitor = "{\"VISITOR_DATA\":\"test-visitor\"}".getBytes(StandardCharsets.UTF_8);
-                return new YouTubeMediaModels.HttpResponse(url, 200, "text/html", visitor.length,
+                return new YouTubeMediaModels.HttpResponse(
+                    url,
+                    200,
+                    "text/html",
+                    visitor.length,
                     new ByteArrayInputStream(visitor));
             }
             String range = headers == null ? null : headers.get("Range");
             if (range == null) {
                 fullRequests++;
-                return new YouTubeMediaModels.HttpResponse(url, 403, "text/plain", 0L,
+                return new YouTubeMediaModels.HttpResponse(
+                    url,
+                    403,
+                    "text/plain",
+                    0L,
                     new ByteArrayInputStream(new byte[0]));
             }
             rangeRequests++;
@@ -302,12 +355,18 @@ public class JavaAudioDownloadBackendTest {
             long requestedEnd = Long.parseLong(range.substring(separator + 1));
             int end = (int) Math.min(requestedEnd, audio.length - 1L);
             byte[] response = Arrays.copyOfRange(audio, (int) start, end + 1);
-            return new YouTubeMediaModels.HttpResponse(url, 206, "audio/wav", response.length,
-                new ByteArrayInputStream(response), "bytes " + start + "-" + end + "/" + audio.length);
+            return new YouTubeMediaModels.HttpResponse(
+                url,
+                206,
+                "audio/wav",
+                response.length,
+                new ByteArrayInputStream(response),
+                "bytes " + start + "-" + end + "/" + audio.length);
         }
     }
 
     private static final class CancelAfterPcmReadInputStream extends java.io.InputStream {
+
         private final byte[] bytes;
         private final AtomicBoolean cancelled;
         private int offset;
@@ -336,13 +395,32 @@ public class JavaAudioDownloadBackendTest {
 
     private static byte[] wave(byte[] pcm) {
         byte[] wav = new byte[44 + pcm.length];
-        ascii(wav, 0, "RIFF"); leInt(wav, 4, 36 + pcm.length); ascii(wav, 8, "WAVEfmt ");
-        leInt(wav, 16, 16); leShort(wav, 20, 1); leShort(wav, 22, 2); leInt(wav, 24, 44100);
-        leInt(wav, 28, 176400); leShort(wav, 32, 4); leShort(wav, 34, 16); ascii(wav, 36, "data");
-        leInt(wav, 40, pcm.length); System.arraycopy(pcm, 0, wav, 44, pcm.length); return wav;
+        ascii(wav, 0, "RIFF");
+        leInt(wav, 4, 36 + pcm.length);
+        ascii(wav, 8, "WAVEfmt ");
+        leInt(wav, 16, 16);
+        leShort(wav, 20, 1);
+        leShort(wav, 22, 2);
+        leInt(wav, 24, 44100);
+        leInt(wav, 28, 176400);
+        leShort(wav, 32, 4);
+        leShort(wav, 34, 16);
+        ascii(wav, 36, "data");
+        leInt(wav, 40, pcm.length);
+        System.arraycopy(pcm, 0, wav, 44, pcm.length);
+        return wav;
     }
 
-    private static void ascii(byte[] bytes, int offset, String value) { for (int i = 0; i < value.length(); i++) bytes[offset + i] = (byte) value.charAt(i); }
-    private static void leShort(byte[] bytes, int offset, int value) { bytes[offset] = (byte) value; bytes[offset + 1] = (byte) (value >>> 8); }
-    private static void leInt(byte[] bytes, int offset, int value) { for (int i = 0; i < 4; i++) bytes[offset + i] = (byte) (value >>> (i * 8)); }
+    private static void ascii(byte[] bytes, int offset, String value) {
+        for (int i = 0; i < value.length(); i++) bytes[offset + i] = (byte) value.charAt(i);
+    }
+
+    private static void leShort(byte[] bytes, int offset, int value) {
+        bytes[offset] = (byte) value;
+        bytes[offset + 1] = (byte) (value >>> 8);
+    }
+
+    private static void leInt(byte[] bytes, int offset, int value) {
+        for (int i = 0; i < 4; i++) bytes[offset + i] = (byte) (value >>> (i * 8));
+    }
 }

@@ -1,8 +1,8 @@
 package com.horizonradio.server.media;
 
 import static org.junit.Assert.assertArrayEquals;
-import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import java.io.ByteArrayInputStream;
@@ -23,17 +23,18 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-import com.sun.net.httpserver.HttpExchange;
-import com.sun.net.httpserver.HttpServer;
-
 import org.junit.Test;
+
+import com.sun.net.httpserver.HttpServer;
 
 public class RadioInputSessionTest {
 
-    private static final byte[] LIVE_MP3 = Base64.getDecoder().decode(
-        "//tAwAAAAAAAAAAAAAAAAAAAAAAASW5mbwAAAA8AAAADAAADKAB7e3t7e3t7e3t7e3t7e3t7e3t7e3t7e3t7e3t7e3t7e3u9vb29vb29vb29vb29vb29vb29vb29vb29vb29vb29vb3///////////////////////////////////////////8AAAAATGF2YzYzLjEuAAAAAAAAAAAAAAAAJAKjAAAAAAAAAyiCLLOAAAAAAAD/+1DEAAAKLEMuVZSAAX0VaLc20AAHqsOOM4XTZPGhwQgcWB9eHxgcRgQeieWzLloPqDsTa/D4YFAUBAMCgkQMTmjRo2wfeIAQBDE4P8EHTnT5zl/Ocv7un3cuD4Pg+HwQDEoAwf0gAAeaAQCAYCgYCgUDgA0KBNpABgMRIDCSI04PcIFdF0PJKE0smMjJGhdfrYTUFd8FZE+Ey/EuJEeo4f8dwwwlxIj1/8kTIvF4xLv/5dMi8XkS6Xf4iCoKiI9/wV//73JEABQe2WyNuMpZ//tSxAUAB1QhPb3BADEPg6U+uhAESkKwhuRo");
-    private static final byte[] LIVE_AAC = Base64.getDecoder().decode(
-        "//FQQCD//NwATGF2YzYzLjEuMTAwAAJgrFupUHImpXj14/euuJbVSWqWlSTJO4OhAQYVcvF3Gukta9peY8G7Y87q+TxS2DM+S+edNdI83c27i2DlLiOvtU21bNlU7VWfdVYjhWNxVxs2g2bG2LE3Ky3LOdexOOxuKuNmuM9WY6Nfmr81fmsc+tn1tSz1LHRr81pmr81fn1s+tn1s+qn1+awzWGmzos6K1FailTYzMZmMzGitRWorUWNNjMxmYxMaLOitRWosaLGZjMxiSiSniniiSiXwvkvklElPFPFPFEvkvkvkvvFPFPFPFEvkvxRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRcA=");
+    private static final byte[] LIVE_MP3 = Base64.getDecoder()
+        .decode(
+            "//tAwAAAAAAAAAAAAAAAAAAAAAAASW5mbwAAAA8AAAADAAADKAB7e3t7e3t7e3t7e3t7e3t7e3t7e3t7e3t7e3t7e3t7e3u9vb29vb29vb29vb29vb29vb29vb29vb29vb29vb29vb3///////////////////////////////////////////8AAAAATGF2YzYzLjEuAAAAAAAAAAAAAAAAJAKjAAAAAAAAAyiCLLOAAAAAAAD/+1DEAAAKLEMuVZSAAX0VaLc20AAHqsOOM4XTZPGhwQgcWB9eHxgcRgQeieWzLloPqDsTa/D4YFAUBAMCgkQMTmjRo2wfeIAQBDE4P8EHTnT5zl/Ocv7un3cuD4Pg+HwQDEoAwf0gAAeaAQCAYCgYCgUDgA0KBNpABgMRIDCSI04PcIFdF0PJKE0smMjJGhdfrYTUFd8FZE+Ey/EuJEeo4f8dwwwlxIj1/8kTIvF4xLv/5dMi8XkS6Xf4iCoKiI9/wV//73JEABQe2WyNuMpZ//tSxAUAB1QhPb3BADEPg6U+uhAESkKwhuRo");
+    private static final byte[] LIVE_AAC = Base64.getDecoder()
+        .decode(
+            "//FQQCD//NwATGF2YzYzLjEuMTAwAAJgrFupUHImpXj14/euuJbVSWqWlSTJO4OhAQYVcvF3Gukta9peY8G7Y87q+TxS2DM+S+edNdI83c27i2DlLiOvtU21bNlU7VWfdVYjhWNxVxs2g2bG2LE3Ky3LOdexOOxuKuNmuM9WY6Nfmr81fmsc+tn1tSz1LHRr81pmr81fn1s+tn1s+qn1+awzWGmzos6K1FailTYzMZmMzGitRWorUWNNjMxmYxMaLOitRWosaLGZjMxiSiSniniiSiXwvkvklElPFPFPFEvkvkvkvvFPFPFPFEvkvxRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRcA=");
 
     @Test
     public void closeDuringConnectionOpenClosesReturnedConnectionBeforeReading() throws Exception {
@@ -108,8 +109,11 @@ public class RadioInputSessionTest {
         RadioInputSession session = new RadioInputSession(
             new URL("http://radio.test/stream"),
             listener,
-            new RecordingConnectionFactory(new RecordingConnection(
-                new byte[] { (byte) 0xff, (byte) 0xfb, (byte) 0x90, 0x64 }, "audio/mpeg", null)),
+            new RecordingConnectionFactory(
+                new RecordingConnection(
+                    new byte[] { (byte) 0xff, (byte) 0xfb, (byte) 0x90, 0x64 },
+                    "audio/mpeg",
+                    null)),
             decoders,
             100,
             1L,
@@ -131,7 +135,8 @@ public class RadioInputSessionTest {
         final AtomicBoolean targetRequested = new AtomicBoolean();
         HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/redirect", exchange -> {
-            exchange.getResponseHeaders().set("Location", "file:///tmp/radio");
+            exchange.getResponseHeaders()
+                .set("Location", "file:///tmp/radio");
             exchange.sendResponseHeaders(302, -1L);
             exchange.close();
         });
@@ -145,12 +150,17 @@ public class RadioInputSessionTest {
             RadioInputSession.ConnectionFactory factory = defaultConnectionFactory();
             try {
                 factory.open(
-                    new URL("http://127.0.0.1:" + server.getAddress().getPort() + "/redirect"),
+                    new URL(
+                        "http://127.0.0.1:" + server.getAddress()
+                            .getPort() + "/redirect"),
                     java.util.Collections.<String, String>emptyMap(),
                     1000);
                 org.junit.Assert.fail("Expected non-HTTP redirect to be rejected");
             } catch (MediaException expected) {
-                assertTrue(expected.getMessage().toLowerCase().contains("redirect"));
+                assertTrue(
+                    expected.getMessage()
+                        .toLowerCase()
+                        .contains("redirect"));
             }
             assertFalse(targetRequested.get());
         } finally {
@@ -165,7 +175,8 @@ public class RadioInputSessionTest {
         for (int index = 0; index < 7; index++) {
             final int next = index + 1;
             server.createContext("/redirect" + index, exchange -> {
-                exchange.getResponseHeaders().set("Location", "/redirect" + next);
+                exchange.getResponseHeaders()
+                    .set("Location", "/redirect" + next);
                 exchange.sendResponseHeaders(302, -1L);
                 exchange.close();
             });
@@ -179,12 +190,17 @@ public class RadioInputSessionTest {
         try {
             try {
                 defaultConnectionFactory().open(
-                    new URL("http://127.0.0.1:" + server.getAddress().getPort() + "/redirect0"),
+                    new URL(
+                        "http://127.0.0.1:" + server.getAddress()
+                            .getPort() + "/redirect0"),
                     java.util.Collections.<String, String>emptyMap(),
                     1000);
                 org.junit.Assert.fail("Expected excessive redirects to be rejected");
             } catch (MediaException expected) {
-                assertTrue(expected.getMessage().toLowerCase().contains("redirect"));
+                assertTrue(
+                    expected.getMessage()
+                        .toLowerCase()
+                        .contains("redirect"));
             }
             assertFalse(finalTargetRequested.get());
         } finally {
@@ -194,20 +210,17 @@ public class RadioInputSessionTest {
 
     @Test
     public void streamingOpusDecoderAcceptsAConnectionEndingWithoutOggEos() throws Exception {
-        byte[] head = new byte[] {
-            'O', 'p', 'u', 's', 'H', 'e', 'a', 'd', 1, 1, 0, 0,
-            (byte) 0x80, (byte) 0xbb, 0, 0, 0, 0, 0
-        };
-        byte[] tags = new byte[] {
-            'O', 'p', 'u', 's', 'T', 'a', 'g', 's', 0, 0, 0, 0, 0, 0, 0, 0
-        };
+        byte[] head = new byte[] { 'O', 'p', 'u', 's', 'H', 'e', 'a', 'd', 1, 1, 0, 0, (byte) 0x80, (byte) 0xbb, 0, 0,
+            0, 0, 0 };
+        byte[] tags = new byte[] { 'O', 'p', 'u', 's', 'T', 'a', 'g', 's', 0, 0, 0, 0, 0, 0, 0, 0 };
         RecordingPcmSink sink = new RecordingPcmSink();
 
         new OggOpusDecoder().decodeStreaming(
-            new ByteArrayInputStream(join(
-                oggPage(2, 9, 0, head),
-                oggPage(0, 9, 1, tags),
-                oggPage(0, 9, 2, new byte[] { (byte) 0xf8, (byte) 0xff, (byte) 0xfe }))),
+            new ByteArrayInputStream(
+                join(
+                    oggPage(2, 9, 0, head),
+                    oggPage(0, 9, 1, tags),
+                    oggPage(0, 9, 2, new byte[] { (byte) 0xf8, (byte) 0xff, (byte) 0xfe }))),
             sink);
 
         assertTrue(sink.bytes.size() > 0);
@@ -216,24 +229,29 @@ public class RadioInputSessionTest {
 
     @Test
     public void waitsForOggIdentificationBeforeSelectingTheDefaultCodec() throws Exception {
-        byte[] head = new byte[] {
-            'O', 'p', 'u', 's', 'H', 'e', 'a', 'd', 1, 1, 0, 0,
-            (byte) 0x80, (byte) 0xbb, 0, 0, 0, 0, 0
-        };
-        byte[] tags = new byte[] {
-            'O', 'p', 'u', 's', 'T', 'a', 'g', 's', 0, 0, 0, 0, 0, 0, 0, 0
-        };
+        byte[] head = new byte[] { 'O', 'p', 'u', 's', 'H', 'e', 'a', 'd', 1, 1, 0, 0, (byte) 0x80, (byte) 0xbb, 0, 0,
+            0, 0, 0 };
+        byte[] tags = new byte[] { 'O', 'p', 'u', 's', 'T', 'a', 'g', 's', 0, 0, 0, 0, 0, 0, 0, 0 };
         byte[] body = join(
             oggPage(2, 10, 0, head),
             oggPage(0, 10, 1, tags),
             oggPage(0, 10, 2, new byte[] { (byte) 0xf8, (byte) 0xff, (byte) 0xfe }));
         RecordingConnection connection = new RecordingConnection(
-            new FirstReadLimitedInputStream(body, 4), "audio/ogg", null);
+            new FirstReadLimitedInputStream(body, 4),
+            "audio/ogg",
+            null);
         RecordingDecoderFactory decoders = new RecordingDecoderFactory(new RecordingDecoder(new byte[] { 1, 2, 3, 4 }));
         RecordingListener listener = new RecordingListener();
         RadioInputSession session = new RadioInputSession(
-            new URL("http://radio.test/stream"), listener, new RecordingConnectionFactory(connection), decoders,
-            100, 1L, 4L, 4, 32);
+            new URL("http://radio.test/stream"),
+            listener,
+            new RecordingConnectionFactory(connection),
+            decoders,
+            100,
+            1L,
+            4L,
+            4,
+            32);
 
         try {
             session.start();
@@ -274,9 +292,9 @@ public class RadioInputSessionTest {
             assertTrue(listener.awaitPcm());
             assertEquals("MP3", decoders.format.name());
             assertEquals("1", connections.headers.get("Icy-MetaData"));
-            assertArrayEquals(new byte[] {
-                (byte) 0xff, (byte) 0xfb, (byte) 0x90, 0x64, 7, 8, 9, 10
-            }, decoder.inputBytes);
+            assertArrayEquals(
+                new byte[] { (byte) 0xff, (byte) 0xfb, (byte) 0x90, 0x64, 7, 8, 9, 10 },
+                decoder.inputBytes);
             assertArrayEquals(new byte[] { 11, 12, 13, 14 }, listener.pcm.get(0));
         } finally {
             session.close();
@@ -328,7 +346,8 @@ public class RadioInputSessionTest {
         server.createContext("/stream", exchange -> {
             OutputStream output = null;
             try {
-                exchange.getResponseHeaders().set("Content-Type", contentType);
+                exchange.getResponseHeaders()
+                    .set("Content-Type", contentType);
                 exchange.sendResponseHeaders(200, 0L);
                 output = exchange.getResponseBody();
                 output.write(frame);
@@ -336,7 +355,8 @@ public class RadioInputSessionTest {
                 frameSent.countDown();
                 release.await();
             } catch (InterruptedException exception) {
-                Thread.currentThread().interrupt();
+                Thread.currentThread()
+                    .interrupt();
             } catch (IOException exception) {
                 frameSent.countDown();
             } finally {
@@ -353,7 +373,9 @@ public class RadioInputSessionTest {
         });
         server.start();
         RadioInputSession session = new RadioInputSession(
-            new URL("http://127.0.0.1:" + server.getAddress().getPort() + "/stream"),
+            new URL(
+                "http://127.0.0.1:" + server.getAddress()
+                    .getPort() + "/stream"),
             new RecordingListener());
         try {
             RecordingListener listener = (RecordingListener) getListener(session);
@@ -468,7 +490,8 @@ public class RadioInputSessionTest {
                 }
             }
             if (interrupted) {
-                Thread.currentThread().interrupt();
+                Thread.currentThread()
+                    .interrupt();
             }
             return connection;
         }
@@ -631,7 +654,8 @@ public class RadioInputSessionTest {
                 try {
                     release.await();
                 } catch (InterruptedException exception) {
-                    Thread.currentThread().interrupt();
+                    Thread.currentThread()
+                        .interrupt();
                 }
             }
             if (emitAfterClose) {

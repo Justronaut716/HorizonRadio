@@ -38,7 +38,9 @@ public class PcmFormatTest {
             new PcmFormat(sampleRate, channels, 16, true, true);
             fail("Expected invalid PCM format to be rejected");
         } catch (IllegalArgumentException expected) {
-            assertFalse(expected.getMessage().isEmpty());
+            assertFalse(
+                expected.getMessage()
+                    .isEmpty());
         }
     }
 }

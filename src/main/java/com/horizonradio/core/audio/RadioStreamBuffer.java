@@ -51,13 +51,15 @@ public final class RadioStreamBuffer {
     /**
      * Adds the next packet for the active generation.
      *
-     * <p>If the client thread is briefly behind the network thread, discard
+     * <p>
+     * If the client thread is briefly behind the network thread, discard
      * the oldest buffered packet before accepting the next ordered packet.
      * Rejecting the new packet would leave {@code nextSequence} permanently
      * behind and make every later packet look out of order. When no audio is
      * buffered yet, a forward gap is also recoverable (for example, when a
      * late-joining client misses the first relay packet), so playback starts
-     * at the first packet it actually receives.</p>
+     * at the first packet it actually receives.
+     * </p>
      */
     public synchronized boolean accept(long generation, long sequence, byte[] data) {
         if (!active || this.generation != generation

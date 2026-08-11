@@ -14,9 +14,8 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.locks.LockSupport;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -80,16 +79,9 @@ public class RadioInputSession implements Closeable {
             DEFAULT_JITTER_MAX_BYTES);
     }
 
-    RadioInputSession(
-        URL streamUrl,
-        RadioPcmListener listener,
-        ConnectionFactory connectionFactory,
-        DecoderFactory decoderFactory,
-        int httpTimeoutMillis,
-        long reconnectInitialMillis,
-        long reconnectMaximumMillis,
-        int jitterStartupBytes,
-        int jitterMaximumBytes) {
+    RadioInputSession(URL streamUrl, RadioPcmListener listener, ConnectionFactory connectionFactory,
+        DecoderFactory decoderFactory, int httpTimeoutMillis, long reconnectInitialMillis, long reconnectMaximumMillis,
+        int jitterStartupBytes, int jitterMaximumBytes) {
         if (streamUrl == null || listener == null || connectionFactory == null || decoderFactory == null) {
             throw new IllegalArgumentException("Radio input session dependencies are required");
         }
@@ -172,8 +164,7 @@ public class RadioInputSession implements Closeable {
             } catch (IOException exception) {
                 if (!closed) {
                     LOGGER.log(Level.FINE, "Radio input attempt failed; reconnecting", exception);
-                    backoff = attempt.sink != null && attempt.sink.hasDeliveredPcm()
-                        ? reconnectInitialMillis
+                    backoff = attempt.sink != null && attempt.sink.hasDeliveredPcm() ? reconnectInitialMillis
                         : nextBackoff(backoff);
                     waitForReconnect(backoff);
                 }
@@ -194,10 +185,8 @@ public class RadioInputSession implements Closeable {
         headers.put("Icy-MetaData", "1");
         headers.put("User-Agent", RADIO_USER_AGENT);
         headers.put("Accept", "audio/*");
-        RadioConnection connection = connectionFactory.open(
-            streamUrl,
-            Collections.unmodifiableMap(headers),
-            httpTimeoutMillis);
+        RadioConnection connection = connectionFactory
+            .open(streamUrl, Collections.unmodifiableMap(headers), httpTimeoutMillis);
         if (connection == null || connection.getInputStream() == null) {
             closeQuietly(connection);
             throw new MediaException("Radio HTTP connection returned no input stream");
@@ -262,7 +251,8 @@ public class RadioInputSession implements Closeable {
                 try {
                     stateLock.wait(delayMillis);
                 } catch (InterruptedException exception) {
-                    Thread.currentThread().interrupt();
+                    Thread.currentThread()
+                        .interrupt();
                 }
             }
         }
@@ -286,7 +276,8 @@ public class RadioInputSession implements Closeable {
     }
 
     private static int parseMetadataInterval(String value) throws MediaException {
-        if (value == null || value.trim().length() == 0) {
+        if (value == null || value.trim()
+            .length() == 0) {
             return 0;
         }
         final int interval;
@@ -341,7 +332,8 @@ public class RadioInputSession implements Closeable {
     }
 
     private static URL parseUrl(String value) {
-        if (value == null || value.trim().length() == 0) {
+        if (value == null || value.trim()
+            .length() == 0) {
             throw new IllegalArgumentException("Radio stream URL must not be empty");
         }
         try {
@@ -533,7 +525,8 @@ public class RadioInputSession implements Closeable {
                     return;
                 }
                 LockSupport.parkNanos(Math.min(remainingNanos, 50_000_000L));
-                if (Thread.currentThread().isInterrupted()) {
+                if (Thread.currentThread()
+                    .isInterrupted()) {
                     throw new IOException("Radio PCM pacing interrupted");
                 }
             }
@@ -619,7 +612,8 @@ public class RadioInputSession implements Closeable {
                             throw new MediaException("HTTP radio redirect limit exceeded");
                         }
                         String location = connection.getHeaderField("Location");
-                        if (location == null || location.trim().length() == 0) {
+                        if (location == null || location.trim()
+                            .length() == 0) {
                             throw new MediaException("HTTP radio redirect has no Location");
                         }
                         URL redirected = new URL(current, location);

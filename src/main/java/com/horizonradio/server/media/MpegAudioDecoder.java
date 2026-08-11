@@ -3,7 +3,6 @@ package com.horizonradio.server.media;
 import java.io.BufferedInputStream;
 import java.io.IOException;
 import java.io.InputStream;
-
 import javazoom.jl.decoder.Bitstream;
 import javazoom.jl.decoder.Decoder;
 import javazoom.jl.decoder.Header;
@@ -29,12 +28,8 @@ public final class MpegAudioDecoder implements AudioDecoder {
                 try {
                     SampleBuffer samples = (SampleBuffer) decoder.decodeFrame(header, stream);
                     if (pcm == null) {
-                        pcm = new ResamplingPcmSink(new PcmFormat(
-                            samples.getSampleFrequency(),
-                            samples.getChannelCount(),
-                            16,
-                            true,
-                            true),
+                        pcm = new ResamplingPcmSink(
+                            new PcmFormat(samples.getSampleFrequency(), samples.getChannelCount(), 16, true, true),
                             sink);
                     }
                     writeSamples(samples.getBuffer(), samples.getBufferLength(), pcm);
@@ -77,10 +72,7 @@ public final class MpegAudioDecoder implements AudioDecoder {
             in.reset();
             return;
         }
-        int size = (header[6] & 127) << 21
-            | (header[7] & 127) << 14
-            | (header[8] & 127) << 7
-            | (header[9] & 127);
+        int size = (header[6] & 127) << 21 | (header[7] & 127) << 14 | (header[8] & 127) << 7 | (header[9] & 127);
         skipFully(in, size, "ID3 tag");
     }
 
@@ -217,18 +209,14 @@ public final class MpegAudioDecoder implements AudioDecoder {
         if (version == 1 || layer == 0 || bitrateIndex == 0 || bitrateIndex == 15 || frequencyIndex == 3) {
             return -1;
         }
-        int rate = (version == 3
-            ? new int[] { 44100, 48000, 32000 }
-            : version == 2
-                ? new int[] { 22050, 24000, 16000 }
-                : new int[] { 11025, 12000, 8000 })[frequencyIndex];
+        int rate = (version == 3 ? new int[] { 44100, 48000, 32000 }
+            : version == 2 ? new int[] { 22050, 24000, 16000 } : new int[] { 11025, 12000, 8000 })[frequencyIndex];
         int kilobits = bitrate(version, layer, bitrateIndex);
         if (kilobits == 0) {
             return -1;
         }
         int padding = (third >>> 1) & 1;
-        int size = layer == 3
-            ? (12 * kilobits * 1000 / rate + padding) * 4
+        int size = layer == 3 ? (12 * kilobits * 1000 / rate + padding) * 4
             : (layer == 1 && version != 3 ? 72 : 144) * kilobits * 1000 / rate + padding;
         if (size < 4 || size > 4096) {
             throw new MediaException("MPEG frame exceeds limit");
@@ -237,16 +225,12 @@ public final class MpegAudioDecoder implements AudioDecoder {
     }
 
     private static int bitrate(int version, int layer, int index) {
-        int[][] mpeg1 = {
-            { 0, 32, 64, 96, 128, 160, 192, 224, 256, 288, 320, 352, 384, 416, 448 },
+        int[][] mpeg1 = { { 0, 32, 64, 96, 128, 160, 192, 224, 256, 288, 320, 352, 384, 416, 448 },
             { 0, 32, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 384 },
-            { 0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320 }
-        };
-        int[][] mpeg2 = {
-            { 0, 32, 48, 56, 64, 80, 96, 112, 128, 144, 160, 176, 192, 224, 256 },
+            { 0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320 } };
+        int[][] mpeg2 = { { 0, 32, 48, 56, 64, 80, 96, 112, 128, 144, 160, 176, 192, 224, 256 },
             { 0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160 },
-            { 0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160 }
-        };
+            { 0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160 } };
         return (version == 3 ? mpeg1 : mpeg2)[layer == 3 ? 0 : layer == 2 ? 1 : 2][index];
     }
 

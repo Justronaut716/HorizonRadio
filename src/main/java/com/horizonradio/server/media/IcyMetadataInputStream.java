@@ -7,9 +7,11 @@ import java.io.InputStream;
 /**
  * Removes Shoutcast/ICY metadata blocks from a live audio response.
  *
- * <p>The stream keeps only the current interval counters and one bounded
+ * <p>
+ * The stream keeps only the current interval counters and one bounded
  * metadata block is discarded at a time. It therefore does not accumulate
- * station metadata or audio while a consumer is decoding.</p>
+ * station metadata or audio while a consumer is decoding.
+ * </p>
  */
 public final class IcyMetadataInputStream extends FilterInputStream {
 

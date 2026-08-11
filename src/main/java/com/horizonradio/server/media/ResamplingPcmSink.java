@@ -132,7 +132,8 @@ public final class ResamplingPcmSink implements PcmSink {
         short left = readSample(data, offset);
         short right = inputFormat.getChannels() == 1 ? left : readSample(data, offset + 2);
         inputFrameCount++;
-        if (inputFormat.getSampleRate() == PcmFormat.normalized().getSampleRate()) {
+        if (inputFormat.getSampleRate() == PcmFormat.normalized()
+            .getSampleRate()) {
             writeNormalizedFrame(left, right);
             return;
         }
@@ -157,7 +158,8 @@ public final class ResamplingPcmSink implements PcmSink {
             writeNormalizedFrame(
                 interpolate(previousLeft, left, fraction),
                 interpolate(previousRight, right, fraction));
-            nextOutputPosition += (double) inputFormat.getSampleRate() / PcmFormat.normalized().getSampleRate();
+            nextOutputPosition += (double) inputFormat.getSampleRate() / PcmFormat.normalized()
+                .getSampleRate();
         }
         previousLeft = left;
         previousRight = right;
@@ -180,12 +182,15 @@ public final class ResamplingPcmSink implements PcmSink {
 
     private long expectedOutputFrameCount() throws MediaException {
         long fullSeconds = inputFrameCount / inputFormat.getSampleRate();
-        if (fullSeconds > Long.MAX_VALUE / PcmFormat.normalized().getSampleRate()) {
+        if (fullSeconds > Long.MAX_VALUE / PcmFormat.normalized()
+            .getSampleRate()) {
             throw new MediaException("PCM stream is too long to resample safely");
         }
-        long completedSecondsOutput = fullSeconds * PcmFormat.normalized().getSampleRate();
+        long completedSecondsOutput = fullSeconds * PcmFormat.normalized()
+            .getSampleRate();
         long remainderFrames = inputFrameCount % inputFormat.getSampleRate();
-        long numerator = remainderFrames * (long) PcmFormat.normalized().getSampleRate();
+        long numerator = remainderFrames * (long) PcmFormat.normalized()
+            .getSampleRate();
         long remainderOutput = (numerator + inputFormat.getSampleRate() - 1L) / inputFormat.getSampleRate();
         if (completedSecondsOutput > Long.MAX_VALUE - remainderOutput) {
             throw new MediaException("PCM stream is too long to resample safely");

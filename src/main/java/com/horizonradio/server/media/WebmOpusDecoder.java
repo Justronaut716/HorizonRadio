@@ -102,6 +102,7 @@ public final class WebmOpusDecoder implements AudioDecoder {
     }
 
     private static final class Parser {
+
         private final byte[] bytes;
         private int maxElementIdLength = 4;
         private int maxElementSizeLength = 8;
@@ -179,9 +180,16 @@ public final class WebmOpusDecoder implements AudioDecoder {
                 }
                 position = element.end;
             }
-            if (ebmlVersion != 1L || ebmlReadVersion != 1L || maxIdLength < 1L || maxIdLength > 4L
-                || maxSizeLength < 1L || maxSizeLength > 8L || !"webm".equals(docType)
-                || docTypeVersion < 2L || docTypeVersion > 4L || docTypeReadVersion < 1L || docTypeReadVersion > 2L
+            if (ebmlVersion != 1L || ebmlReadVersion != 1L
+                || maxIdLength < 1L
+                || maxIdLength > 4L
+                || maxSizeLength < 1L
+                || maxSizeLength > 8L
+                || !"webm".equals(docType)
+                || docTypeVersion < 2L
+                || docTypeVersion > 4L
+                || docTypeReadVersion < 1L
+                || docTypeReadVersion > 2L
                 || docTypeReadVersion > docTypeVersion) {
                 throw new MediaException("Unsupported or malformed WebM EBML header");
             }
@@ -211,7 +219,9 @@ public final class WebmOpusDecoder implements AudioDecoder {
                     throw new MediaException("WebM DiscardPadding is supported only on the final Opus block");
                 }
                 long packetFinalSamples = discard == 0L ? finalSamples : -1L;
-                opus.decodePacket(packet, i == blockCount - 1 ? packetFinalSamples : -1L,
+                opus.decodePacket(
+                    packet,
+                    i == blockCount - 1 ? packetFinalSamples : -1L,
                     i == blockCount - 1 ? discardSamples(discard) : 0L);
             }
         }
@@ -366,7 +376,8 @@ public final class WebmOpusDecoder implements AudioDecoder {
             parseBlock(offset, length, clusterTimecode, 0L);
         }
 
-        private void parseBlock(int offset, int length, long clusterTimecode, long discardPaddingNanos) throws IOException {
+        private void parseBlock(int offset, int length, long clusterTimecode, long discardPaddingNanos)
+            throws IOException {
             Vint track = readVint(offset, offset + length, false, 8);
             int headerEnd = offset + track.length + 3;
             if (headerEnd >= offset + length) {
@@ -375,7 +386,8 @@ public final class WebmOpusDecoder implements AudioDecoder {
             if (track.value != opusTrackNumber) {
                 throw new MediaException("WebM SimpleBlock references an unsupported track");
             }
-            int relative = (short) (((bytes[offset + track.length] & 255) << 8) | (bytes[offset + track.length + 1] & 255));
+            int relative = (short) (((bytes[offset + track.length] & 255) << 8)
+                | (bytes[offset + track.length + 1] & 255));
             int flags = bytes[offset + track.length + 2] & 255;
             if ((flags & 0x06) != 0) {
                 throw new MediaException("WebM SimpleBlock lacing is unsupported");
@@ -527,6 +539,7 @@ public final class WebmOpusDecoder implements AudioDecoder {
     }
 
     private static final class Element {
+
         private final int id;
         private final int size;
         private final int dataOffset;
@@ -541,6 +554,7 @@ public final class WebmOpusDecoder implements AudioDecoder {
     }
 
     private static final class Vint {
+
         private final long value;
         private final int length;
         private final boolean unknown;

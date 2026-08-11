@@ -126,12 +126,8 @@ public final class MediaHttpClient {
         private final String contentType;
         private final long contentLength;
 
-        private MediaHttpResponse(
-            HttpURLConnection connection,
-            BoundedInputStream input,
-            int statusCode,
-            String contentType,
-            long contentLength) {
+        private MediaHttpResponse(HttpURLConnection connection, BoundedInputStream input, int statusCode,
+            String contentType, long contentLength) {
             this.connection = connection;
             this.input = input;
             this.statusCode = statusCode;

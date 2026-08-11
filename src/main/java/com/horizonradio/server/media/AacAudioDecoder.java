@@ -32,8 +32,14 @@ public final class AacAudioDecoder implements AudioDecoder {
                     throw new MediaException("AAC decoder produced no PCM frame");
                 }
                 if (pcm == null) {
-                    pcm = new ResamplingPcmSink(new PcmFormat(
-                        samples.getSampleRate(), samples.getChannels(), samples.getBitsPerSample(), true, !samples.isBigEndian()), sink);
+                    pcm = new ResamplingPcmSink(
+                        new PcmFormat(
+                            samples.getSampleRate(),
+                            samples.getChannels(),
+                            samples.getBitsPerSample(),
+                            true,
+                            !samples.isBigEndian()),
+                        sink);
                 }
                 pcm.write(data, 0, data.length);
                 frames++;
@@ -70,38 +76,61 @@ public final class AacAudioDecoder implements AudioDecoder {
 
     /** Bounded ADTS reader: EOF before a header is clean; incomplete headers/frames are not. */
     private static final class AdtsReader {
+
         private final InputStream input;
         private AudioDecoderInfo decoderInfo;
-        private AdtsReader(InputStream input) { this.input = input; }
-        private AudioDecoderInfo decoderInfo() { return decoderInfo; }
+
+        private AdtsReader(InputStream input) {
+            this.input = input;
+        }
+
+        private AudioDecoderInfo decoderInfo() {
+            return decoderInfo;
+        }
+
         private byte[] nextFrame() throws IOException {
-            int first=input.read(); if(first<0)return null;
-            byte[] header=new byte[7];header[0]=(byte)first;readFully(header,1,6,"ADTS header");
-            if((header[0]&255)!=255||(header[1]&0xf6)!=0xf0)throw new MediaException("Invalid ADTS sync word");
-            int profile=(header[2]>>>6)&3, frequency=(header[2]>>>2)&15, channels=((header[2]&1)<<2)|((header[3]>>>6)&3);
-            int headerLength=(header[1]&1)==0?9:7;
-            int frameLength=((header[3]&3)<<11)|((header[4]&255)<<3)|((header[5]>>>5)&7);
-            if(frequency==15||channels<1||channels>2||frameLength<headerLength||frameLength>8191)throw new MediaException("Invalid ADTS frame header");
-            if(headerLength==9)readFully(new byte[2],0,2,"ADTS CRC");
-            if(decoderInfo==null) {
+            int first = input.read();
+            if (first < 0) return null;
+            byte[] header = new byte[7];
+            header[0] = (byte) first;
+            readFully(header, 1, 6, "ADTS header");
+            if ((header[0] & 255) != 255 || (header[1] & 0xf6) != 0xf0)
+                throw new MediaException("Invalid ADTS sync word");
+            int profile = (header[2] >>> 6) & 3, frequency = (header[2] >>> 2) & 15,
+                channels = ((header[2] & 1) << 2) | ((header[3] >>> 6) & 3);
+            int headerLength = (header[1] & 1) == 0 ? 9 : 7;
+            int frameLength = ((header[3] & 3) << 11) | ((header[4] & 255) << 3) | ((header[5] >>> 5) & 7);
+            if (frequency == 15 || channels < 1 || channels > 2 || frameLength < headerLength || frameLength > 8191)
+                throw new MediaException("Invalid ADTS frame header");
+            if (headerLength == 9) readFully(new byte[2], 0, 2, "ADTS CRC");
+            if (decoderInfo == null) {
                 decoderInfo = new AdtsAudioDecoderInfo(
                     Profile.forInt(profile + 1),
                     SampleFrequency.forInt(frequency),
                     ChannelConfiguration.forInt(channels));
             }
-            byte[] payload=new byte[frameLength-headerLength];readFully(payload,0,payload.length,"ADTS frame");return payload;
+            byte[] payload = new byte[frameLength - headerLength];
+            readFully(payload, 0, payload.length, "ADTS frame");
+            return payload;
         }
-        private void readFully(byte[] b,int offset,int length,String part)throws IOException{int total=0;while(total<length){int count=input.read(b,offset+total,length-total);if(count<0)throw new MediaException("Truncated "+part);total+=count;}}
+
+        private void readFully(byte[] b, int offset, int length, String part) throws IOException {
+            int total = 0;
+            while (total < length) {
+                int count = input.read(b, offset + total, length - total);
+                if (count < 0) throw new MediaException("Truncated " + part);
+                total += count;
+            }
+        }
     }
 
     private static final class AdtsAudioDecoderInfo implements AudioDecoderInfo {
+
         private final Profile profile;
         private final SampleFrequency sampleFrequency;
         private final ChannelConfiguration channelConfiguration;
 
-        private AdtsAudioDecoderInfo(
-            Profile profile,
-            SampleFrequency sampleFrequency,
+        private AdtsAudioDecoderInfo(Profile profile, SampleFrequency sampleFrequency,
             ChannelConfiguration channelConfiguration) {
             this.profile = profile;
             this.sampleFrequency = sampleFrequency;

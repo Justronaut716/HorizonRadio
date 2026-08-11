@@ -10,13 +10,21 @@ public class AudioFormatDetectorTest {
 
     @Test
     public void recognizesValidContainerAndFrameSignaturesBeforeContentTypeHints() {
-        assertEquals(MediaFormat.MP3, detector.detect("audio/unknown", new byte[] { (byte) 0xff, (byte) 0xfb, (byte) 0x90, 0x64 }));
-        assertEquals(MediaFormat.AAC, detector.detect(null, new byte[] { (byte) 0xff, (byte) 0xf1, 0x50, (byte) 0x80 }));
+        assertEquals(
+            MediaFormat.MP3,
+            detector.detect("audio/unknown", new byte[] { (byte) 0xff, (byte) 0xfb, (byte) 0x90, 0x64 }));
+        assertEquals(
+            MediaFormat.AAC,
+            detector.detect(null, new byte[] { (byte) 0xff, (byte) 0xf1, 0x50, (byte) 0x80 }));
         assertEquals(MediaFormat.WAV, detector.detect(null, wavePrefix()));
-        assertEquals(MediaFormat.M4A, detector.detect("audio/mp4", new byte[] { 0, 0, 0, 0, 'f', 't', 'y', 'p', 'M', '4', 'A', ' ' }));
+        assertEquals(
+            MediaFormat.M4A,
+            detector.detect("audio/mp4", new byte[] { 0, 0, 0, 0, 'f', 't', 'y', 'p', 'M', '4', 'A', ' ' }));
         assertEquals(MediaFormat.OGG_OPUS, detector.detect(null, oggPrefix("OpusHead")));
         assertEquals(MediaFormat.OGG_VORBIS, detector.detect(null, oggPrefix("\u0001vorbis")));
-        assertEquals(MediaFormat.WEBM_OPUS, detector.detect(null, new byte[] { 0x1a, 0x45, (byte) 0xdf, (byte) 0xa3, (byte) 0x93 }));
+        assertEquals(
+            MediaFormat.WEBM_OPUS,
+            detector.detect(null, new byte[] { 0x1a, 0x45, (byte) 0xdf, (byte) 0xa3, (byte) 0x93 }));
     }
 
     @Test
@@ -31,8 +39,12 @@ public class AudioFormatDetectorTest {
 
     @Test
     public void rejectsMalformedAndTruncatedPrefixesInsteadOfGuessing() {
-        assertEquals(MediaFormat.UNKNOWN, detector.detect("application/octet-stream", new byte[] { (byte) 0xff, (byte) 0xe0 }));
-        assertEquals(MediaFormat.UNKNOWN, detector.detect(null, new byte[] { 'R', 'I', 'F', 'F', 0, 0, 0, 0, 'N', 'O', 'P', 'E' }));
+        assertEquals(
+            MediaFormat.UNKNOWN,
+            detector.detect("application/octet-stream", new byte[] { (byte) 0xff, (byte) 0xe0 }));
+        assertEquals(
+            MediaFormat.UNKNOWN,
+            detector.detect(null, new byte[] { 'R', 'I', 'F', 'F', 0, 0, 0, 0, 'N', 'O', 'P', 'E' }));
         assertEquals(MediaFormat.UNKNOWN, detector.detect(null, new byte[] { 'O', 'g', 'g' }));
         assertEquals(MediaFormat.UNKNOWN, detector.detect("text/plain", new byte[] { 1, 2, 3, 4 }));
     }

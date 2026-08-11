@@ -69,8 +69,13 @@ final class OpusPacketDecoder {
         }
         if (finalOutputSamples >= 0) {
             if (finalOutputSamples < emittedSamples || finalOutputSamples > emittedSamples + emit) {
-                throw new MediaException("Invalid Opus final sample count: " + finalOutputSamples
-                    + " after " + emittedSamples + " samples with " + emit + " available");
+                throw new MediaException(
+                    "Invalid Opus final sample count: " + finalOutputSamples
+                        + " after "
+                        + emittedSamples
+                        + " samples with "
+                        + emit
+                        + " available");
             }
             int limited = (int) (finalOutputSamples - emittedSamples);
             if (discardOutputSamples != 0L && limited != emit - discardOutputSamples) {

@@ -33,17 +33,17 @@ public class IcyMetadataInputStreamTest {
 
     @Test
     public void rejectsTruncatedMetadataFramesInsteadOfReturningPartialAudio() throws Exception {
-        byte[] truncated = join(
-            new byte[] { 1, 2, 3, 4 },
-            new byte[] { 1 },
-            new byte[] { 9, 8, 7 });
+        byte[] truncated = join(new byte[] { 1, 2, 3, 4 }, new byte[] { 1 }, new byte[] { 9, 8, 7 });
         InputStream input = new IcyMetadataInputStream(new ByteArrayInputStream(truncated), 4);
 
         try {
             readAll(input);
             fail("Expected truncated ICY metadata to be rejected");
         } catch (MediaException expected) {
-            assertTrue(expected.getMessage().toLowerCase().contains("metadata"));
+            assertTrue(
+                expected.getMessage()
+                    .toLowerCase()
+                    .contains("metadata"));
         }
     }
 

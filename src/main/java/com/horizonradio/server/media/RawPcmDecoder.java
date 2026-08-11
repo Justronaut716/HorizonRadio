@@ -106,7 +106,8 @@ public final class RawPcmDecoder implements AudioDecoder {
         }
     }
 
-    private static void streamExact(InputStream input, PcmSink sink, PcmFormat format, long remaining) throws IOException {
+    private static void streamExact(InputStream input, PcmSink sink, PcmFormat format, long remaining)
+        throws IOException {
         byte[] buffer = new byte[COPY_BUFFER_SIZE];
         long total = 0L;
         while (remaining != 0L) {
@@ -143,7 +144,8 @@ public final class RawPcmDecoder implements AudioDecoder {
         }
     }
 
-    private static void readFully(InputStream input, byte[] bytes, int offset, int length, String part) throws IOException {
+    private static void readFully(InputStream input, byte[] bytes, int offset, int length, String part)
+        throws IOException {
         int total = 0;
         while (total < length) {
             int count = input.read(bytes, offset + total, length - total);
@@ -180,8 +182,7 @@ public final class RawPcmDecoder implements AudioDecoder {
     }
 
     private static long unsignedInt(byte[] bytes, int offset) {
-        return ((long) bytes[offset] & 0xffL)
-            | (((long) bytes[offset + 1] & 0xffL) << 8)
+        return ((long) bytes[offset] & 0xffL) | (((long) bytes[offset + 1] & 0xffL) << 8)
             | (((long) bytes[offset + 2] & 0xffL) << 16)
             | (((long) bytes[offset + 3] & 0xffL) << 24);
     }

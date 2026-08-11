@@ -19,7 +19,8 @@ public class YouTubeMediaModelsTest {
     public void acceptsUnknownLengthInnerTubeResponsesWhenTheBodyStaysWithinTheLimit() throws Exception {
         URL source = new URL("https://www.youtube.com/youtubei/v1/player");
         UnknownLengthConnection connection = new UnknownLengthConnection(source, new byte[] { '{', '}' });
-        YouTubeMediaModels.UrlConnectionHttpRequester requester = new YouTubeMediaModels.UrlConnectionHttpRequester(url -> connection);
+        YouTubeMediaModels.UrlConnectionHttpRequester requester = new YouTubeMediaModels.UrlConnectionHttpRequester(
+            url -> connection);
 
         YouTubeMediaModels.HttpResponse response = requester.get(
             source,
@@ -29,9 +30,18 @@ public class YouTubeMediaModelsTest {
             YouTubeMediaModels.RedirectPolicy.INNER_TUBE);
         try {
             assertEquals(2L, response.getContentLength());
-            assertEquals('{', response.getInputStream().read());
-            assertEquals('}', response.getInputStream().read());
-            assertEquals(-1, response.getInputStream().read());
+            assertEquals(
+                '{',
+                response.getInputStream()
+                    .read());
+            assertEquals(
+                '}',
+                response.getInputStream()
+                    .read());
+            assertEquals(
+                -1,
+                response.getInputStream()
+                    .read());
         } finally {
             response.close();
         }
@@ -43,16 +53,21 @@ public class YouTubeMediaModelsTest {
         URL source = new URL("https://r1.googlevideo.com/videoplayback");
         TrackingRedirectConnection redirect = new TrackingRedirectConnection(source, "https://127.0.0.1/private");
         List<URL> opened = new ArrayList<URL>();
-        YouTubeMediaModels.UrlConnectionHttpRequester requester = new YouTubeMediaModels.UrlConnectionHttpRequester(url -> {
-            opened.add(url);
-            if (opened.size() > 1) {
-                throw new AssertionError("Unsafe redirect target was contacted");
-            }
-            return redirect;
-        });
+        YouTubeMediaModels.UrlConnectionHttpRequester requester = new YouTubeMediaModels.UrlConnectionHttpRequester(
+            url -> {
+                opened.add(url);
+                if (opened.size() > 1) {
+                    throw new AssertionError("Unsafe redirect target was contacted");
+                }
+                return redirect;
+            });
 
         try {
-            requester.get(source, Collections.<String, String>emptyMap(), 1000, 32L,
+            requester.get(
+                source,
+                Collections.<String, String>emptyMap(),
+                1000,
+                32L,
                 YouTubeMediaModels.RedirectPolicy.MEDIA);
             fail("Expected unsafe redirect to be rejected");
         } catch (MediaException expected) {
@@ -62,6 +77,7 @@ public class YouTubeMediaModelsTest {
     }
 
     private static final class TrackingRedirectConnection extends HttpURLConnection {
+
         private final String location;
 
         private TrackingRedirectConnection(URL url, String location) {
@@ -69,15 +85,35 @@ public class YouTubeMediaModelsTest {
             this.location = location;
         }
 
-        @Override public void disconnect() { }
-        @Override public boolean usingProxy() { return false; }
-        @Override public void connect() { }
-        @Override public int getResponseCode() { return 302; }
-        @Override public String getHeaderField(String name) { return "Location".equals(name) ? location : null; }
-        @Override public InputStream getInputStream() { return new ByteArrayInputStream(new byte[0]); }
+        @Override
+        public void disconnect() {}
+
+        @Override
+        public boolean usingProxy() {
+            return false;
+        }
+
+        @Override
+        public void connect() {}
+
+        @Override
+        public int getResponseCode() {
+            return 302;
+        }
+
+        @Override
+        public String getHeaderField(String name) {
+            return "Location".equals(name) ? location : null;
+        }
+
+        @Override
+        public InputStream getInputStream() {
+            return new ByteArrayInputStream(new byte[0]);
+        }
     }
 
     private static final class UnknownLengthConnection extends HttpURLConnection {
+
         private final InputStream input;
         private boolean disconnected;
 
@@ -86,12 +122,37 @@ public class YouTubeMediaModelsTest {
             input = new ByteArrayInputStream(body);
         }
 
-        @Override public void disconnect() { disconnected = true; }
-        @Override public boolean usingProxy() { return false; }
-        @Override public void connect() { }
-        @Override public int getResponseCode() { return 200; }
-        @Override public long getContentLengthLong() { return -1L; }
-        @Override public String getContentType() { return "application/json"; }
-        @Override public InputStream getInputStream() { return input; }
+        @Override
+        public void disconnect() {
+            disconnected = true;
+        }
+
+        @Override
+        public boolean usingProxy() {
+            return false;
+        }
+
+        @Override
+        public void connect() {}
+
+        @Override
+        public int getResponseCode() {
+            return 200;
+        }
+
+        @Override
+        public long getContentLengthLong() {
+            return -1L;
+        }
+
+        @Override
+        public String getContentType() {
+            return "application/json";
+        }
+
+        @Override
+        public InputStream getInputStream() {
+            return input;
+        }
     }
 }

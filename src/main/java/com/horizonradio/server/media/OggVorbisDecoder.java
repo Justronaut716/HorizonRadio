@@ -58,7 +58,13 @@ public final class OggVorbisDecoder implements AudioDecoder {
             if (finalGranule < 0L || finalGranule < emittedNativeFrames) {
                 throw new MediaException("Invalid Vorbis EOS granule position");
             }
-            emittedNativeFrames += decodePacket(block, state, pending, info.channels, pcm, finalGranule - emittedNativeFrames);
+            emittedNativeFrames += decodePacket(
+                block,
+                state,
+                pending,
+                info.channels,
+                pcm,
+                finalGranule - emittedNativeFrames);
             decodedPackets++;
             if (emittedNativeFrames != finalGranule) {
                 throw new MediaException("Inconsistent Vorbis EOS granule position");
@@ -136,7 +142,8 @@ public final class OggVorbisDecoder implements AudioDecoder {
         return packet;
     }
 
-    private static long decodePacket(Block block, DspState state, OggPageReader.Packet packetInfo, int channels, PcmSink sink, long maximumFrames) throws IOException {
+    private static long decodePacket(Block block, DspState state, OggPageReader.Packet packetInfo, int channels,
+        PcmSink sink, long maximumFrames) throws IOException {
         if (block.synthesis(packet(packetInfo.getData(), false)) != 0) {
             throw new MediaException("Invalid Vorbis audio packet");
         }
@@ -144,7 +151,8 @@ public final class OggVorbisDecoder implements AudioDecoder {
         return writeAvailablePcm(state, channels, sink, maximumFrames);
     }
 
-    private static long writeAvailablePcm(DspState state, int channels, PcmSink sink, long maximumFrames) throws IOException {
+    private static long writeAvailablePcm(DspState state, int channels, PcmSink sink, long maximumFrames)
+        throws IOException {
         float[][][] pcm = new float[1][][];
         int[] offsets = new int[channels];
         long writtenFrames = 0L;

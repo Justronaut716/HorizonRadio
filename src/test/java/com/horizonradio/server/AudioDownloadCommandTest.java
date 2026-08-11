@@ -13,11 +13,11 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
+import org.junit.Test;
+
 import com.horizonradio.server.media.MediaException;
 import com.horizonradio.server.media.PcmSink;
 import com.horizonradio.server.media.YouTubeMediaModels;
-
-import org.junit.Test;
 
 public class AudioDownloadCommandTest {
 
@@ -29,7 +29,10 @@ public class AudioDownloadCommandTest {
         RecordingBackend backend = new RecordingBackend();
         AudioDownloadService service = new AudioDownloadService(directory, backend);
         try {
-            assertEquals(expected, service.download("dQw4w9WgXcQ").get(2, TimeUnit.SECONDS));
+            assertEquals(
+                expected,
+                service.download("dQw4w9WgXcQ")
+                    .get(2, TimeUnit.SECONDS));
             assertEquals(0, backend.calls.get());
         } finally {
             service.shutdown();
@@ -50,7 +53,10 @@ public class AudioDownloadCommandTest {
             Files.write(directory.resolve(ids[1] + ".wav"), new byte[] { 'R', 'I', 'F', 'F' });
             writeStaleWave(directory.resolve(ids[2] + ".wav"));
             for (String id : ids) {
-                assertEquals(directory.resolve(id + ".wav"), service.download(id).get(2, TimeUnit.SECONDS));
+                assertEquals(
+                    directory.resolve(id + ".wav"),
+                    service.download(id)
+                        .get(2, TimeUnit.SECONDS));
             }
             assertEquals(3, backend.calls.get());
             for (String id : ids) {
@@ -96,12 +102,15 @@ public class AudioDownloadCommandTest {
             try {
                 releaseCancellation.await();
             } catch (InterruptedException exception) {
-                Thread.currentThread().interrupt();
+                Thread.currentThread()
+                    .interrupt();
             }
         });
         AtomicReference<CompletableFuture<Path>> replacement = new AtomicReference<CompletableFuture<Path>>();
         Thread cancelling = new Thread(() -> service.cancelDownload("dQw4w9WgXcQ"), "cancel-old-generation");
-        Thread replacing = new Thread(() -> replacement.set(service.download("dQw4w9WgXcQ")), "start-replacement-generation");
+        Thread replacing = new Thread(
+            () -> replacement.set(service.download("dQw4w9WgXcQ")),
+            "start-replacement-generation");
         try {
             CompletableFuture<Path> first = service.download("dQw4w9WgXcQ");
             assertTrue(backend.started.await(1, TimeUnit.SECONDS));
@@ -114,7 +123,10 @@ public class AudioDownloadCommandTest {
             assertTrue(first.isCancelled());
             assertTrue(replacement.get() != null);
             backend.release();
-            assertEquals(directory.resolve("dQw4w9WgXcQ.wav"), replacement.get().get(2, TimeUnit.SECONDS));
+            assertEquals(
+                directory.resolve("dQw4w9WgXcQ.wav"),
+                replacement.get()
+                    .get(2, TimeUnit.SECONDS));
             assertEquals(2, backend.calls.get());
         } finally {
             releaseCancellation.countDown();
@@ -132,10 +144,19 @@ public class AudioDownloadCommandTest {
         Path directory = Files.createTempDirectory("horizonradio-service-commit-race");
         CommitRaceBackend backend = new CommitRaceBackend();
         CountDownLatch cancellationEntered = new CountDownLatch(1);
-        AudioDownloadService service = new AudioDownloadService(directory, backend, new AudioDownloadService.CancellationInterleavingHook() {
-            @Override public void afterOperationRemoved() { }
-            @Override public void beforeOperationCancellation() { cancellationEntered.countDown(); }
-        });
+        AudioDownloadService service = new AudioDownloadService(
+            directory,
+            backend,
+            new AudioDownloadService.CancellationInterleavingHook() {
+
+                @Override
+                public void afterOperationRemoved() {}
+
+                @Override
+                public void beforeOperationCancellation() {
+                    cancellationEntered.countDown();
+                }
+            });
         Thread cancelling = new Thread(() -> service.cancelDownload("dQw4w9WgXcQ"), "cancel-during-commit");
         try {
             CompletableFuture<Path> future = service.download("dQw4w9WgXcQ");
@@ -149,7 +170,10 @@ public class AudioDownloadCommandTest {
             assertEquals(destination, future.get(2, TimeUnit.SECONDS));
             assertFalse(future.isCancelled());
             assertTrue(Files.exists(destination));
-            assertEquals(destination, service.download("dQw4w9WgXcQ").get(2, TimeUnit.SECONDS));
+            assertEquals(
+                destination,
+                service.download("dQw4w9WgXcQ")
+                    .get(2, TimeUnit.SECONDS));
             assertTrue(Files.exists(destination));
         } finally {
             backend.releaseCommit();
@@ -161,6 +185,7 @@ public class AudioDownloadCommandTest {
     }
 
     private static final class RecordingBackend implements YouTubeMediaModels.AudioDownloadBackend {
+
         private final AtomicInteger calls = new AtomicInteger();
         private final CountDownLatch started = new CountDownLatch(1);
         private final Object monitor = new Object();
@@ -176,7 +201,8 @@ public class AudioDownloadCommandTest {
                     try {
                         monitor.wait(10L);
                     } catch (InterruptedException exception) {
-                        Thread.currentThread().interrupt();
+                        Thread.currentThread()
+                            .interrupt();
                         throw new MediaException("download cancelled", exception);
                     }
                 }
@@ -202,6 +228,7 @@ public class AudioDownloadCommandTest {
     }
 
     private static final class CommitRaceBackend implements YouTubeMediaModels.AudioDownloadBackend {
+
         private final CountDownLatch commitEntered = new CountDownLatch(1);
         private final CountDownLatch releaseCommit = new CountDownLatch(1);
 
@@ -209,14 +236,22 @@ public class AudioDownloadCommandTest {
         public Path download(final String videoId, final Path destination, YouTubeMediaModels.CancellationToken token)
             throws java.io.IOException {
             token.finish(new PcmSink() {
-                @Override public void write(byte[] data, int offset, int length) { }
-                @Override public void abort() { }
-                @Override public void finish() throws java.io.IOException {
+
+                @Override
+                public void write(byte[] data, int offset, int length) {}
+
+                @Override
+                public void abort() {}
+
+                @Override
+                public void finish() throws java.io.IOException {
                     commitEntered.countDown();
                     try {
-                        if (!releaseCommit.await(1, TimeUnit.SECONDS)) throw new java.io.IOException("commit release timed out");
+                        if (!releaseCommit.await(1, TimeUnit.SECONDS))
+                            throw new java.io.IOException("commit release timed out");
                     } catch (InterruptedException exception) {
-                        Thread.currentThread().interrupt();
+                        Thread.currentThread()
+                            .interrupt();
                         throw new java.io.IOException("commit interrupted", exception);
                     }
                     writeCanonicalWave(destination);
@@ -225,27 +260,60 @@ public class AudioDownloadCommandTest {
             return destination;
         }
 
-        @Override public boolean isReady() { return true; }
-        private void releaseCommit() { releaseCommit.countDown(); }
+        @Override
+        public boolean isReady() {
+            return true;
+        }
+
+        private void releaseCommit() {
+            releaseCommit.countDown();
+        }
     }
 
     private static void writeCanonicalWave(Path destination) throws java.io.IOException {
         byte[] wave = new byte[48];
-        ascii(wave, 0, "RIFF"); leInt(wave, 4, 40); ascii(wave, 8, "WAVEfmt "); leInt(wave, 16, 16);
-        leShort(wave, 20, 1); leShort(wave, 22, 2); leInt(wave, 24, 44100); leInt(wave, 28, 176400);
-        leShort(wave, 32, 4); leShort(wave, 34, 16); ascii(wave, 36, "data"); leInt(wave, 40, 4);
+        ascii(wave, 0, "RIFF");
+        leInt(wave, 4, 40);
+        ascii(wave, 8, "WAVEfmt ");
+        leInt(wave, 16, 16);
+        leShort(wave, 20, 1);
+        leShort(wave, 22, 2);
+        leInt(wave, 24, 44100);
+        leInt(wave, 28, 176400);
+        leShort(wave, 32, 4);
+        leShort(wave, 34, 16);
+        ascii(wave, 36, "data");
+        leInt(wave, 40, 4);
         Files.write(destination, wave);
     }
 
     private static void writeStaleWave(Path destination) throws java.io.IOException {
         byte[] wave = new byte[48];
-        ascii(wave, 0, "RIFF"); leInt(wave, 4, 36); ascii(wave, 8, "WAVEfmt "); leInt(wave, 16, 16);
-        leShort(wave, 20, 1); leShort(wave, 22, 2); leInt(wave, 24, 44100); leInt(wave, 28, 176400);
-        leShort(wave, 32, 4); leShort(wave, 34, 16); ascii(wave, 36, "data"); leInt(wave, 40, 4);
+        ascii(wave, 0, "RIFF");
+        leInt(wave, 4, 36);
+        ascii(wave, 8, "WAVEfmt ");
+        leInt(wave, 16, 16);
+        leShort(wave, 20, 1);
+        leShort(wave, 22, 2);
+        leInt(wave, 24, 44100);
+        leInt(wave, 28, 176400);
+        leShort(wave, 32, 4);
+        leShort(wave, 34, 16);
+        ascii(wave, 36, "data");
+        leInt(wave, 40, 4);
         Files.write(destination, wave);
     }
 
-    private static void ascii(byte[] bytes, int offset, String value) { for (int i = 0; i < value.length(); i++) bytes[offset + i] = (byte) value.charAt(i); }
-    private static void leShort(byte[] bytes, int offset, int value) { bytes[offset] = (byte) value; bytes[offset + 1] = (byte) (value >>> 8); }
-    private static void leInt(byte[] bytes, int offset, int value) { for (int i = 0; i < 4; i++) bytes[offset + i] = (byte) (value >>> (8 * i)); }
+    private static void ascii(byte[] bytes, int offset, String value) {
+        for (int i = 0; i < value.length(); i++) bytes[offset + i] = (byte) value.charAt(i);
+    }
+
+    private static void leShort(byte[] bytes, int offset, int value) {
+        bytes[offset] = (byte) value;
+        bytes[offset + 1] = (byte) (value >>> 8);
+    }
+
+    private static void leInt(byte[] bytes, int offset, int value) {
+        for (int i = 0; i < 4; i++) bytes[offset + i] = (byte) (value >>> (8 * i));
+    }
 }

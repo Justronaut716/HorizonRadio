@@ -5,11 +5,8 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
-import java.net.URL;
-import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Deque;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -146,7 +143,10 @@ public class RadioStreamServiceTest {
             service.promoteCandidate(11L);
 
             assertTrue(listener.awaitChunks(1));
-            assertEquals(1L, listener.chunkSequences.get(0).longValue());
+            assertEquals(
+                1L,
+                listener.chunkSequences.get(0)
+                    .longValue());
             assertArrayEquals(new byte[] { 5, 6, 7, 8 }, listener.chunks.get(0));
         } finally {
             service.shutdown();
@@ -180,12 +180,7 @@ public class RadioStreamServiceTest {
         FakeSessionFactory sessions = new FakeSessionFactory();
         ScheduledExecutorService deadlines = new ScheduledThreadPoolExecutor(1);
         BlockingTimeoutHook timeoutHook = new BlockingTimeoutHook();
-        RadioStreamService service = new RadioStreamService(
-            sessions,
-            deadlines,
-            1L,
-            1000L,
-            timeoutHook);
+        RadioStreamService service = new RadioStreamService(sessions, deadlines, 1L, 1000L, timeoutHook);
         RecordingListener listener = new RecordingListener();
         try {
             service.startCandidate(STATION, 12L, listener);
@@ -199,7 +194,10 @@ public class RadioStreamServiceTest {
             assertFalse(listener.awaitFailureFor(200L));
             session.emit(new byte[] { 5, 6, 7, 8 });
             assertTrue(listener.awaitChunks(1));
-            assertEquals(1L, listener.chunkSequences.get(0).longValue());
+            assertEquals(
+                1L,
+                listener.chunkSequences.get(0)
+                    .longValue());
         } finally {
             timeoutHook.releaseCheck();
             service.shutdown();
@@ -310,8 +308,7 @@ public class RadioStreamServiceTest {
         private final List<FakeSession> sessions = new ArrayList<FakeSession>();
 
         @Override
-        public synchronized RadioStreamService.SessionHandle create(
-            String streamUrl,
+        public synchronized RadioStreamService.SessionHandle create(String streamUrl,
             RadioInputSession.RadioPcmListener listener) {
             FakeSession session = new FakeSession(listener);
             sessions.add(session);
@@ -489,7 +486,8 @@ public class RadioStreamServiceTest {
             try {
                 releaseCheck.await();
             } catch (InterruptedException exception) {
-                Thread.currentThread().interrupt();
+                Thread.currentThread()
+                    .interrupt();
             }
         }
 
@@ -515,7 +513,8 @@ public class RadioStreamServiceTest {
             try {
                 releaseReady.await();
             } catch (InterruptedException exception) {
-                Thread.currentThread().interrupt();
+                Thread.currentThread()
+                    .interrupt();
             }
         }
 
@@ -563,7 +562,8 @@ public class RadioStreamServiceTest {
             try {
                 worker.join(500L);
             } catch (InterruptedException exception) {
-                Thread.currentThread().interrupt();
+                Thread.currentThread()
+                    .interrupt();
             }
         }
 

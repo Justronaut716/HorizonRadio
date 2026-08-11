@@ -60,19 +60,18 @@ public final class AudioFormatDetector {
     }
 
     private static boolean isOggOpusContentType(String contentType) {
-        return contentType != null && contentType.toLowerCase(Locale.ROOT).contains("opus");
+        return contentType != null && contentType.toLowerCase(Locale.ROOT)
+            .contains("opus");
     }
 
     private static boolean isAdts(byte[] prefix) {
-        return prefix.length >= 4
-            && (prefix[0] & 0xff) == 0xff
+        return prefix.length >= 4 && (prefix[0] & 0xff) == 0xff
             && (prefix[1] & 0xf6) == 0xf0
             && (prefix[2] & 0x3c) != 0x3c;
     }
 
     private static boolean isMpeg(byte[] prefix) {
-        return prefix.length >= 4
-            && (prefix[0] & 0xff) == 0xff
+        return prefix.length >= 4 && (prefix[0] & 0xff) == 0xff
             && (prefix[1] & 0xe0) == 0xe0
             && (prefix[1] & 0x18) != 0x08
             && (prefix[1] & 0x06) != 0
@@ -80,9 +79,7 @@ public final class AudioFormatDetector {
     }
 
     private static boolean isWave(byte[] prefix) {
-        return prefix.length >= 12
-            && matches(prefix, 0, "RIFF")
-            && matches(prefix, 8, "WAVE");
+        return prefix.length >= 12 && matches(prefix, 0, "RIFF") && matches(prefix, 8, "WAVE");
     }
 
     private static boolean isOgg(byte[] prefix) {
@@ -94,8 +91,7 @@ public final class AudioFormatDetector {
     }
 
     private static boolean isWebm(byte[] prefix) {
-        return prefix.length >= 4
-            && (prefix[0] & 0xff) == 0x1a
+        return prefix.length >= 4 && (prefix[0] & 0xff) == 0x1a
             && (prefix[1] & 0xff) == 0x45
             && (prefix[2] & 0xff) == 0xdf
             && (prefix[3] & 0xff) == 0xa3;

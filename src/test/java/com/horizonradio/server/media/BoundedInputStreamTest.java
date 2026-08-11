@@ -13,8 +13,7 @@ public class BoundedInputStreamTest {
 
     @Test
     public void exposesExactlyTheConfiguredMaximumBytes() throws Exception {
-        BoundedInputStream input = new BoundedInputStream(
-            new ByteArrayInputStream(new byte[] { 0, 1, 2, 3, 4 }), 4L);
+        BoundedInputStream input = new BoundedInputStream(new ByteArrayInputStream(new byte[] { 0, 1, 2, 3, 4 }), 4L);
         byte[] bytes = new byte[8];
 
         assertEquals(4, input.read(bytes, 0, bytes.length));

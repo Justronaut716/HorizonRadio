@@ -7,9 +7,11 @@ import java.util.Deque;
 /**
  * Thread-safe bounded FIFO for normalized radio PCM chunks.
  *
- * <p>The first argument is the byte threshold required before polling starts;
+ * <p>
+ * The first argument is the byte threshold required before polling starts;
  * the second is the hard maximum byte budget. Once the budget is full, the
- * oldest complete offered chunk is discarded before newer audio is retained.</p>
+ * oldest complete offered chunk is discarded before newer audio is retained.
+ * </p>
  */
 public final class RadioJitterBuffer implements AutoCloseable {
 

@@ -34,30 +34,25 @@ public class RadioStreamService {
     private boolean shutDown;
 
     public RadioStreamService() {
-        this(
-            new SessionFactory() {
+        this(new SessionFactory() {
 
-                @Override
-                public SessionHandle create(String streamUrl, RadioInputSession.RadioPcmListener listener) {
-                    final RadioInputSession input = new RadioInputSession(streamUrl, listener);
-                    return new SessionHandle() {
+            @Override
+            public SessionHandle create(String streamUrl, RadioInputSession.RadioPcmListener listener) {
+                final RadioInputSession input = new RadioInputSession(streamUrl, listener);
+                return new SessionHandle() {
 
-                        @Override
-                        public void start() {
-                            input.start();
-                        }
+                    @Override
+                    public void start() {
+                        input.start();
+                    }
 
-                        @Override
-                        public void close() {
-                            input.close();
-                        }
-                    };
-                }
-            },
-            newDaemonDeadlineExecutor(),
-            FIRST_DATA_TIMEOUT_MILLIS,
-            INACTIVITY_TIMEOUT_MILLIS,
-            TimeoutRaceHook.NONE);
+                    @Override
+                    public void close() {
+                        input.close();
+                    }
+                };
+            }
+        }, newDaemonDeadlineExecutor(), FIRST_DATA_TIMEOUT_MILLIS, INACTIVITY_TIMEOUT_MILLIS, TimeoutRaceHook.NONE);
     }
 
     RadioStreamService(SessionFactory sessionFactory) {
@@ -69,26 +64,15 @@ public class RadioStreamService {
             TimeoutRaceHook.NONE);
     }
 
-    RadioStreamService(
-        SessionFactory sessionFactory,
-        ScheduledExecutorService deadlineExecutor,
-        long firstDataTimeoutMillis,
-        long inactivityTimeoutMillis) {
-        this(
-            sessionFactory,
-            deadlineExecutor,
-            firstDataTimeoutMillis,
-            inactivityTimeoutMillis,
-            TimeoutRaceHook.NONE);
+    RadioStreamService(SessionFactory sessionFactory, ScheduledExecutorService deadlineExecutor,
+        long firstDataTimeoutMillis, long inactivityTimeoutMillis) {
+        this(sessionFactory, deadlineExecutor, firstDataTimeoutMillis, inactivityTimeoutMillis, TimeoutRaceHook.NONE);
     }
 
-    RadioStreamService(
-        SessionFactory sessionFactory,
-        ScheduledExecutorService deadlineExecutor,
-        long firstDataTimeoutMillis,
-        long inactivityTimeoutMillis,
-        TimeoutRaceHook timeoutRaceHook) {
-        if (sessionFactory == null || deadlineExecutor == null || firstDataTimeoutMillis <= 0L
+    RadioStreamService(SessionFactory sessionFactory, ScheduledExecutorService deadlineExecutor,
+        long firstDataTimeoutMillis, long inactivityTimeoutMillis, TimeoutRaceHook timeoutRaceHook) {
+        if (sessionFactory == null || deadlineExecutor == null
+            || firstDataTimeoutMillis <= 0L
             || inactivityTimeoutMillis <= 0L) {
             throw new IllegalArgumentException("Radio relay dependencies must be provided");
         }
@@ -101,7 +85,10 @@ public class RadioStreamService {
 
     /** Starts an unpublished candidate. The current published session stays active until promotion. */
     public void startCandidate(RadioStation station, long generation, RadioStreamListener listener) {
-        if (station == null || station.getStreamUrl() == null || station.getStreamUrl().trim().length() == 0
+        if (station == null || station.getStreamUrl() == null
+            || station.getStreamUrl()
+                .trim()
+                .length() == 0
             || listener == null) {
             if (listener != null) {
                 safeRejectedFailure(new Session(station, generation, listener), "Radio station stream is unavailable");
@@ -111,20 +98,18 @@ public class RadioStreamService {
 
         final Session session = new Session(station, generation, listener);
         try {
-            session.input = sessionFactory.create(
-                station.getStreamUrl(),
-                new RadioInputSession.RadioPcmListener() {
+            session.input = sessionFactory.create(station.getStreamUrl(), new RadioInputSession.RadioPcmListener() {
 
-                    @Override
-                    public void onPcm(byte[] pcm) {
-                        dispatchPcm(session, pcm);
-                    }
+                @Override
+                public void onPcm(byte[] pcm) {
+                    dispatchPcm(session, pcm);
+                }
 
-                    @Override
-                    public void onFailure(String message) {
-                        failSession(session, message == null ? "Radio input session failed" : message);
-                    }
-                });
+                @Override
+                public void onFailure(String message) {
+                    failSession(session, message == null ? "Radio input session failed" : message);
+                }
+            });
         } catch (RuntimeException exception) {
             safeRejectedFailure(session, "Radio input could not be created: " + exception.getMessage());
             return;
@@ -170,7 +155,8 @@ public class RadioStreamService {
         Session previous;
         Session promoted;
         synchronized (lock) {
-            if (candidate == null || candidate.generation != generation || !candidate.receivedFirstData
+            if (candidate == null || candidate.generation != generation
+                || !candidate.receivedFirstData
                 || candidate.closed) {
                 return;
             }
@@ -288,7 +274,8 @@ public class RadioStreamService {
                 try {
                     session.promotionGate.wait();
                 } catch (InterruptedException exception) {
-                    Thread.currentThread().interrupt();
+                    Thread.currentThread()
+                        .interrupt();
                     return false;
                 }
             }
@@ -427,11 +414,8 @@ public class RadioStreamService {
                 }
             }
             try {
-                session.listener.onReady(
-                    session.generation,
-                    session.station,
-                    firstSequence,
-                    Arrays.copyOf(data, data.length));
+                session.listener
+                    .onReady(session.generation, session.station, firstSequence, Arrays.copyOf(data, data.length));
             } catch (RuntimeException exception) {
                 LOGGER.log(Level.WARNING, "Radio ready listener failed", exception);
             }

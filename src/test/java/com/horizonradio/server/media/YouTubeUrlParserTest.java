@@ -9,11 +9,17 @@ public class YouTubeUrlParserTest {
 
     @Test
     public void extractsVideoIdsFromSupportedYouTubeUrls() throws Exception {
-        assertEquals("dQw4w9WgXcQ", YouTubeUrlParser.parseVideoId("https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=PL123"));
+        assertEquals(
+            "dQw4w9WgXcQ",
+            YouTubeUrlParser.parseVideoId("https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=PL123"));
         assertEquals("dQw4w9WgXcQ", YouTubeUrlParser.parseVideoId("https://youtu.be/dQw4w9WgXcQ?t=12"));
-        assertEquals("dQw4w9WgXcQ", YouTubeUrlParser.parseVideoId("https://m.youtube.com/shorts/dQw4w9WgXcQ?feature=share"));
+        assertEquals(
+            "dQw4w9WgXcQ",
+            YouTubeUrlParser.parseVideoId("https://m.youtube.com/shorts/dQw4w9WgXcQ?feature=share"));
         assertEquals("dQw4w9WgXcQ", YouTubeUrlParser.parseVideoId("https://www.youtube.com/live/dQw4w9WgXcQ"));
-        assertEquals("dQw4w9WgXcQ", YouTubeUrlParser.parseVideoId("https://youtube.com/watch?list=PL123&v=dQw4w9WgXcQ"));
+        assertEquals(
+            "dQw4w9WgXcQ",
+            YouTubeUrlParser.parseVideoId("https://youtube.com/watch?list=PL123&v=dQw4w9WgXcQ"));
     }
 
     @Test

@@ -78,8 +78,7 @@ public final class PcmFormat {
             return false;
         }
         PcmFormat that = (PcmFormat) other;
-        return sampleRate == that.sampleRate
-            && channels == that.channels
+        return sampleRate == that.sampleRate && channels == that.channels
             && sampleSizeBits == that.sampleSizeBits
             && signed == that.signed
             && littleEndian == that.littleEndian;
@@ -97,7 +96,11 @@ public final class PcmFormat {
 
     @Override
     public String toString() {
-        return sampleRate + " Hz, " + channels + " channel, " + sampleSizeBits + "-bit signed PCM"
+        return sampleRate + " Hz, "
+            + channels
+            + " channel, "
+            + sampleSizeBits
+            + "-bit signed PCM"
             + (littleEndian ? " little-endian" : " big-endian");
     }
 }

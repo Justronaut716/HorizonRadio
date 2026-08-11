@@ -8,8 +8,7 @@ public final class YouTubeUrlParser {
 
     private static final int MAX_URL_LENGTH = 2048;
 
-    private YouTubeUrlParser() {
-    }
+    private YouTubeUrlParser() {}
 
     public static String parseVideoId(String value) throws MediaException {
         if (value == null || value.length() == 0 || value.length() > MAX_URL_LENGTH) {
@@ -17,7 +16,8 @@ public final class YouTubeUrlParser {
         }
         try {
             URI uri = new URI(value);
-            if (!"https".equalsIgnoreCase(uri.getScheme()) || uri.getRawUserInfo() != null || !isYouTubeHost(uri.getHost())) {
+            if (!"https".equalsIgnoreCase(uri.getScheme()) || uri.getRawUserInfo() != null
+                || !isYouTubeHost(uri.getHost())) {
                 throw new MediaException("URL is not a safe YouTube URL");
             }
             String queryId = queryValue(uri.getRawQuery(), "v");

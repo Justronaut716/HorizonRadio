@@ -27,7 +27,8 @@ public final class M4aAacDecoder implements AudioDecoder {
             MP4InputStream mp4 = MP4InputStream.open(new ByteArrayInputStream(media));
             MP4Container container = new MP4Container(mp4);
             Movie movie = container.getMovie();
-            if (movie.getProtections() != null && !movie.getProtections().isEmpty()) {
+            if (movie.getProtections() != null && !movie.getProtections()
+                .isEmpty()) {
                 throw new MediaException("Protected M4A is unsupported");
             }
             List<Track> tracks = movie.getTracks(Type.AUDIO);
@@ -35,28 +36,40 @@ public final class M4aAacDecoder implements AudioDecoder {
                 throw new MediaException("M4A must contain exactly one AAC audio track");
             }
             AudioTrack track = (AudioTrack) tracks.get(0);
-            if (!track.isInFile() || track.getLocation() != null || track.getProtection() != null
-                || track.getDecoderSpecificInfo() == null || track.getDecoderSpecificInfo().getData() == null) {
+            if (!track.isInFile() || track.getLocation() != null
+                || track.getProtection() != null
+                || track.getDecoderSpecificInfo() == null
+                || track.getDecoderSpecificInfo()
+                    .getData() == null) {
                 throw new MediaException("External, protected, or unconfigured M4A track is unsupported");
             }
             if (!"AAC".equals(String.valueOf(track.getCodec()))) {
                 throw new MediaException("Only AAC M4A tracks are supported");
             }
-            Decoder decoder = Decoder.create(track.getDecoderSpecificInfo().getData());
+            Decoder decoder = Decoder.create(
+                track.getDecoderSpecificInfo()
+                    .getData());
             int frames = 0;
             while (track.hasMoreFrames()) {
                 if (++frames > IsoBmffPreflight.MAX_FRAMES) throw new MediaException("M4A frame count exceeds limit");
                 Frame frame = track.readNextFrame();
                 byte[] compressed = frame.getData();
-                if (compressed == null || compressed.length == 0 || compressed.length > IsoBmffPreflight.MAX_FRAME_BYTES) {
+                if (compressed == null || compressed.length == 0
+                    || compressed.length > IsoBmffPreflight.MAX_FRAME_BYTES) {
                     throw new MediaException("Invalid M4A AAC frame");
                 }
                 SampleBuffer samples = new SampleBuffer();
                 decoder.decodeFrame(compressed, samples);
                 byte[] data = samples.getData();
                 if (data == null || data.length == 0) throw new MediaException("M4A decoder produced no PCM frame");
-                if (pcm == null) pcm = new ResamplingPcmSink(new PcmFormat(
-                    samples.getSampleRate(), samples.getChannels(), samples.getBitsPerSample(), true, !samples.isBigEndian()), sink);
+                if (pcm == null) pcm = new ResamplingPcmSink(
+                    new PcmFormat(
+                        samples.getSampleRate(),
+                        samples.getChannels(),
+                        samples.getBitsPerSample(),
+                        true,
+                        !samples.isBigEndian()),
+                    sink);
                 pcm.write(data, 0, data.length);
             }
             if (frames == 0 || pcm == null) throw new MediaException("M4A contains no AAC frames");
@@ -74,6 +87,11 @@ public final class M4aAacDecoder implements AudioDecoder {
 
     private static void abort(PcmSink pcm, PcmSink sink, boolean finished, IOException failure) {
         if (finished) return;
-        try { if (pcm == null) sink.abort(); else pcm.abort(); } catch (IOException abortFailure) { failure.addSuppressed(abortFailure); }
+        try {
+            if (pcm == null) sink.abort();
+            else pcm.abort();
+        } catch (IOException abortFailure) {
+            failure.addSuppressed(abortFailure);
+        }
     }
 }
