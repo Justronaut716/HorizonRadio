@@ -9,7 +9,7 @@ public final class PlaylistEntry {
     private final long durationMs;
     private final String addedBy;
 
-    private PlaylistEntry(MediaSourceType sourceType, String sourceId, long durationMs, String addedBy) {
+    public PlaylistEntry(MediaSourceType sourceType, String sourceId, long durationMs, String addedBy) {
         if (sourceType == null) {
             throw new IllegalArgumentException("sourceType must not be null");
         }

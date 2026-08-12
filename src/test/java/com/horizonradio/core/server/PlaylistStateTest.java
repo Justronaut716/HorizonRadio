@@ -40,7 +40,20 @@ public class PlaylistStateTest {
 
     @Test(expected = IllegalArgumentException.class)
     public void rejectsNonZeroRadioDuration() {
-        PlaylistEntry.of(MediaSourceType.RADIO, "station", 1L, "Bob");
+        new PlaylistEntry(MediaSourceType.RADIO, "station", 1L, "Bob");
+    }
+
+    @Test
+    public void rejectsZeroDurationFiniteEntriesInServerQueue() {
+        PlaylistState state = new PlaylistState(5);
+        assertFalse(state.add(PlaylistEntry.youtube("unresolved", 0L, "Alice")));
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void rejectsNonPositiveFiniteStartDuration() {
+        PlaylistState state = new PlaylistState(5);
+        state.add(PlaylistEntry.youtube("video", 1_000L, "Alice"));
+        state.startFiniteTrack(0, "video", 0L, 0L);
     }
 
     @Test
@@ -66,6 +79,42 @@ public class PlaylistStateTest {
         assertEquals(1L, state.getQueueRevision());
         state.markQueueMutation();
         assertEquals(2L, state.getQueueRevision());
+    }
+
+    @Test
+    public void acceptedImmediatePlaybackIsOneQueueMutation() {
+        PlaylistState state = new PlaylistState(5);
+        state.add(PlaylistEntry.youtube("current", 1_000L, "Alice"));
+        state.add(PlaylistEntry.youtube("next", 1_000L, "Bob"));
+        state.add(PlaylistEntry.youtube("selected", 1_000L, "Carol"));
+        state.startFiniteTrack(0, "current", 1_000L, 0L);
+        long before = state.getQueueRevision();
+
+        state.prepareImmediatePlayback(state.get(2));
+
+        assertEquals(before + 1L, state.getQueueRevision());
+    }
+
+    @Test
+    public void acceptedQueueShuffleIsOneQueueMutation() {
+        PlaylistState state = new PlaylistState(5);
+        state.add(PlaylistEntry.youtube("one", 1_000L, "Alice"));
+        state.add(PlaylistEntry.youtube("two", 1_000L, "Bob"));
+        state.add(PlaylistEntry.youtube("three", 1_000L, "Carol"));
+        long before = state.getQueueRevision();
+
+        state.shuffleQueued();
+
+        assertEquals(before + 1L, state.getQueueRevision());
+    }
+
+    @Test
+    public void legacyOwnershipRemovalOnlyTargetsYouTubeEntries() {
+        PlaylistState state = new PlaylistState(5);
+        state.add(PlaylistEntry.radio("same", "Alice"));
+
+        assertEquals(-1, state.removeOwned("same", "Alice"));
+        assertEquals(1, state.size());
     }
 
     @Test

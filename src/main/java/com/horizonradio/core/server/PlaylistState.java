@@ -46,7 +46,8 @@ public final class PlaylistState {
     }
 
     public boolean add(PlaylistEntry entry) {
-        if (entry == null || playlist.size() >= maxPlaylistSize) {
+        if (entry == null || playlist.size() >= maxPlaylistSize
+            || (entry.isFinite() && entry.getDurationMs() <= 0L)) {
             return false;
         }
         playlist.add(entry);
@@ -72,7 +73,8 @@ public final class PlaylistState {
         }
         for (int index = 0; index < playlist.size(); index++) {
             PlaylistEntry entry = playlist.get(index);
-            if (videoId.equals(entry.getSourceId()) && playerName.equals(entry.getAddedBy())) {
+            if (entry.isFinite() && videoId.equals(entry.getSourceId())
+                && playerName.equals(entry.getAddedBy())) {
                 return index;
             }
         }
@@ -154,7 +156,6 @@ public final class PlaylistState {
 
         if (selectedIndex >= 0) {
             playlist.remove(selectedIndex);
-            markQueueMutation();
             if (selectedIndex < currentIndex) {
                 currentIndex--;
             }
@@ -165,7 +166,11 @@ public final class PlaylistState {
             currentIndex--;
         }
 
-        addAtFront(selected);
+        playlist.add(0, selected);
+        if (currentIndex >= 0) {
+            currentIndex++;
+        }
+        markQueueMutation();
         resetPlayback();
         return selected;
     }
@@ -212,6 +217,9 @@ public final class PlaylistState {
     }
 
     public void startFiniteTrack(int index, String sourceId, long durationMs, long startAtMs) {
+        if (durationMs <= 0L) {
+            throw new IllegalArgumentException("finite track duration must be positive");
+        }
         requireEntry(index, MediaSourceType.YOUTUBE, sourceId);
         currentIndex = index;
         playing = true;
@@ -342,6 +350,7 @@ public final class PlaylistState {
         for (int index = 0; index < queued.size(); index++) {
             playlist.set(firstQueuedIndex + index, queued.get(index));
         }
+        markQueueMutation();
     }
 
     public boolean wasPreviousRestarted() {
