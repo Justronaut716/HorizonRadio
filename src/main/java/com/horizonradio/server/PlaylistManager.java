@@ -1363,7 +1363,13 @@ public final class PlaylistManager {
         }
         HorizonRadioNetwork.CHANNEL.sendTo(new ShuffleStatePacket(state.isShuffling()), player);
         HorizonRadioNetwork.CHANNEL.sendTo(new LoopStatePacket(state.isLooping()), player);
-        HorizonRadioNetwork.CHANNEL.sendTo(new PlaylistSyncPacket(toPacketEntries(state.snapshot())), player);
+        HorizonRadioNetwork.CHANNEL.sendTo(
+            new PlaylistSyncPacket(
+                state.getQueueRevision(),
+                state.isShuffling(),
+                state.isLooping(),
+                toPacketEntries(state.snapshot())),
+            player);
         syncRadioToPlayer(player);
         if (isRadioActive()) {
             return;
@@ -2094,7 +2100,11 @@ public final class PlaylistManager {
     }
 
     private void syncToAll() {
-        PlaylistSyncPacket packet = new PlaylistSyncPacket(toPacketEntries(state.snapshot()));
+        PlaylistSyncPacket packet = new PlaylistSyncPacket(
+            state.getQueueRevision(),
+            state.isShuffling(),
+            state.isLooping(),
+            toPacketEntries(state.snapshot()));
         for (EntityPlayerMP player : onlinePlayersSnapshot()) {
             HorizonRadioNetwork.CHANNEL.sendTo(packet, player);
         }

@@ -612,6 +612,19 @@ public class PlaylistManagerTest {
     }
 
     @Test
+    public void playlistSnapshotsUseAuthoritativeQueueState() throws IOException {
+        String source = new String(
+            Files.readAllBytes(Paths.get("src/main/java/com/horizonradio/server/PlaylistManager.java")),
+            Charset.forName("UTF-8"));
+
+        assertEquals(
+            2,
+            countOccurrences(
+                source.replaceAll("\\s+", " "),
+                "new PlaylistSyncPacket( state.getQueueRevision(), state.isShuffling(), state.isLooping(), toPacketEntries(state.snapshot()))"));
+    }
+
+    @Test
     public void chartBulkRequestKeepsEntriesBeyondTheNormalSongDurationLimit() throws Exception {
         FakeRadioBrowser browser = new FakeRadioBrowser(STATION_A);
         FakeRadioStream stream = new FakeRadioStream();
@@ -706,6 +719,16 @@ public class PlaylistManagerTest {
             result.add(event);
         }
         return result;
+    }
+
+    private static int countOccurrences(String source, String needle) {
+        int count = 0;
+        int index = 0;
+        while ((index = source.indexOf(needle, index)) >= 0) {
+            count++;
+            index += needle.length();
+        }
+        return count;
     }
 
     private static List<AddChartsToPlaylistPacket.Entry> chartEntries(int count, int offset) {

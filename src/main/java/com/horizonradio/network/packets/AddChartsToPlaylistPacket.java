@@ -97,7 +97,7 @@ public class AddChartsToPlaylistPacket implements IMessage {
 
         @Deprecated
         public String getTitle() {
-            return "";
+            return videoId;
         }
 
         private static long parseDuration(String duration) {
@@ -106,6 +106,9 @@ public class AddChartsToPlaylistPacket implements IMessage {
         }
 
         private static String formatDuration(long durationMs) {
+            if (durationMs == 0L) {
+                return "";
+            }
             long seconds = durationMs / 1000L;
             return seconds / 60L + ":" + (seconds % 60L < 10L ? "0" : "") + seconds % 60L;
         }

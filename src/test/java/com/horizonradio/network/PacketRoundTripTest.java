@@ -123,10 +123,12 @@ public class PacketRoundTripTest {
         AddToPlaylistPacket add = roundTrip(new AddToPlaylistPacket("id", 201_000L), new AddToPlaylistPacket());
         assertEquals("id", add.getVideoId());
         assertEquals(201_000L, add.getDurationMs());
+        assertEquals("id", add.getTitle());
 
         PlayNowPacket playNow = roundTrip(new PlayNowPacket("id", 201_000L), new PlayNowPacket());
         assertEquals("id", playNow.getVideoId());
         assertEquals(201_000L, playNow.getDurationMs());
+        assertEquals("id", playNow.getTitle());
         AddChartsToPlaylistPacket addCharts = roundTrip(
             new AddChartsToPlaylistPacket(
                 Arrays.asList(
@@ -137,6 +139,7 @@ public class PacketRoundTripTest {
             2,
             addCharts.getEntries()
                 .size());
+        assertEquals("id", addCharts.getEntries().get(0).getTitle());
         AddChartsToPlaylistPacket removeCharts = roundTrip(
             new AddChartsToPlaylistPacket(Arrays.asList(new AddChartsToPlaylistPacket.Entry("id", 0L)), true),
             new AddChartsToPlaylistPacket());
@@ -214,6 +217,8 @@ public class PacketRoundTripTest {
         assertTrue(playlist.isShuffling());
         assertFalse(playlist.isLooping());
         assertEquals(entries, playlist.getEntries());
+        assertEquals("station-id", playlist.getEntries().get(1).getTitle());
+        assertEquals("", playlist.getEntries().get(1).getDuration());
 
         ByteBuf snapshotBytes = Unpooled.buffer();
         new PlaylistSyncPacket(

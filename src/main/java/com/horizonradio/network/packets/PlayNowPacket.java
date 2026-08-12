@@ -35,7 +35,7 @@ public class PlayNowPacket implements IMessage {
 
     @Deprecated
     public String getTitle() {
-        return "";
+        return videoId;
     }
 
     @Deprecated
@@ -69,6 +69,9 @@ public class PlayNowPacket implements IMessage {
     }
 
     private static String formatDuration(long durationMs) {
+        if (durationMs == 0L) {
+            return "";
+        }
         long seconds = durationMs / 1000L;
         return seconds / 60L + ":" + (seconds % 60L < 10L ? "0" : "") + seconds % 60L;
     }
