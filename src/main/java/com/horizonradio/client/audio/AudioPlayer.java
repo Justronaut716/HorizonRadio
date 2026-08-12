@@ -2,6 +2,8 @@ package com.horizonradio.client.audio;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayDeque;
 import java.util.Arrays;
 import java.util.Deque;
@@ -87,6 +89,7 @@ public final class AudioPlayer {
     private volatile boolean shuttingDown;
     private volatile long resumePositionMs;
     private volatile long resumeStartAtMs;
+    private volatile String pendingLocalVideoId = "";
     private volatile long serverClockOffsetMs;
     private volatile boolean serverClockSynchronized;
     private volatile float volume = 1.0f;
@@ -141,6 +144,7 @@ public final class AudioPlayer {
             // still rejects duplicate zeros for the same in-flight transfer.
             generation.incrementAndGet();
             cancelPendingResumeStart();
+            pendingLocalVideoId = "";
             resumeReceived = false;
             stopRadio();
         }
@@ -167,6 +171,61 @@ public final class AudioPlayer {
             @Override
             public void run() {
                 loadTrack(completed, lateJoin, requestGeneration);
+            }
+        });
+    }
+
+    /** Starts preparing a client-local track without waiting for its file to finish downloading. */
+    public void beginLocalTrack(String videoId, long positionMs, long startAtMs, boolean paused) {
+        if (videoId == null || videoId.trim()
+            .length() == 0 || shuttingDown) {
+            return;
+        }
+        final long requestGeneration;
+        synchronized (stateLock) {
+            generation.incrementAndGet();
+            requestGeneration = generation.get();
+            cancelPendingResumeStart();
+            assembler.clear();
+            pendingLocalVideoId = videoId;
+            awaitingResume = paused;
+            resumeReceived = !paused;
+            resumePositionMs = Math.max(0L, positionMs);
+            resumeStartAtMs = paused ? 0L : Math.max(0L, startAtMs);
+            playing = false;
+            currentTitle = "";
+        }
+        enqueue(new Runnable() {
+
+            @Override
+            public void run() {
+                if (isCurrent(requestGeneration)) {
+                    closeCurrentClip();
+                }
+            }
+        });
+    }
+
+    /** Loads a completed client-local WAV and aligns it to the previously received sync timestamp. */
+    public void loadLocalTrack(final String videoId, final Path filePath) {
+        if (videoId == null || filePath == null || shuttingDown) {
+            return;
+        }
+        final long requestGeneration = generation.get();
+        enqueue(new Runnable() {
+
+            @Override
+            public void run() {
+                if (!isCurrent(requestGeneration) || !videoId.equals(pendingLocalVideoId)) {
+                    return;
+                }
+                try {
+                    loadLocalTrackBytes(videoId, Files.readAllBytes(filePath), requestGeneration);
+                } catch (IOException exception) {
+                    LOGGER.log(Level.WARNING, "HorizonRadio could not read local audio for " + videoId, exception);
+                } catch (RuntimeException exception) {
+                    LOGGER.log(Level.WARNING, "HorizonRadio could not prepare local audio for " + videoId, exception);
+                }
             }
         });
     }
@@ -243,6 +302,7 @@ public final class AudioPlayer {
             generation.incrementAndGet();
             cancelPendingResumeStart();
             assembler.clear();
+            pendingLocalVideoId = "";
             awaitingResume = false;
             resumeReceived = false;
             resumePositionMs = 0L;
@@ -287,6 +347,7 @@ public final class AudioPlayer {
             generation.incrementAndGet();
             cancelPendingResumeStart();
             assembler.clear();
+            pendingLocalVideoId = "";
             awaitingResume = false;
             resumeReceived = false;
             resumePositionMs = 0L;
@@ -682,6 +743,65 @@ public final class AudioPlayer {
                 // Signal readiness even when Java Sound is unavailable; the
                 // server's timeout must not leave every other client paused.
                 HorizonRadioClient.sendReady(track.getVideoId());
+            }
+        }
+    }
+
+    private void loadLocalTrackBytes(String videoId, byte[] audioBytes, long requestGeneration) {
+        if (!isCurrent(requestGeneration) || !videoId.equals(pendingLocalVideoId)
+            || audioBytes == null
+            || audioBytes.length == 0) {
+            return;
+        }
+
+        Clip clip = null;
+        try {
+            clip = createClip(audioBytes);
+            if (!isCurrent(requestGeneration) || !videoId.equals(pendingLocalVideoId)) {
+                closeClip(clip);
+                return;
+            }
+
+            final Clip loadedClip = clip;
+            loadedClip.addLineListener(new LineListener() {
+
+                @Override
+                public void update(LineEvent event) {
+                    if (event.getType() == LineEvent.Type.STOP && loadedClip == currentClip && playing) {
+                        playing = false;
+                        currentTitle = "";
+                        currentClip = null;
+                        try {
+                            loadedClip.close();
+                        } catch (RuntimeException ignored) {
+                            // Cleanup must not crash the client.
+                        }
+                    }
+                }
+            });
+
+            synchronized (stateLock) {
+                if (!isCurrent(requestGeneration) || !videoId.equals(pendingLocalVideoId)) {
+                    closeClip(loadedClip);
+                    return;
+                }
+                closeCurrentClip();
+                currentClip = loadedClip;
+                currentTitle = "";
+                applyVolume(loadedClip);
+                if (awaitingResume || !resumeReceived) {
+                    playing = false;
+                } else {
+                    scheduleClipStart(requestGeneration, loadedClip, resumePositionMs, resumeStartAtMs);
+                }
+            }
+            clip = null;
+        } catch (Exception exception) {
+            closeClip(clip);
+            if (isCurrent(requestGeneration)) {
+                playing = false;
+                currentTitle = "";
+                LOGGER.log(Level.WARNING, "HorizonRadio local audio playback is unavailable for " + videoId, exception);
             }
         }
     }

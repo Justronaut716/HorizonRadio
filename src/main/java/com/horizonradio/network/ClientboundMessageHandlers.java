@@ -15,6 +15,7 @@ import com.horizonradio.network.packets.RadioStatePacket;
 import com.horizonradio.network.packets.ResumePacket;
 import com.horizonradio.network.packets.SearchResultsPacket;
 import com.horizonradio.network.packets.ShuffleStatePacket;
+import com.horizonradio.network.packets.TrackSyncPacket;
 
 import cpw.mods.fml.common.network.simpleimpl.IMessage;
 import cpw.mods.fml.common.network.simpleimpl.IMessageHandler;
@@ -69,6 +70,15 @@ public final class ClientboundMessageHandlers {
         @Override
         public IMessage onMessage(AudioChunkPacket message, MessageContext context) {
             HorizonRadio.proxy.handleAudioChunk(message);
+            return null;
+        }
+    }
+
+    public static final class TrackSyncHandler implements IMessageHandler<TrackSyncPacket, IMessage> {
+
+        @Override
+        public IMessage onMessage(TrackSyncPacket message, MessageContext context) {
+            HorizonRadio.proxy.handleTrackSync(message);
             return null;
         }
     }

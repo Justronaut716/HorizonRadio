@@ -43,11 +43,11 @@ that server work on server ticks and forwards player login/logout transitions.
 | `com.horizonradio.core.protocol` | Version `1.0.0` and the `horizonradio_1_0` channel contract. |
 | `com.horizonradio.core.integration` | Project-owned integration interface and context. |
 | `com.horizonradio.integration` | Optional capability detection, manager, and adapter implementation. |
-| `com.horizonradio.network` and `.network.packets` | Forge `SimpleNetworkWrapper`, handlers, codecs, and the 32 current-source packet types, including the contract below. |
-| `com.horizonradio.server` | Forge/server-facing playlist manager, events, embedded media download/decoding, YouTube, Radio Browser, and server-thread services. |
+| `com.horizonradio.network` and `.network.packets` | Forge `SimpleNetworkWrapper`, handlers, codecs, and the 36 current-source packet types, including the contract below. |
+| `com.horizonradio.server` | Forge/server-facing playlist manager, events, embedded metadata/radio services, YouTube, Radio Browser, and server-thread services. |
 | `com.horizonradio.client` and `.client.audio` | Client proxy, GUI, keybinds, client transport, and Java Sound playback. |
 
-## Forge message contract (current source: IDs 0–31)
+## Forge message contract (current source: IDs 0–35)
 
 The channel is `horizonradio_1_0`. IDs and field order are stable within the
 1.0 port. The current source contract is:
@@ -86,6 +86,10 @@ The channel is `horizonradio_1_0`. IDs and field order are stable within the
 | 29 | S2C | `RadioStatePacket` | active flag, generation, station UUID, station name, status |
 | 30 | S2C | `RadioAudioStartPacket` | generation, first sequence, PCM format |
 | 31 | S2C | `RadioAudioChunkPacket` | generation, sequence, PCM bytes |
+| 32 | S2C | `ChartAddCompletionPacket` | completed chart video IDs |
+| 33 | C2S | `ClockSyncRequestPacket` | client send timestamp |
+| 34 | S2C | `ClockSyncResponsePacket` | client send, server receive, server send timestamps |
+| 35 | S2C | `TrackSyncPacket` | generation, video ID, position, absolute start timestamp, paused flag |
 
 The C2S handlers obtain the player, schedule each packet request on the server
 thread, and delegate to `PlaylistManager`. There, request validation,
@@ -110,8 +114,11 @@ country search; unknown or ambiguous local input leaves the current results
 visible.
 
 All strings, collection counts, indexes, and byte arrays are bounded before
-allocation. Audio data remains split at 30 KiB. `startOffsetMs == -1` means a
-late-join client should load the clip without starting it. Radio queries are at
+allocation. Legacy server-relayed audio remains split at 30 KiB. A
+`TrackSyncPacket` contains no title or audio payload: its video ID is resolved
+locally by each client. A future absolute start timestamp gives clients a
+three-second preparation window; a download that completes after that point
+starts at the elapsed server-clock position. Radio queries are at
 most 100 characters; station UUIDs are at most 64 UTF-8 bytes; station names are
 at most 200 UTF-8 bytes; a search response has at most 50 entries; radio status
 is at most 160 UTF-8 bytes; and each radio PCM chunk is at most 30 KiB.
@@ -145,21 +152,23 @@ candidate leaves the published station intact.
 
 Finite YouTube audio, YouTube metadata, and direct radio decoding run in the
 embedded Java backend. Its decoder registry supports MP3, ADTS/AAC, WAV/PCM,
-M4A/MP4 AAC, Ogg Vorbis, Ogg Opus, and WebM/Opus. Finite audio is normalized
-through `WavFileSink` and cached before the existing packet/chunk flow; direct
-radio is normalized through the radio input session and bounded relay. The
-backend requires outbound HTTP(S) access to YouTube, Radio Browser, and the
-selected station, plus Java Sound on each client for audible playback.
+M4A/MP4 AAC, Ogg Vorbis, Ogg Opus, and WebM/Opus. A client resolves the video
+ID, normalizes finite audio through `WavFileSink`, and stores the result in its
+own cache; the production server does not download, decode, or relay finite
+audio. Direct radio is normalized through the radio input session and bounded
+relay. The backend requires outbound HTTP(S) access to YouTube on each client,
+plus server access to Radio Browser/the selected station and Java Sound on each
+client for audible playback.
 
 HLS/M3U8 was intentionally not added because the current acceptance corpus has
 no concrete required HLS URL. Direct HTTP radio remains the implemented path.
 
-`PlaylistManager` owns the single shared source. Promoting a radio candidate
-cancels finite-track download/preload/synchronization work and stops finite
-playback while preserving the queue. A radio stop clears the live source but
-does not auto-resume the queue. Playlist additions use the radio-active guard,
-so adding a track while radio is active does not start it. Play Now explicitly
-stops radio before selecting finite playback. Server-side seek, play/pause,
+`PlaylistManager` owns the single shared source and its clock. Promoting a radio
+candidate cancels finite-track synchronization work and stops finite playback
+while preserving the queue. A radio stop clears the live source but does not
+auto-resume the queue. Playlist additions use the radio-active guard, so adding
+a track while radio is active does not start it. Play Now explicitly stops
+radio before selecting finite playback. Server-side seek, play/pause,
 previous/next, repeat, shuffle, automatic advance, and progress broadcasts are
 also guarded while radio is active.
 
@@ -170,18 +179,24 @@ track metadata, out-of-order chunks received before chunk zero, duplicates, and
 oversized chunks. A new chunk zero clears older in-flight video IDs. Completed
 chunks are assembled in index order and buffers are cleared.
 
-`AudioPlayer` then uses one daemon executor:
+For the production finite-track path, `AudioPlayer` uses one daemon executor:
 
-1. Assemble a track on the client/network callback boundary.
-2. Decode through `AudioSystem.getAudioInputStream` and convert to signed
+1. Receive a `TrackSyncPacket` containing only the video ID and shared timing.
+2. Download/normalize the ID through the client-local Java media service and
+   reuse a completed WAV cache entry.
+3. Decode through `AudioSystem.getAudioInputStream` and convert to signed
    16-bit PCM when necessary.
-3. Open one `Clip`, seek to the server offset, apply bounded `MASTER_GAIN`,
-   and start it, or hold it for late-join resume.
-4. Send `ReadyPacket` through `HorizonRadioClient.ClientTransport` after late-join
-   loading, using the Forge client transport boundary.
+4. Open one `Clip`, seek to the shared server timestamp, apply bounded
+   `MASTER_GAIN`, and start it, or hold it while a pause is active. If loading
+   finishes late, the seek position includes the elapsed time since the shared
+   start.
 5. Pause/resume/stop/close through the same executor and generation/lock
-   guards. Natural completion closes the line; disconnect clears the client
-   cache and stops playback.
+   guards. Natural completion closes the line; disconnect cancels the active
+   download and stops playback.
+
+The `AudioChunkAssembler` and `ReadyPacket` path remain as a compatibility
+adapter for isolated legacy/serverless relay tests; the real Minecraft server
+does not send finite audio chunks.
 
 `AudioPlayerState` supplies a sound-device-independent model for state tests;
 the real `Clip` remains optional at test time.
@@ -197,13 +212,14 @@ seekable `Clip`, and stale generations are ignored.
 ## Server authority rules
 
 The server owns the shared playlist, ordering, current source, playback
-position, pause/resume, loop/shuffle state, chart/search/radio results,
-downloads, radio stream URLs, and audio cache. Clients send intent packets;
-server handlers validate and apply those requests, then broadcast authoritative
-state. A client may remove entries as allowed by the active server rules, but it
-cannot directly change shared state. Volume is client-local and persists in
-`config/horizonradio-client.json`; Java Sound playback is an adapter for
-server-directed audio rather than a second source of truth.
+position, pause/resume, loop/shuffle state, chart/search/radio results, and
+radio stream URLs. Clients send intent packets; server handlers validate and
+apply those requests, then broadcast authoritative state and the finite-track
+video ID/timing. A client may remove entries as allowed by the active server
+rules, but it cannot directly change shared state. Finite audio bytes and the
+WAV cache are client-local. Volume is client-local and persists in
+`config/horizonradio-client.json`; Java Sound playback follows server timing
+but does not become a second shared source of truth.
 
 ## GUI and input
 
@@ -229,10 +245,10 @@ not accepted as GUI evidence.
 
 | Source feature | Port status | Decision |
 |---|---|---|
-| Playlist/search/import/download/playback | Reimplemented | Forge events, Java 8 services, embedded Java metadata/audio handling, and SimpleNetworkWrapper preserve behavior. |
-| JSON config | Preserved | `config/horizonradio.json` keeps server/common settings such as `downloadDir` and `maxPlaylistSize`; `maxTrackDurationMinutes` filters search results server-side, while client volume is stored separately in `config/horizonradio-client.json`. |
+| Playlist/search/import/download/playback | Reimplemented | Forge events, Java 8 services, embedded Java metadata/audio handling, client-local finite downloads, and SimpleNetworkWrapper preserve behavior. |
+| JSON config | Preserved | `config/horizonradio.json` keeps server/common settings such as `downloadDir` and `maxPlaylistSize`; `maxTrackDurationMinutes` filters search results server-side, while client volume and finite audio cache are stored separately. |
 | GUI and N key | Reimplemented | Same geometry and interaction, Forge 1.7.10 classes. |
-| Legacy payloads/receivers and Radio protocol | Reimplemented | Thirty-two explicit Forge `IMessage` classes and common registrations; IDs 25–31 add server-authoritative radio search, source selection, state, and PCM relay. |
+| Legacy payloads/receivers and Radio protocol | Reimplemented | Thirty-six explicit Forge `IMessage` classes and common registrations; IDs 25–31 add server-authoritative radio search, source selection, state, and PCM relay, while ID 35 carries finite-track timing only. |
 | Java 11 HTTP/process helpers | Reimplemented | `HttpURLConnection`, Java 8 stream handling, and embedded media decoders. |
 | Live radio | Reimplemented | Server-only Radio Browser lookup and embedded Java PCM relay; client-side `SourceDataLine` adapter. |
 | Items and blocks | Omitted | None exist in the active source. |

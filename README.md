@@ -15,14 +15,14 @@ GTNHLib or GregTech dependency and adds no world content.
 - Empty Charts tab until a country is searched; country aliases and ISO codes
   can be searched in multiple languages.
 - YouTube playlist import through the embedded Java metadata resolver.
-- Server-side embedded Java decoding, normalization, WAV download, and cache for
-  finite YouTube audio.
+- Client-local embedded Java decoding, normalization, WAV download, and cache
+  for finite YouTube audio; the server sends only playback control and video IDs.
 - Server-side Radio Browser directory search and station lookup; clients receive
   station UUIDs and names, never station stream URLs.
 - Shared live-radio playback: the server decodes direct station streams through
   the embedded Java backend and clients play normalized PCM through Java Sound.
-- Forge `SimpleNetworkWrapper` synchronization, including late-join pause,
-  chunk transfer, ready, and resume messages.
+- Forge `SimpleNetworkWrapper` synchronization, including a three-second
+  client-local start window and late-client catch-up from the shared server clock.
 - 300x285 client GUI with Charts, Search, Playlist, and Radio tabs; scrolling,
   shared remove access, queue toggle buttons, progress, and volume control.
 - Client-local Java Sound playback.
@@ -41,9 +41,10 @@ integrations. The inactive companion service is not part of this port.
 - Either standalone Forge 1.7.10 or a GTNH installation for deployment. The
   same plain reobfuscated JAR works for both, with no hard GTNHLib or GregTech
   dependency.
-- The server needs outbound HTTP(S) access to YouTube's InnerTube endpoints,
-  Radio Browser directory mirrors, and the selected station's direct HTTP(S)
-  stream. The mod JAR includes its Java media decoders; no separately
+- The server needs outbound HTTP(S) access to YouTube's InnerTube metadata
+  endpoints, Radio Browser directory mirrors, and the selected station's direct
+  HTTP(S) stream. Each client needs outbound HTTP(S) access to fetch finite
+  YouTube audio locally. The mod JAR includes its Java media decoders; no separately
   installed media program or native media library is required.
 - A usable Java Sound line on each client for audible playback. The client
   remains usable when a sound device is unavailable, but playback cannot work.
@@ -95,8 +96,10 @@ see the [`release guide`](docs/RELEASE.md).
    on the server and every connecting client. Do not install `-dev` or
    `-sources` outputs. This one JAR is for ordinary Forge 1.7.10 and GTNH
    Java 17+; Java 25 is only required to build it.
-3. Start the server once. HorizonRadio creates `config/horizonradio.json` defaults and
-   uses `./horizonradio-downloads` for cached WAV files unless configured otherwise.
+3. Start the server once. HorizonRadio creates `config/horizonradio.json` defaults.
+   Finite-track WAV files are cached per client in `config/horizonradio-audio`;
+   the server-side `downloadDir` remains for compatibility and metadata-related
+   services.
 4. Keep the server and every client on the same Forge 1.7.10 port build. The
    current protocol uses the versioned `horizonradio_1_0` channel.
 
@@ -127,9 +130,10 @@ embedded Java resolver/backend. The legacy cookie fields remain readable for
 configuration compatibility, but the embedded resolver does not use them; they
 can be left empty.
 
-The JSON above is the server/common configuration. Client audio settings are
-kept separately: the volume slider stores its value in
-`config/horizonradio-client.json` and restores it when the game starts again.
+The JSON above is the server/common configuration. Client audio settings and
+the finite-track cache are kept separately: the volume slider stores its value
+in `config/horizonradio-client.json`, while downloaded WAV files live in
+`config/horizonradio-audio` and are reused across rejoins.
 
 ## Use
 
@@ -164,21 +168,25 @@ player-null client are not valid GUI test states.
 
 ## Architecture
 
-The server owns playlist/search/download/radio state. Finite tracks use the
-embedded Java resolver and decoder pipeline, then the existing cached-WAV chunk
-flow. Direct radio is decoded by `RadioInputSession` into 44.1 kHz stereo
-signed 16-bit little-endian PCM and relayed in bounded 30 KiB chunks. The
-current source registers 32 Forge messages once from common
-initialization: IDs 0-3, 10-15, 17, and 19-27 are C2S with server handlers, and
-IDs 4-9, 16, 18, and 28-31 are S2C with common server-safe forwarding handlers.
+The server owns playlist/search/control/radio state. For finite tracks it sends
+only a video ID, track generation, absolute start timestamp, and position in a
+small `TrackSyncPacket`. Clients download and decode their own cached WAV file;
+the server does not distribute finite audio bytes. A track is announced three
+seconds before its shared start, and a client that finishes later seeks forward
+to the current server-clock position. Direct radio is decoded by
+`RadioInputSession` into 44.1 kHz stereo signed 16-bit little-endian PCM and
+relayed in bounded 30 KiB chunks. The current source registers 36 Forge messages once from common
+initialization: IDs 0-3, 10-15, 17, 19-27, and 33 are C2S with server handlers,
+and IDs 4-9, 16, 18, 28-32, 34, and 35 are S2C with common server-safe
+forwarding handlers.
 Weekly chart metadata is cached in memory and persisted as
 `config/horizonradio-charts.json` for seven days per canonical region. Existing
 single-region cache files are treated as German (`DE`) data during migration,
 never as Global data. Cached durations are reused when chart entries are added
 to the queue, avoiding another metadata HTTP lookup. The
-server preloads the next and previous audio files while a finite track plays.
-`ClientProxy` schedules the actual GUI/audio mutations on the client thread;
-common, server, and network code never imports client classes.
+`ClientProxy` schedules the actual GUI/audio mutations and local download
+completion on the client thread; common, server, and network code never imports
+client classes.
 
 See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the packet table,
 audio state machine, port decisions, and omitted systems.
@@ -186,9 +194,11 @@ audio state machine, port decisions, and omitted systems.
 ## Known limitations
 
 YouTube's InnerTube endpoint, the Radio Browser directory, and selected station
-streams are external services and may change or be unreachable. WAV and live
-PCM chunks are bandwidth- and memory-intensive. Clients still require a usable
-Java Sound line; a headless client or unavailable audio device cannot produce
+streams are external services and may change or be unreachable. Every client
+must be able to reach YouTube for finite audio; the server is intentionally not
+a proxy for that traffic. WAV conversion and live PCM chunks are
+bandwidth- and memory-intensive locally. Clients still require a usable Java
+Sound line; a headless client or unavailable audio device cannot produce
 audible playback. The playlist is in memory and is not persisted to NBT or a
 database. Search thumbnails remain data-only because the active GUI does not
 render them.

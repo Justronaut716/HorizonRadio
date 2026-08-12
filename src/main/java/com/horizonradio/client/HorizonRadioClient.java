@@ -1,8 +1,12 @@
 package com.horizonradio.client;
 
 import java.io.File;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.function.BiConsumer;
 
 import com.horizonradio.client.audio.AudioPlayer;
 import com.horizonradio.client.audio.PlaybackClock;
@@ -37,6 +41,8 @@ import com.horizonradio.network.packets.StopRadioPacket;
 import com.horizonradio.network.packets.ToggleLoopPacket;
 import com.horizonradio.network.packets.TogglePlaybackPacket;
 import com.horizonradio.network.packets.ToggleShufflePacket;
+import com.horizonradio.network.packets.TrackSyncPacket;
+import com.horizonradio.server.AudioDownloadService;
 
 /** Client-side state boundary used by the GUI and the future Forge transport. */
 public final class HorizonRadioClient {
@@ -59,6 +65,9 @@ public final class HorizonRadioClient {
     private static String lastRequestedChartRegionCode;
     private static ClientTransport transport = new NoopClientTransport();
     private static HorizonRadioClientConfig clientConfig;
+    private static AudioDownloadService clientAudioDownloadService;
+    private static String activeTrackVideoId;
+    private static long activeTrackGeneration = -1L;
 
     private HorizonRadioClient() {}
 
@@ -306,6 +315,15 @@ public final class HorizonRadioClient {
 
     public static synchronized void setTransport(ClientTransport clientTransport) {
         transport = clientTransport == null ? new NoopClientTransport() : clientTransport;
+    }
+
+    static synchronized void setClientAudioDownloadService(AudioDownloadService service) {
+        if (clientAudioDownloadService != null && clientAudioDownloadService != service) {
+            clientAudioDownloadService.shutdown();
+        }
+        clientAudioDownloadService = service;
+        activeTrackVideoId = null;
+        activeTrackGeneration = -1L;
     }
 
     public static synchronized void sendSearch(String query) {
@@ -559,6 +577,7 @@ public final class HorizonRadioClient {
         cachedRadioActive = packet != null && packet.isActive();
         if (cachedRadioActive || wasRadioActive || hasRadioStatus(packet)) {
             clearCachedMusicState();
+            cancelActiveTrackDownload();
         }
         if (cachedRadioActive) {
             AudioPlayer.getInstance()
@@ -598,6 +617,7 @@ public final class HorizonRadioClient {
         cachedProgress = Math.max(0.0f, Math.min(1.0f, progress));
         if (cachedNowPlaying == null) {
             cachedPaused = false;
+            cancelActiveTrackDownload();
             AudioPlayer.getInstance()
                 .stop();
         }
@@ -610,6 +630,98 @@ public final class HorizonRadioClient {
     public static synchronized void handleAudioChunk(AudioChunkPacket packet) {
         AudioPlayer.getInstance()
             .receiveChunk(packet);
+    }
+
+    public static synchronized void handleTrackSync(final TrackSyncPacket packet) {
+        if (!shouldAcceptTrackSync(activeTrackGeneration, activeTrackVideoId, packet)) {
+            debugChat("Veraltete Track-Synchronisation ignoriert.");
+            return;
+        }
+
+        activeTrackGeneration = packet.getGeneration();
+        String previousVideoId = activeTrackVideoId;
+        activeTrackVideoId = packet.getVideoId();
+        if (clientAudioDownloadService != null && previousVideoId != null
+            && !previousVideoId.equals(activeTrackVideoId)) {
+            clientAudioDownloadService.cancelDownload(previousVideoId);
+        }
+
+        AudioPlayer.getInstance()
+            .beginLocalTrack(packet.getVideoId(), packet.getPositionMs(), packet.getStartAtMs(), packet.isPaused());
+        cachedPaused = packet.isPaused();
+        HorizonRadioScreen screen = getOpenScreen();
+        if (screen != null) {
+            screen.updatePlaybackPaused(cachedPaused);
+        }
+
+        long delayMs = packet.getStartAtMs() <= 0L ? 0L : packet.getStartAtMs() - System.currentTimeMillis();
+        debugChat(
+            "Track " + packet.getVideoId()
+                + " lokal angefordert; "
+                + (packet.isPaused() ? "pausiert bei " + packet.getPositionMs() + " ms."
+                    : "Startziel in " + Math.max(0L, delayMs) + " ms."));
+
+        if (clientAudioDownloadService == null) {
+            debugChat("Kein lokaler Audio-Downloader verfügbar.");
+            return;
+        }
+
+        final long generation = packet.getGeneration();
+        final String videoId = packet.getVideoId();
+        final long startAtMs = packet.getStartAtMs();
+        CompletableFuture<Path> download;
+        try {
+            download = clientAudioDownloadService.download(videoId);
+        } catch (RuntimeException exception) {
+            debugChat("Lokaler Download konnte nicht gestartet werden: " + videoId);
+            return;
+        }
+        if (download == null) {
+            debugChat("Lokaler Downloader lieferte keinen Download für: " + videoId);
+            return;
+        }
+        download.whenComplete(new BiConsumer<Path, Throwable>() {
+
+            @Override
+            public void accept(final Path filePath, Throwable failure) {
+                ClientProxy.scheduleOnClientThread(new Runnable() {
+
+                    @Override
+                    public void run() {
+                        synchronized (HorizonRadioClient.class) {
+                            if (generation != activeTrackGeneration || !videoId.equals(activeTrackVideoId)) {
+                                return;
+                            }
+                            if (failure != null || filePath == null || !Files.isRegularFile(filePath)) {
+                                debugChat("Lokaler Audio-Download fehlgeschlagen: " + videoId);
+                                return;
+                            }
+                            AudioPlayer.getInstance()
+                                .loadLocalTrack(videoId, filePath);
+                            if (startAtMs > 0L && System.currentTimeMillis() > startAtMs) {
+                                debugChat("Track " + videoId + " ist verspätet; Client holt die Position nach.");
+                            } else {
+                                debugChat("Track " + videoId + " lokal bereit.");
+                            }
+                        }
+                    }
+                });
+            }
+        });
+    }
+
+    static boolean shouldAcceptTrackSync(long currentGeneration, String currentVideoId, TrackSyncPacket packet) {
+        if (packet == null || packet.getVideoId() == null
+            || packet.getVideoId()
+                .trim()
+                .length() == 0) {
+            return false;
+        }
+        if (packet.getGeneration() > currentGeneration) {
+            return true;
+        }
+        return packet.getGeneration() == currentGeneration && !packet.getVideoId()
+            .equals(currentVideoId);
     }
 
     public static synchronized void handlePause(long positionMs) {
@@ -650,6 +762,7 @@ public final class HorizonRadioClient {
     }
 
     public static synchronized void clearCache() {
+        cancelActiveTrackDownload();
         CACHED_PLAYLIST.clear();
         CACHED_CHARTS.clear();
         CACHED_RADIO_RESULTS.clear();
@@ -671,6 +784,18 @@ public final class HorizonRadioClient {
             .resetRadio();
         AudioPlayer.getInstance()
             .resetServerClock();
+    }
+
+    private static void cancelActiveTrackDownload() {
+        if (clientAudioDownloadService != null && activeTrackVideoId != null) {
+            clientAudioDownloadService.cancelDownload(activeTrackVideoId);
+        }
+        activeTrackVideoId = null;
+        activeTrackGeneration = -1L;
+    }
+
+    private static void debugChat(String message) {
+        ClientProxy.sendDebugChat(message);
     }
 
     public static synchronized boolean isPaused() {

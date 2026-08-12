@@ -25,6 +25,7 @@ import com.horizonradio.network.packets.RadioSearchResultsPacket;
 import com.horizonradio.network.packets.RadioStatePacket;
 import com.horizonradio.network.packets.ResumePacket;
 import com.horizonradio.network.packets.SearchResultsPacket;
+import com.horizonradio.network.packets.TrackSyncPacket;
 import com.horizonradio.server.AudioDownloadService;
 import com.horizonradio.server.PlaylistManager;
 import com.horizonradio.server.RadioBrowserService;
@@ -238,6 +239,8 @@ public class CommonProxy {
     public void handleClockSync(ClockSyncResponsePacket packet) {}
 
     public void handleAudioChunk(AudioChunkPacket packet) {}
+
+    public void handleTrackSync(TrackSyncPacket packet) {}
 
     public void handleNowPlaying(NowPlayingPacket packet) {}
 

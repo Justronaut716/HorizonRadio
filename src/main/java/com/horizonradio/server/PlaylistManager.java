@@ -63,6 +63,7 @@ import com.horizonradio.network.packets.RadioStatePacket;
 import com.horizonradio.network.packets.ResumePacket;
 import com.horizonradio.network.packets.SearchResultsPacket;
 import com.horizonradio.network.packets.ShuffleStatePacket;
+import com.horizonradio.network.packets.TrackSyncPacket;
 
 /** Server-authoritative playlist, playback, and late-join synchronization. */
 public final class PlaylistManager {
@@ -72,6 +73,7 @@ public final class PlaylistManager {
     private static final long NEXT_TRACK_DELAY_MS = 2000L;
     private static final long LATE_JOIN_TIMEOUT_MS = 3000L;
     private static final long PLAYBACK_SYNC_START_LEAD_MS = 2500L;
+    private static final long CLIENT_TRACK_START_DELAY_MS = 3000L;
     private static final int MAX_SEARCH_RESULTS = 10;
 
     private final MinecraftServer server;
@@ -98,6 +100,7 @@ public final class PlaylistManager {
     private ScheduledFuture<?> advanceFuture;
     private ScheduledFuture<?> progressFuture;
     private ScheduledFuture<?> syncTimeoutFuture;
+    private ScheduledFuture<?> trackStartFuture;
     private long radioSelectionRequest;
     private long radioLastSequence = -1L;
     private long musicGeneration;
@@ -466,8 +469,10 @@ public final class PlaylistManager {
         pendingChartDurationVideoId = null;
         cancelFuture(advanceFuture);
         cancelFuture(syncTimeoutFuture);
+        cancelFuture(trackStartFuture);
         advanceFuture = null;
         syncTimeoutFuture = null;
+        trackStartFuture = null;
         cancelActiveAudioDownload();
         for (String videoId : new HashSet<String>(preloadingAudio)) {
             audioDownloadService.cancelDownload(videoId);
@@ -747,9 +752,11 @@ public final class PlaylistManager {
                             pendingChartDurationVideoId = null;
                             state.updateCurrentTrackDuration(durationMs);
                             if (!isEmpty(state.getCurrentVideoId()) && !state.isPaused() && !state.isSyncing()) {
+                                long startAtMs = usesServerAudioRelay() ? 0L : state.getPlaybackStartTime();
                                 scheduleNextTrack(
                                     currentPositionMs(System.currentTimeMillis(), durationMs),
-                                    durationMs);
+                                    durationMs,
+                                    startAtMs);
                             }
                         }
                     });
@@ -1172,8 +1179,10 @@ public final class PlaylistManager {
         }
         cancelFuture(advanceFuture);
         cancelFuture(syncTimeoutFuture);
+        cancelFuture(trackStartFuture);
         advanceFuture = null;
         syncTimeoutFuture = null;
+        trackStartFuture = null;
         cancelActiveAudioDownload();
         for (String videoId : new HashSet<String>(preloadingAudio)) {
             audioDownloadService.cancelDownload(videoId);
@@ -1372,6 +1381,11 @@ public final class PlaylistManager {
         float progress = progressFor(elapsed, state.getCurrentTrackDurationMs());
         HorizonRadioNetwork.CHANNEL.sendTo(new NowPlayingPacket(entry.getTitle(), progress), player);
 
+        if (!usesServerAudioRelay()) {
+            sendClientTrackSync(player, entry);
+            return;
+        }
+
         if (state.isPaused()) {
             HorizonRadioNetwork.CHANNEL.sendTo(new PausePacket(state.getPausedPositionMs()), player);
             return;
@@ -1397,6 +1411,27 @@ public final class PlaylistManager {
 
         scheduleSyncTimeout();
         requestLateJoinAudio(player, playerUuid, entry, videoId);
+    }
+
+    private void sendClientTrackSync(EntityPlayerMP player, PlaylistEntry entry) {
+        String videoId = state.getCurrentVideoId();
+        if (player == null || entry == null || isEmpty(videoId)) {
+            return;
+        }
+        boolean paused = state.isPaused();
+        long positionMs = paused ? state.getPausedPositionMs() : 0L;
+        long startAtMs = paused ? 0L : state.getPlaybackStartTime();
+        HorizonRadioNetwork.CHANNEL
+            .sendTo(new TrackSyncPacket(musicGeneration, videoId, positionMs, startAtMs, paused), player);
+        LOGGER.info(
+            "[Debug][Server] Sent track sync for " + videoId
+                + " to "
+                + player.getCommandSenderName()
+                + (paused ? " (paused at " + positionMs + " ms)" : " (absolute start " + startAtMs + ")"));
+        sendChat(
+            player,
+            EnumChatFormatting.DARK_AQUA,
+            "[Server][Debug] Sync " + videoId + (paused ? " at " + positionMs + " ms (paused)." : "."));
     }
 
     public void onPlayerReady(EntityPlayerMP player, String videoId) {
@@ -1488,6 +1523,8 @@ public final class PlaylistManager {
         final long generation = ++musicGeneration;
         pendingChartDurationGeneration = -1L;
         pendingChartDurationVideoId = null;
+        cancelFuture(trackStartFuture);
+        trackStartFuture = null;
         cancelActiveAudioDownload();
         PlaylistEntry previousLastTrack = state.peekLastTrack();
         boolean queueChanged = false;
@@ -1540,6 +1577,10 @@ public final class PlaylistManager {
         final int selectedIndex = state.getCurrentIndex();
         if (!isKnownDuration(selectedEntry.getDuration())) {
             resolveChartDurationForCurrentTrack(generation, selectedEntry, selectedIndex);
+        }
+        if (!usesServerAudioRelay()) {
+            prepareClientTrack(generation, selectedEntry, selectedIndex);
+            return;
         }
         preloadAdjacentTracks();
         LOGGER.info("Requesting download for: " + selectedEntry.getTitle() + " (" + selectedEntry.getVideoId() + ")");
@@ -1629,7 +1670,49 @@ public final class PlaylistManager {
         });
     }
 
+    private void prepareClientTrack(final long generation, final PlaylistEntry entry, final int index) {
+        long startAtMs = System.currentTimeMillis() + CLIENT_TRACK_START_DELAY_MS;
+        state.startTrack(index, entry.getVideoId(), state.getCurrentTrackDurationMs(), startAtMs);
+        TrackSyncPacket packet = new TrackSyncPacket(generation, entry.getVideoId(), 0L, startAtMs, false);
+        for (EntityPlayerMP player : onlinePlayersSnapshot()) {
+            HorizonRadioNetwork.CHANNEL.sendTo(packet, player);
+        }
+        broadcastNowPlaying(entry.getTitle(), 0.0f);
+        debugServerChat("Prepare " + entry.getVideoId() + "; clients start in " + CLIENT_TRACK_START_DELAY_MS + " ms.");
+        cancelFuture(trackStartFuture);
+        trackStartFuture = scheduleServerTask(new Runnable() {
+
+            @Override
+            public void run() {
+                startClientTrack(generation, entry, index);
+            }
+        }, CLIENT_TRACK_START_DELAY_MS, TimeUnit.MILLISECONDS);
+    }
+
+    private void startClientTrack(long generation, PlaylistEntry entry, int index) {
+        if (!isCurrentMusicEntry(generation, entry, index)) {
+            return;
+        }
+        trackStartFuture = null;
+        if (state.isPaused()) {
+            debugServerChat("Start of " + entry.getVideoId() + " is paused by the playlist controller.");
+            return;
+        }
+        long now = System.currentTimeMillis();
+        long startAtMs = state.getPlaybackStartTime();
+        long durationMs = state.getCurrentTrackDurationMs();
+        debugServerChat("Start " + entry.getVideoId() + "; late clients catch up locally.");
+        broadcastNowPlaying(entry.getTitle(), progressFor(currentPositionMs(now, durationMs), durationMs));
+        if (isPendingChartDuration(generation, entry.getVideoId())) {
+            return;
+        }
+        scheduleNextTrack(0L, durationMs, startAtMs);
+    }
+
     private void preloadAdjacentTracks() {
+        if (!usesServerAudioRelay()) {
+            return;
+        }
         int nextIndex = state.getCurrentIndex() + 1;
         if (nextIndex >= 0 && nextIndex < state.size()) {
             preloadAudio(state.get(nextIndex));
@@ -1655,6 +1738,11 @@ public final class PlaylistManager {
     }
 
     private void cancelActiveAudioDownload() {
+        if (!usesServerAudioRelay()) {
+            activeAudioDownload = null;
+            activeAudioVideoId = null;
+            return;
+        }
         if (activeAudioVideoId != null) {
             audioDownloadService.cancelDownload(activeAudioVideoId);
         }
@@ -1663,6 +1751,9 @@ public final class PlaylistManager {
     }
 
     private void cancelPreloadsExcept(String keepFirst, String keepSecond) {
+        if (!usesServerAudioRelay()) {
+            return;
+        }
         for (String videoId : new HashSet<String>(preloadingAudio)) {
             if (!videoId.equals(keepFirst) && !videoId.equals(keepSecond)) {
                 audioDownloadService.cancelDownload(videoId);
@@ -2101,6 +2192,21 @@ public final class PlaylistManager {
         return players;
     }
 
+    private boolean usesServerAudioRelay() {
+        // The real Minecraft server uses client-local playback. The serverless
+        // branch keeps the legacy transfer path available to isolated tests
+        // that have no networked clients.
+        return server == null;
+    }
+
+    private void debugServerChat(String message) {
+        String safeMessage = safe(message);
+        LOGGER.info("[Debug][Server] " + safeMessage);
+        for (EntityPlayerMP player : onlinePlayersSnapshot()) {
+            sendChat(player, EnumChatFormatting.DARK_AQUA, "[Server][Debug] " + safeMessage);
+        }
+    }
+
     private ScheduledFuture<?> scheduleServerTask(final Runnable task, long delay, TimeUnit unit) {
         return scheduler.schedule(new Runnable() {
 
@@ -2242,6 +2348,7 @@ public final class PlaylistManager {
         cancelFuture(advanceFuture);
         cancelFuture(progressFuture);
         cancelFuture(syncTimeoutFuture);
+        cancelFuture(trackStartFuture);
         scheduler.shutdownNow();
         state.clear();
         LOGGER.info("HorizonRadio: Playlist manager shut down");

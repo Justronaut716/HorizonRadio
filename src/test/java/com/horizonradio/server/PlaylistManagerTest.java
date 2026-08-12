@@ -601,6 +601,17 @@ public class PlaylistManagerTest {
     }
 
     @Test
+    public void productionPlaybackPublishesAThreeSecondIdOnlyTrackSync() throws IOException {
+        String source = new String(
+            Files.readAllBytes(Paths.get("src/main/java/com/horizonradio/server/PlaylistManager.java")),
+            Charset.forName("UTF-8"));
+
+        assertTrue(source.contains("CLIENT_TRACK_START_DELAY_MS = 3000L"));
+        assertTrue(source.contains("new TrackSyncPacket("));
+        assertTrue(source.contains("startClientTrack"));
+    }
+
+    @Test
     public void chartBulkRequestKeepsEntriesBeyondTheNormalSongDurationLimit() throws Exception {
         FakeRadioBrowser browser = new FakeRadioBrowser(STATION_A);
         FakeRadioStream stream = new FakeRadioStream();

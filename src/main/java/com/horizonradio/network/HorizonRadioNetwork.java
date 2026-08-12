@@ -36,6 +36,7 @@ import com.horizonradio.network.packets.StopRadioPacket;
 import com.horizonradio.network.packets.ToggleLoopPacket;
 import com.horizonradio.network.packets.TogglePlaybackPacket;
 import com.horizonradio.network.packets.ToggleShufflePacket;
+import com.horizonradio.network.packets.TrackSyncPacket;
 
 import cpw.mods.fml.common.network.NetworkRegistry;
 import cpw.mods.fml.common.network.simpleimpl.SimpleNetworkWrapper;
@@ -150,6 +151,8 @@ public final class HorizonRadioNetwork {
             AudioChunkPacket.class,
             6,
             Side.CLIENT);
+        CHANNEL
+            .registerMessage(ClientboundMessageHandlers.TrackSyncHandler.class, TrackSyncPacket.class, 35, Side.CLIENT);
         CHANNEL.registerMessage(
             ClientboundMessageHandlers.NowPlayingHandler.class,
             NowPlayingPacket.class,

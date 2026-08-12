@@ -1,10 +1,15 @@
 package com.horizonradio.client;
 
 import java.io.File;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 import net.minecraft.client.Minecraft;
+import net.minecraft.util.ChatComponentText;
+import net.minecraft.util.EnumChatFormatting;
 
 import com.horizonradio.CommonProxy;
 import com.horizonradio.network.packets.AudioChunkPacket;
@@ -19,6 +24,8 @@ import com.horizonradio.network.packets.RadioSearchResultsPacket;
 import com.horizonradio.network.packets.RadioStatePacket;
 import com.horizonradio.network.packets.ResumePacket;
 import com.horizonradio.network.packets.SearchResultsPacket;
+import com.horizonradio.network.packets.TrackSyncPacket;
+import com.horizonradio.server.AudioDownloadService;
 
 import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.event.FMLInitializationEvent;
@@ -29,6 +36,8 @@ import cpw.mods.fml.common.gameevent.TickEvent;
 import cpw.mods.fml.common.network.FMLNetworkEvent;
 
 public class ClientProxy extends CommonProxy {
+
+    private static final Logger LOGGER = Logger.getLogger(ClientProxy.class.getName());
 
     interface ClientTaskScheduler {
 
@@ -45,6 +54,7 @@ public class ClientProxy extends CommonProxy {
     }
 
     private final ClientTaskScheduler clientTaskScheduler;
+    private static volatile ClientTaskScheduler activeClientTaskScheduler;
 
     public ClientProxy() {
         this(new MinecraftClientTaskScheduler());
@@ -55,6 +65,7 @@ public class ClientProxy extends CommonProxy {
             throw new IllegalArgumentException("client task scheduler is required");
         }
         this.clientTaskScheduler = clientTaskScheduler;
+        activeClientTaskScheduler = clientTaskScheduler;
     }
 
     @Override
@@ -63,6 +74,14 @@ public class ClientProxy extends CommonProxy {
         File configDirectory = event.getSuggestedConfigurationFile()
             .getParentFile();
         HorizonRadioClient.loadClientConfig(configDirectory);
+        try {
+            File audioDirectory = new File(
+                configDirectory == null ? new File(".") : configDirectory,
+                "horizonradio-audio");
+            HorizonRadioClient.setClientAudioDownloadService(new AudioDownloadService(audioDirectory.toPath()));
+        } catch (IOException exception) {
+            LOGGER.log(Level.WARNING, "HorizonRadio: Failed to initialise client audio cache", exception);
+        }
         HorizonRadioClient.setTransport(new HorizonRadioClient.ForgeClientTransport());
     }
 
@@ -177,6 +196,17 @@ public class ClientProxy extends CommonProxy {
     }
 
     @Override
+    public void handleTrackSync(final TrackSyncPacket packet) {
+        schedule(new Runnable() {
+
+            @Override
+            public void run() {
+                HorizonRadioClient.handleTrackSync(packet);
+            }
+        });
+    }
+
+    @Override
     public void handleNowPlaying(final NowPlayingPacket packet) {
         schedule(new Runnable() {
 
@@ -277,6 +307,25 @@ public class ClientProxy extends CommonProxy {
 
     private void schedule(Runnable task) {
         clientTaskScheduler.schedule(task);
+    }
+
+    static void sendDebugChat(String message) {
+        Minecraft minecraft = Minecraft.getMinecraft();
+        if (minecraft == null || minecraft.thePlayer == null) {
+            return;
+        }
+        minecraft.thePlayer.addChatMessage(
+            new ChatComponentText(
+                EnumChatFormatting.GRAY + "[HorizonRadio][Client] " + (message == null ? "" : message)));
+    }
+
+    static void scheduleOnClientThread(Runnable task) {
+        ClientTaskScheduler scheduler = activeClientTaskScheduler;
+        if (scheduler == null) {
+            task.run();
+        } else {
+            scheduler.schedule(task);
+        }
     }
 
     public static final class ClientEvents {
