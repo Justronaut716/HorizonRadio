@@ -12,11 +12,13 @@ import net.minecraft.util.ChatComponentText;
 import net.minecraft.util.EnumChatFormatting;
 
 import com.horizonradio.CommonProxy;
+import com.horizonradio.client.media.ClientMediaService;
 import com.horizonradio.network.packets.AudioChunkPacket;
 import com.horizonradio.network.packets.ChartAddCompletionPacket;
 import com.horizonradio.network.packets.ClockSyncResponsePacket;
 import com.horizonradio.network.packets.NowPlayingPacket;
 import com.horizonradio.network.packets.PausePacket;
+import com.horizonradio.network.packets.PlaylistDeltaPacket;
 import com.horizonradio.network.packets.PlaylistSyncPacket;
 import com.horizonradio.network.packets.RadioAudioChunkPacket;
 import com.horizonradio.network.packets.RadioAudioStartPacket;
@@ -26,6 +28,8 @@ import com.horizonradio.network.packets.ResumePacket;
 import com.horizonradio.network.packets.SearchResultsPacket;
 import com.horizonradio.network.packets.TrackSyncPacket;
 import com.horizonradio.server.AudioDownloadService;
+import com.horizonradio.server.RadioBrowserService;
+import com.horizonradio.server.YouTubeService;
 
 import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.event.FMLInitializationEvent;
@@ -78,8 +82,12 @@ public class ClientProxy extends CommonProxy {
             File audioDirectory = new File(
                 configDirectory == null ? new File(".") : configDirectory,
                 "horizonradio-audio");
-            HorizonRadioClient.setClientAudioDownloadService(new AudioDownloadService(audioDirectory.toPath()));
+            AudioDownloadService audioDownloadService = new AudioDownloadService(audioDirectory.toPath());
+            HorizonRadioClient.setClientAudioDownloadService(audioDownloadService);
+            HorizonRadioClient.setClientMediaService(
+                new ClientMediaService(new YouTubeService(), audioDownloadService, new RadioBrowserService()));
         } catch (IOException exception) {
+            HorizonRadioClient.setClientMediaService(null);
             LOGGER.log(Level.WARNING, "HorizonRadio: Failed to initialise client audio cache", exception);
         }
         HorizonRadioClient.setTransport(new HorizonRadioClient.ForgeClientTransport());
@@ -147,16 +155,18 @@ public class ClientProxy extends CommonProxy {
 
             @Override
             public void run() {
-                List<HorizonRadioScreen.PlaylistEntry> entries = new ArrayList<HorizonRadioScreen.PlaylistEntry>();
-                for (PlaylistSyncPacket.Entry entry : packet.getEntries()) {
-                    entries.add(
-                        new HorizonRadioScreen.PlaylistEntry(
-                            entry.getVideoId(),
-                            entry.getTitle(),
-                            entry.getDuration(),
-                            entry.getAddedBy()));
-                }
-                HorizonRadioClient.updatePlaylist(entries);
+                HorizonRadioClient.handlePlaylistSnapshot(packet);
+            }
+        });
+    }
+
+    @Override
+    public void handlePlaylistDelta(final PlaylistDeltaPacket packet) {
+        schedule(new Runnable() {
+
+            @Override
+            public void run() {
+                HorizonRadioClient.handlePlaylistDelta(packet);
             }
         });
     }

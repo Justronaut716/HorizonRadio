@@ -4,12 +4,24 @@ import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.BiConsumer;
 
 import com.horizonradio.client.audio.AudioPlayer;
 import com.horizonradio.client.audio.PlaybackClock;
+import com.horizonradio.client.media.ClientMediaService;
+import com.horizonradio.client.media.ClientMetadataCache;
+import com.horizonradio.HorizonRadio;
+import com.horizonradio.core.client.ClientQueueState;
+import com.horizonradio.core.config.HorizonRadioConfig;
+import com.horizonradio.core.model.DurationParser;
+import com.horizonradio.core.model.MediaSourceType;
+import com.horizonradio.core.model.PlaylistEntry;
+import com.horizonradio.core.model.RadioStation;
+import com.horizonradio.core.model.SearchResult;
 import com.horizonradio.core.server.ChartRegion;
 import com.horizonradio.core.server.ChartRegionCatalog;
 import com.horizonradio.network.HorizonRadioNetwork;
@@ -23,6 +35,9 @@ import com.horizonradio.network.packets.ClockSyncResponsePacket;
 import com.horizonradio.network.packets.ImportPlaylistPacket;
 import com.horizonradio.network.packets.ImportVideoPacket;
 import com.horizonradio.network.packets.PlayNowPacket;
+import com.horizonradio.network.packets.PlaylistDeltaPacket;
+import com.horizonradio.network.packets.PlaylistResyncRequestPacket;
+import com.horizonradio.network.packets.PlaylistSyncPacket;
 import com.horizonradio.network.packets.PreviousTrackPacket;
 import com.horizonradio.network.packets.RadioAudioChunkPacket;
 import com.horizonradio.network.packets.RadioAudioStartPacket;
@@ -66,6 +81,17 @@ public final class HorizonRadioClient {
     private static ClientTransport transport = new NoopClientTransport();
     private static HorizonRadioClientConfig clientConfig;
     private static AudioDownloadService clientAudioDownloadService;
+    private static ClientMediaService clientMediaService;
+    private static ClientMetadataCache clientMetadataCache;
+    private static boolean localDiscoveryConfigured;
+    private static final Set<String> requestedVideoMetadata = new HashSet<String>();
+    private static final Set<String> requestedStationMetadata = new HashSet<String>();
+    private static final ClientQueueState CLIENT_QUEUE = new ClientQueueState();
+    private static boolean playlistResyncRequested;
+    private static long searchGeneration;
+    private static long chartGeneration;
+    private static long importGeneration;
+    private static long radioSearchGeneration;
     private static String activeTrackVideoId;
     private static long activeTrackGeneration = -1L;
 
@@ -85,15 +111,42 @@ public final class HorizonRadioClient {
 
         void sendImportVideo(String videoUrl);
 
+        /** Compatibility transport seam; new callers use the ID/duration overload. */
         void sendAdd(String videoId, String title, String duration);
 
+        default void sendAdd(String videoId, long durationMs) {
+            sendAdd(videoId, videoId, formatDuration(durationMs));
+        }
+
+        /** Compatibility transport seam; new callers use the ID/duration overload. */
         void sendPlayNow(String videoId, String title, String duration);
+
+        default void sendPlayNow(String videoId, long durationMs) {
+            sendPlayNow(videoId, videoId, formatDuration(durationMs));
+        }
 
         void sendAddChartsToPlaylist(List<HorizonRadioScreen.SearchResult> results);
 
         default void sendAddChartsToPlaylist(List<HorizonRadioScreen.SearchResult> results, boolean remove) {
             sendAddChartsToPlaylist(results);
         }
+
+        default void sendAddChartSelections(List<PlaylistSelection> selections, boolean remove) {
+            List<HorizonRadioScreen.SearchResult> legacy = new ArrayList<HorizonRadioScreen.SearchResult>();
+            if (selections != null) {
+                for (PlaylistSelection selection : selections) {
+                    legacy.add(new HorizonRadioScreen.SearchResult(
+                        selection.videoId,
+                        selection.videoId,
+                        "",
+                        formatDuration(selection.durationMs),
+                        ""));
+                }
+            }
+            sendAddChartsToPlaylist(legacy, remove);
+        }
+
+        default void sendPlaylistResync(long knownRevision) {}
 
         void sendRemove(String videoId);
 
@@ -154,12 +207,22 @@ public final class HorizonRadioClient {
 
         @Override
         public void sendAdd(String videoId, String title, String duration) {
-            HorizonRadioNetwork.CHANNEL.sendToServer(new AddToPlaylistPacket(videoId, title, duration));
+            HorizonRadioNetwork.CHANNEL.sendToServer(new AddToPlaylistPacket(videoId, durationMillis(duration)));
+        }
+
+        @Override
+        public void sendAdd(String videoId, long durationMs) {
+            HorizonRadioNetwork.CHANNEL.sendToServer(new AddToPlaylistPacket(videoId, durationMs));
         }
 
         @Override
         public void sendPlayNow(String videoId, String title, String duration) {
-            HorizonRadioNetwork.CHANNEL.sendToServer(new PlayNowPacket(videoId, title, duration));
+            HorizonRadioNetwork.CHANNEL.sendToServer(new PlayNowPacket(videoId, durationMillis(duration)));
+        }
+
+        @Override
+        public void sendPlayNow(String videoId, long durationMs) {
+            HorizonRadioNetwork.CHANNEL.sendToServer(new PlayNowPacket(videoId, durationMs));
         }
 
         @Override
@@ -176,6 +239,22 @@ public final class HorizonRadioClient {
                 }
             }
             HorizonRadioNetwork.CHANNEL.sendToServer(new AddChartsToPlaylistPacket(entries, remove));
+        }
+
+        @Override
+        public void sendAddChartSelections(List<PlaylistSelection> selections, boolean remove) {
+            List<Entry> entries = new ArrayList<Entry>();
+            if (selections != null) {
+                for (PlaylistSelection selection : selections) {
+                    entries.add(new Entry(selection.videoId, selection.durationMs));
+                }
+            }
+            HorizonRadioNetwork.CHANNEL.sendToServer(new AddChartsToPlaylistPacket(entries, remove));
+        }
+
+        @Override
+        public void sendPlaylistResync(long knownRevision) {
+            HorizonRadioNetwork.CHANNEL.sendToServer(new PlaylistResyncRequestPacket(knownRevision));
         }
 
         @Override
@@ -326,8 +405,47 @@ public final class HorizonRadioClient {
         activeTrackGeneration = -1L;
     }
 
+    static synchronized void setClientMediaService(ClientMediaService service) {
+        clientMediaService = service;
+        clientMetadataCache = service == null ? null : new ClientMetadataCache(service);
+        localDiscoveryConfigured = true;
+        requestedVideoMetadata.clear();
+        requestedStationMetadata.clear();
+    }
+
     public static synchronized void sendSearch(String query) {
-        transport.sendSearch(query);
+        if (clientMediaService == null && !localDiscoveryConfigured) {
+            transport.sendSearch(query);
+            return;
+        }
+        if (clientMediaService == null) {
+            updateSearchResults(new ArrayList<HorizonRadioScreen.SearchResult>());
+            return;
+        }
+        final long generation = ++searchGeneration;
+        clientMediaService.search(query, maxTrackDurationMs())
+            .whenComplete(new BiConsumer<List<SearchResult>, Throwable>() {
+
+                @Override
+                public void accept(final List<SearchResult> results, final Throwable failure) {
+                    ClientProxy.scheduleOnClientThread(new Runnable() {
+
+                        @Override
+                        public void run() {
+                            synchronized (HorizonRadioClient.class) {
+                                if (generation != searchGeneration) {
+                                    return;
+                                }
+                                if (failure != null) {
+                                    showSearchError();
+                                } else {
+                                    updateSearchResults(toScreenResults(results));
+                                }
+                            }
+                        }
+                    });
+                }
+            });
     }
 
     public static synchronized void sendChartsRequest() {
@@ -343,7 +461,43 @@ public final class HorizonRadioClient {
         pendingChartRegionCode = canonicalRegionCode;
         lastRequestedChartRegionCode = canonicalRegionCode;
         chartRequestPending = true;
-        transport.sendChartsRequest(canonicalRegionCode, forceRefresh);
+        if (clientMediaService == null && !localDiscoveryConfigured) {
+            transport.sendChartsRequest(canonicalRegionCode, forceRefresh);
+            return;
+        }
+        if (clientMediaService == null) {
+            updateChartResults(new ArrayList<HorizonRadioScreen.SearchResult>(), canonicalRegionCode);
+            return;
+        }
+        ChartRegion region = ChartRegionCatalog.byCode(canonicalRegionCode);
+        if (region == null) {
+            updateChartResults(new ArrayList<HorizonRadioScreen.SearchResult>(), canonicalRegionCode);
+            return;
+        }
+        final long generation = ++chartGeneration;
+        clientMediaService.fetchCharts(region)
+            .whenComplete(new BiConsumer<List<SearchResult>, Throwable>() {
+
+                @Override
+                public void accept(final List<SearchResult> results, final Throwable failure) {
+                    ClientProxy.scheduleOnClientThread(new Runnable() {
+
+                        @Override
+                        public void run() {
+                            synchronized (HorizonRadioClient.class) {
+                                if (generation != chartGeneration) {
+                                    return;
+                                }
+                                if (failure != null) {
+                                    showChartError();
+                                } else {
+                                    updateChartResults(toScreenResults(results), canonicalRegionCode);
+                                }
+                            }
+                        }
+                    });
+                }
+            });
     }
 
     public static synchronized boolean isChartRequestPending() {
@@ -358,28 +512,104 @@ public final class HorizonRadioClient {
     }
 
     public static synchronized void sendImportPlaylist(String playlistUrl) {
-        transport.sendImportPlaylist(playlistUrl);
+        if (clientMediaService == null && !localDiscoveryConfigured) {
+            transport.sendImportPlaylist(playlistUrl);
+            return;
+        }
+        if (clientMediaService == null) {
+            updateSearchResults(new ArrayList<HorizonRadioScreen.SearchResult>());
+            return;
+        }
+        completeLocalImport(clientMediaService.importPlaylist(playlistUrl));
     }
 
     public static synchronized void sendImportVideo(String videoUrl) {
-        transport.sendImportVideo(videoUrl);
+        if (clientMediaService == null && !localDiscoveryConfigured) {
+            transport.sendImportVideo(videoUrl);
+            return;
+        }
+        if (clientMediaService == null) {
+            updateSearchResults(new ArrayList<HorizonRadioScreen.SearchResult>());
+            return;
+        }
+        final long generation = ++importGeneration;
+        clientMediaService.importVideo(videoUrl)
+            .whenComplete(new BiConsumer<SearchResult, Throwable>() {
+
+                @Override
+                public void accept(final SearchResult result, final Throwable failure) {
+                    ClientProxy.scheduleOnClientThread(new Runnable() {
+
+                        @Override
+                        public void run() {
+                            synchronized (HorizonRadioClient.class) {
+                                if (generation != importGeneration) {
+                                    return;
+                                }
+                                List<SearchResult> imported = new ArrayList<SearchResult>();
+                                if (failure == null && result != null) {
+                                    imported.add(result);
+                                }
+                                if (failure != null) {
+                                    showSearchError();
+                                } else {
+                                    updateSearchResults(toScreenResults(imported));
+                                }
+                            }
+                        }
+                    });
+                }
+            });
     }
 
+    public static synchronized void sendAdd(String videoId, long durationMs) {
+        if (isValidSelection(videoId, durationMs)) {
+            sendAddSelection(new PlaylistSelection(videoId, durationMs));
+        }
+    }
+
+    /** Compatibility overload retained for older GUI and transport tests. */
+    @Deprecated
     public static synchronized void sendAdd(String videoId, String title, String duration) {
-        transport.sendAdd(videoId, title, duration);
+        long durationMs = durationMillis(duration);
+        if (isValidSelection(videoId, durationMs)) {
+            PlaylistSelection selection = new PlaylistSelection(videoId, durationMs);
+            if (transport instanceof ForgeClientTransport) {
+                sendAddSelection(selection);
+            } else {
+                transport.sendAdd(videoId, title, duration);
+            }
+        }
     }
 
+    public static synchronized void sendPlayNow(String videoId, long durationMs) {
+        if (isValidSelection(videoId, durationMs)) {
+            sendPlayNowSelection(new PlaylistSelection(videoId, durationMs));
+        }
+    }
+
+    /** Compatibility overload retained for older GUI and transport tests. */
+    @Deprecated
     public static synchronized void sendPlayNow(String videoId, String title, String duration) {
-        transport.sendPlayNow(videoId, title, duration);
+        long durationMs = durationMillis(duration);
+        if (isValidSelection(videoId, durationMs)) {
+            PlaylistSelection selection = new PlaylistSelection(videoId, durationMs);
+            if (transport instanceof ForgeClientTransport) {
+                sendPlayNowSelection(selection);
+            } else {
+                transport.sendPlayNow(videoId, title, duration);
+            }
+        }
     }
 
-    public static synchronized void sendAddChartsToPlaylist(List<HorizonRadioScreen.SearchResult> results) {
-        sendAddChartsToPlaylist(results, false);
+    public static synchronized void sendAddChartsToPlaylist(List<?> selections) {
+        sendAddChartsToPlaylist(selections, false);
     }
 
-    public static synchronized void sendAddChartsToPlaylist(List<HorizonRadioScreen.SearchResult> results,
+    public static synchronized void sendAddChartsToPlaylist(List<?> selections,
         boolean remove) {
-        transport.sendAddChartsToPlaylist(results, remove);
+        List<PlaylistSelection> mapped = toPlaylistSelections(selections);
+        transport.sendAddChartSelections(mapped, remove);
     }
 
     public static synchronized void sendRemove(String videoId) {
@@ -431,7 +661,38 @@ public final class HorizonRadioClient {
     }
 
     public static synchronized void sendRadioSearch(String query) {
-        transport.sendRadioSearch(query);
+        if (clientMediaService == null && !localDiscoveryConfigured) {
+            transport.sendRadioSearch(query);
+            return;
+        }
+        if (clientMediaService == null) {
+            updateRadioStations(null);
+            return;
+        }
+        final long generation = ++radioSearchGeneration;
+        clientMediaService.searchRadio(query)
+            .whenComplete(new BiConsumer<List<RadioStation>, Throwable>() {
+
+                @Override
+                public void accept(final List<RadioStation> stations, final Throwable failure) {
+                    ClientProxy.scheduleOnClientThread(new Runnable() {
+
+                        @Override
+                        public void run() {
+                            synchronized (HorizonRadioClient.class) {
+                                if (generation != radioSearchGeneration) {
+                                    return;
+                                }
+                                if (failure != null) {
+                                    showRadioError();
+                                } else {
+                                    updateRadioStations(stations);
+                                }
+                            }
+                        }
+                    });
+                }
+            });
     }
 
     public static synchronized void sendSelectRadio(String stationUuid) {
@@ -551,6 +812,39 @@ public final class HorizonRadioClient {
         if (screen != null) {
             screen.updatePlaylist(CACHED_PLAYLIST);
         }
+    }
+
+    public static synchronized void handlePlaylistSnapshot(PlaylistSyncPacket packet) {
+        if (packet == null) {
+            return;
+        }
+        List<PlaylistEntry> entries = new ArrayList<PlaylistEntry>();
+        for (PlaylistSyncPacket.Entry entry : packet.getEntries()) {
+            entries.add(PlaylistEntry.of(entry.getSourceType(), entry.getSourceId(), 0L, entry.getAddedBy()));
+        }
+        CLIENT_QUEUE.applySnapshot(packet.getQueueRevision(), packet.isShuffling(), packet.isLooping(), entries);
+        playlistResyncRequested = false;
+        cachedShuffling = CLIENT_QUEUE.isShuffling();
+        cachedLooping = CLIENT_QUEUE.isLooping();
+        refreshCachedPlaylistFromQueue();
+        updateShuffling(cachedShuffling);
+        updateLooping(cachedLooping);
+    }
+
+    public static synchronized void handlePlaylistDelta(PlaylistDeltaPacket packet) {
+        if (CLIENT_QUEUE.applyDelta(packet)) {
+            refreshCachedPlaylistFromQueue();
+            return;
+        }
+        requestPlaylistResync();
+    }
+
+    public static synchronized void requestPlaylistResync() {
+        if (!CLIENT_QUEUE.isSnapshotRequired() || playlistResyncRequested) {
+            return;
+        }
+        playlistResyncRequested = true;
+        transport.sendPlaylistResync(CLIENT_QUEUE.getRevision());
     }
 
     public static synchronized void completeChartAdds(List<String> videoIds) {
@@ -778,6 +1072,12 @@ public final class HorizonRadioClient {
         cachedShuffling = false;
         cachedRadioActive = false;
         cachedRadioState = null;
+        CLIENT_QUEUE.applySnapshot(0L, false, false, new ArrayList<PlaylistEntry>());
+        playlistResyncRequested = false;
+        searchGeneration++;
+        chartGeneration++;
+        importGeneration++;
+        radioSearchGeneration++;
         AudioPlayer.getInstance()
             .stop();
         AudioPlayer.getInstance()
@@ -845,5 +1145,217 @@ public final class HorizonRadioClient {
         }
         ChartRegion region = ChartRegionCatalog.byCode(value.trim());
         return region == null ? fallback : region.getCode();
+    }
+
+    private static void completeLocalImport(CompletableFuture<List<SearchResult>> future) {
+        final long generation = ++importGeneration;
+        future.whenComplete(new BiConsumer<List<SearchResult>, Throwable>() {
+
+            @Override
+            public void accept(final List<SearchResult> results, final Throwable failure) {
+                ClientProxy.scheduleOnClientThread(new Runnable() {
+
+                    @Override
+                    public void run() {
+                        synchronized (HorizonRadioClient.class) {
+                            if (generation == importGeneration) {
+                                if (failure != null) {
+                                    showSearchError();
+                                } else {
+                                    updateSearchResults(toScreenResults(results));
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+        });
+    }
+
+    private static void refreshCachedPlaylistFromQueue() {
+        CACHED_PLAYLIST.clear();
+        for (PlaylistEntry entry : CLIENT_QUEUE.snapshot()) {
+            CACHED_PLAYLIST.add(toScreenPlaylistEntry(entry));
+        }
+        HorizonRadioScreen screen = getOpenScreen();
+        if (screen != null) {
+            screen.updatePlaylist(CACHED_PLAYLIST);
+        }
+    }
+
+    private static HorizonRadioScreen.PlaylistEntry toScreenPlaylistEntry(final PlaylistEntry entry) {
+        SearchResult video = null;
+        RadioStation station = null;
+        if (clientMetadataCache != null) {
+            if (entry.getSourceType() == MediaSourceType.YOUTUBE) {
+                video = clientMetadataCache.getVideo(entry.getSourceId());
+                requestVideoMetadata(entry.getSourceId());
+            } else {
+                station = clientMetadataCache.getStation(entry.getSourceId());
+                requestStationMetadata(entry.getSourceId());
+            }
+        }
+        return new HorizonRadioScreen.PlaylistEntry(
+            entry.getSourceType(), entry.getSourceId(), entry.getAddedBy(), video, station);
+    }
+
+    private static void requestVideoMetadata(final String sourceId) {
+        if (!requestedVideoMetadata.add(sourceId)) {
+            return;
+        }
+        clientMetadataCache.video(sourceId)
+            .whenComplete(new BiConsumer<SearchResult, Throwable>() {
+
+                @Override
+                public void accept(SearchResult ignored, Throwable failure) {
+                    ClientProxy.scheduleOnClientThread(new Runnable() {
+
+                        @Override
+                        public void run() {
+                            synchronized (HorizonRadioClient.class) {
+                                refreshCachedPlaylistFromQueue();
+                            }
+                        }
+                    });
+                }
+            });
+    }
+
+    private static void requestStationMetadata(final String sourceId) {
+        if (!requestedStationMetadata.add(sourceId)) {
+            return;
+        }
+        clientMetadataCache.station(sourceId)
+            .whenComplete(new BiConsumer<RadioStation, Throwable>() {
+
+                @Override
+                public void accept(RadioStation ignored, Throwable failure) {
+                    ClientProxy.scheduleOnClientThread(new Runnable() {
+
+                        @Override
+                        public void run() {
+                            synchronized (HorizonRadioClient.class) {
+                                refreshCachedPlaylistFromQueue();
+                            }
+                        }
+                    });
+                }
+            });
+    }
+
+    private static List<HorizonRadioScreen.SearchResult> toScreenResults(List<SearchResult> results) {
+        List<HorizonRadioScreen.SearchResult> converted = new ArrayList<HorizonRadioScreen.SearchResult>();
+        if (results != null) {
+            for (SearchResult result : results) {
+                if (result != null) {
+                    converted.add(new HorizonRadioScreen.SearchResult(
+                        result.getVideoId(), result.getTitle(), result.getChannel(), result.getDuration(), result.getThumbnail()));
+                }
+            }
+        }
+        return converted;
+    }
+
+    private static void updateRadioStations(List<RadioStation> stations) {
+        List<HorizonRadioScreen.RadioStationResult> results = new ArrayList<HorizonRadioScreen.RadioStationResult>();
+        if (stations != null) {
+            for (RadioStation station : stations) {
+                if (station != null) {
+                    results.add(new HorizonRadioScreen.RadioStationResult(station.getStationUuid(), station.getName()));
+                }
+            }
+        }
+        HorizonRadioScreen screen = getOpenScreen();
+        if (screen != null) {
+            screen.updateRadioResults(results);
+        }
+    }
+
+    private static void showSearchError() {
+        HorizonRadioScreen screen = getOpenScreen();
+        if (screen != null) {
+            screen.showSearchError();
+        }
+    }
+
+    private static void showChartError() {
+        chartRequestPending = false;
+        HorizonRadioScreen screen = getOpenScreen();
+        if (screen != null) {
+            screen.showChartError();
+        }
+    }
+
+    private static void showRadioError() {
+        HorizonRadioScreen screen = getOpenScreen();
+        if (screen != null) {
+            screen.showRadioError();
+        }
+    }
+
+    private static List<PlaylistSelection> toPlaylistSelections(List<?> selections) {
+        List<PlaylistSelection> mapped = new ArrayList<PlaylistSelection>();
+        if (selections == null) {
+            return mapped;
+        }
+        for (Object selection : selections) {
+            if (selection instanceof PlaylistSelection) {
+                PlaylistSelection item = (PlaylistSelection) selection;
+                if (isValidSelection(item.videoId, item.durationMs)) {
+                    mapped.add(item);
+                }
+            } else if (selection instanceof HorizonRadioScreen.SearchResult) {
+                HorizonRadioScreen.SearchResult result = (HorizonRadioScreen.SearchResult) selection;
+                long durationMs = durationMillis(result.duration);
+                if (isValidSelection(result.videoId, durationMs)) {
+                    mapped.add(new PlaylistSelection(result.videoId, durationMs));
+                }
+            }
+        }
+        return mapped;
+    }
+
+    private static void sendAddSelection(PlaylistSelection selection) {
+        transport.sendAdd(selection.videoId, selection.durationMs);
+    }
+
+    private static void sendPlayNowSelection(PlaylistSelection selection) {
+        transport.sendPlayNow(selection.videoId, selection.durationMs);
+    }
+
+    private static boolean isValidSelection(String videoId, long durationMs) {
+        return videoId != null && videoId.trim().length() > 0 && durationMs >= 0L;
+    }
+
+    private static long maxTrackDurationMs() {
+        int minutes = HorizonRadio.getConfig() == null ? HorizonRadioConfig.DEFAULT_MAX_TRACK_DURATION_MINUTES
+            : HorizonRadio.getConfig().getMaxTrackDurationMinutes();
+        return (long) minutes * 60L * 1000L;
+    }
+
+    private static long durationMillis(String duration) {
+        return DurationParser.parseMillisStrict(duration);
+    }
+
+    private static String formatDuration(long durationMs) {
+        if (durationMs <= 0L) {
+            return "";
+        }
+        long seconds = durationMs / 1000L;
+        return seconds / 60L + ":" + (seconds % 60L < 10L ? "0" : "") + seconds % 60L;
+    }
+
+    static final class PlaylistSelection {
+
+        final String videoId;
+        final long durationMs;
+
+        PlaylistSelection(String videoId, long durationMs) {
+            if (!isValidSelection(videoId, durationMs)) {
+                throw new IllegalArgumentException("playlist selection requires an ID and finite duration");
+            }
+            this.videoId = videoId;
+            this.durationMs = durationMs;
+        }
     }
 }
