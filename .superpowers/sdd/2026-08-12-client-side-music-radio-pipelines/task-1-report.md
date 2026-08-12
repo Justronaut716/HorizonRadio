@@ -36,3 +36,33 @@ Implementation commit: `1e15f2f3bbe249de903b73556f8d31cd0e6444f5` (`refactor: mo
 ## Concerns
 
 The deprecated accessors remain temporarily for callers that will be migrated by later protocol/client tasks. They derive compatibility values from the new source-aware fields and do not participate in equality or `toString()`.
+
+## Fix round 1 report
+
+### Changed files
+
+- `src/main/java/com/horizonradio/core/model/PlaylistEntry.java`
+- `src/main/java/com/horizonradio/core/server/PlaylistState.java`
+- `src/test/java/com/horizonradio/core/server/PlaylistStateTest.java`
+
+### Findings addressed
+
+- Immediate playback and queue shuffle now each count as exactly one accepted queue mutation.
+- Server queue insertion rejects finite entries with non-positive duration, and finite track start rejects non-positive duration.
+- Added the required public `PlaylistEntry(MediaSourceType, String, long, String)` constructor and uses it in the radio-duration regression test.
+- Legacy ownership removal now only matches YouTube entries.
+
+### Exact verification commands and outputs
+
+1. `GRADLE_USER_HOME=/tmp/horizonradio-gradle ./gradlew test --tests com.horizonradio.core.model.MediaSourceTypeTest --tests com.horizonradio.core.server.PlaylistStateTest`
+   - Output: `BUILD SUCCESSFUL in 4s`; `13 actionable tasks: 3 executed, 10 up-to-date`.
+2. `git diff --check`
+   - Output: no output; exit code `0`.
+
+### Commit
+
+- `c7bed3a3ead5edc651c11b50e42fc6b838a13d51` — `fix: address task 1 review findings`
+
+### Concerns
+
+- The focused covering tests pass. The full suite was not rerun for this review round; the server-side rejection intentionally changes behavior for unresolved finite entries, as required by the review and Task 1 semantics.
