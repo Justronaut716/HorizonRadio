@@ -15,10 +15,58 @@ import java.util.UUID;
 import org.junit.Test;
 
 import com.horizonradio.core.model.PlaylistEntry;
+import com.horizonradio.core.model.MediaSourceType;
 import com.horizonradio.network.packets.AudioChunkPacket;
 import com.horizonradio.server.PlaylistManager;
 
 public class PlaylistStateTest {
+
+    @Test
+    public void constructsFiniteAndRadioEntriesWithSourceMetadata() {
+        PlaylistEntry finite = PlaylistEntry.youtube("video", 12_000L, "Alice");
+        PlaylistEntry radio = PlaylistEntry.radio("station", "Bob");
+
+        assertEquals(MediaSourceType.YOUTUBE, finite.getSourceType());
+        assertEquals("video", finite.getSourceId());
+        assertEquals(12_000L, finite.getDurationMs());
+        assertTrue(finite.isFinite());
+        assertFalse(finite.isRadio());
+        assertEquals(MediaSourceType.RADIO, radio.getSourceType());
+        assertEquals("station", radio.getSourceId());
+        assertEquals(0L, radio.getDurationMs());
+        assertFalse(radio.isFinite());
+        assertTrue(radio.isRadio());
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void rejectsNonZeroRadioDuration() {
+        PlaylistEntry.of(MediaSourceType.RADIO, "station", 1L, "Bob");
+    }
+
+    @Test
+    public void findsEntriesAndTracksRadioCurrentStateBySource() {
+        PlaylistState state = new PlaylistState(5);
+        state.add(PlaylistEntry.youtube("video", 12_000L, "Alice"));
+        state.add(PlaylistEntry.radio("station", "Bob"));
+
+        assertEquals(0, state.findIndex(MediaSourceType.YOUTUBE, "video"));
+        assertEquals(1, state.findIndex(MediaSourceType.RADIO, "station"));
+        state.startRadioTrack(1, "station");
+        assertEquals(MediaSourceType.RADIO, state.getCurrentSourceType());
+        assertEquals("station", state.getCurrentSourceId());
+        assertEquals(-1L, state.pausePlayback(0L, 0L));
+        assertEquals(-1L, state.seek(0L, 0L));
+    }
+
+    @Test
+    public void queueRevisionIncreasesOnlyWhenMarked() {
+        PlaylistState state = new PlaylistState(5);
+        assertEquals(0L, state.getQueueRevision());
+        state.markQueueMutation();
+        assertEquals(1L, state.getQueueRevision());
+        state.markQueueMutation();
+        assertEquals(2L, state.getQueueRevision());
+    }
 
     @Test
     public void rejectsEntriesBeyondConfiguredMaximum() {
