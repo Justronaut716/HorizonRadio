@@ -1,6 +1,9 @@
 package com.horizonradio.server;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.fail;
 
 import java.io.ByteArrayInputStream;
 import java.net.URL;
@@ -8,12 +11,16 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Map;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 
 import org.junit.Test;
 
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import com.horizonradio.client.media.ClientMediaService;
+import com.horizonradio.client.media.ClientMetadataCache;
+import com.horizonradio.core.model.SearchResult;
 import com.horizonradio.server.media.YouTubeMediaModels;
 import com.horizonradio.server.media.YouTubeMetadataResolver;
 
@@ -39,6 +46,30 @@ public class AudioDownloadMetadataTest {
                     .getAsString());
             assertEquals(1, http.calls);
             assertEquals(1, http.closedInputs);
+        } finally {
+            service.shutdown();
+            Files.deleteIfExists(directory);
+        }
+    }
+
+    @Test
+    public void productionMetadataFailureCompletesClientCacheLookupExceptionally() throws Exception {
+        Path directory = Files.createTempDirectory("horizonradio-client-metadata-failure");
+        AudioDownloadService service = new AudioDownloadService(
+            directory,
+            new NoopBackend(),
+            new YouTubeMetadataResolver(new FixtureHttp("{\"playabilityStatus\":{\"status\":\"ERROR\"}}")));
+        try {
+            ClientMetadataCache cache = new ClientMetadataCache(
+                new ClientMediaService(new YouTubeService(), service, new RadioBrowserService()));
+            try {
+                cache.video("dQw4w9WgXcQ").get(2, TimeUnit.SECONDS);
+                fail("expected production metadata failure");
+            } catch (ExecutionException expected) {
+                assertNotNull(expected.getCause());
+            }
+            assertFalse(cache.isVideoLoading("dQw4w9WgXcQ"));
+            assertNotNull(cache.getVideoError("dQw4w9WgXcQ"));
         } finally {
             service.shutdown();
             Files.deleteIfExists(directory);

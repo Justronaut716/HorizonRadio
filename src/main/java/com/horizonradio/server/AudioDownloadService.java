@@ -190,11 +190,17 @@ public class AudioDownloadService {
 
                     @Override
                     public SearchResult apply(String json) {
-                        return PlaylistImportService.parseVideo(json);
+                        SearchResult result = PlaylistImportService.parseVideo(json);
+                        if (result == null) {
+                            throw new IllegalStateException("YouTube video metadata could not be resolved");
+                        }
+                        return result;
                     }
                 });
         } catch (MediaException exception) {
-            return CompletableFuture.completedFuture(null);
+            CompletableFuture<SearchResult> failed = new CompletableFuture<SearchResult>();
+            failed.completeExceptionally(exception);
+            return failed;
         }
     }
 
