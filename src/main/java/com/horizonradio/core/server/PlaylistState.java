@@ -149,6 +149,7 @@ public final class PlaylistState {
         if (requested == null) {
             return null;
         }
+        validateServerQueueEntry(requested);
 
         int selectedIndex = findIndex(requested.getSourceType(), requested.getSourceId());
         PlaylistEntry selected = selectedIndex >= 0 ? playlist.get(selectedIndex) : requested;
@@ -199,10 +200,16 @@ public final class PlaylistState {
             return null;
         }
 
+        PlaylistEntry next = playlist.get(currentIndex);
+        if (next.isFinite() && durationMs <= 0L) {
+            currentIndex--;
+            throw new IllegalArgumentException("finite track duration must be positive");
+        }
+
         playing = true;
         paused = false;
         previousRestarted = false;
-        PlaylistEntry current = playlist.get(currentIndex);
+        PlaylistEntry current = next;
         currentSourceType = current.getSourceType();
         currentSourceId = current.getSourceId();
         playbackStartTime = 0L;
@@ -365,6 +372,7 @@ public final class PlaylistState {
         if (entry == null) {
             return;
         }
+        validateServerQueueEntry(entry);
         playlist.add(0, entry);
         markQueueMutation();
         if (currentIndex >= 0) {
@@ -552,6 +560,12 @@ public final class PlaylistState {
             || sourceType != playlist.get(index).getSourceType()
             || sourceId == null || !sourceId.equals(playlist.get(index).getSourceId())) {
             throw new IllegalArgumentException("current source does not match playlist entry");
+        }
+    }
+
+    private void validateServerQueueEntry(PlaylistEntry entry) {
+        if (entry.isFinite() && entry.getDurationMs() <= 0L) {
+            throw new IllegalArgumentException("finite queue entry duration must be positive");
         }
     }
 }

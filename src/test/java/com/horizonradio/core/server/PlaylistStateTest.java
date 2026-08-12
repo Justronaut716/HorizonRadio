@@ -56,6 +56,25 @@ public class PlaylistStateTest {
         state.startFiniteTrack(0, "video", 0L, 0L);
     }
 
+    @Test(expected = IllegalArgumentException.class)
+    public void rejectsZeroDurationFiniteEntryAtQueueFront() {
+        PlaylistState state = new PlaylistState(5);
+        state.addAtFront(PlaylistEntry.youtube("projection", 0L, "Alice"));
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void rejectsZeroDurationFiniteImmediatePromotion() {
+        PlaylistState state = new PlaylistState(5);
+        state.prepareImmediatePlayback(PlaylistEntry.youtube("projection", 0L, "Alice"));
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void rejectsNonPositiveFiniteAdvanceDuration() {
+        PlaylistState state = new PlaylistState(5);
+        state.add(PlaylistEntry.youtube("video", 1_000L, "Alice"));
+        state.advanceToNext(0L);
+    }
+
     @Test
     public void findsEntriesAndTracksRadioCurrentStateBySource() {
         PlaylistState state = new PlaylistState(5);
