@@ -708,11 +708,11 @@ public class HorizonRadioScreen extends GuiScreen {
             boolean charts = currentTab == CHARTS_TAB;
             if (charts && isChartsBulkButtonAt(panelLeft(), panelTop(), mouseX, mouseY)) {
                 if (areAllChartsInQueue()) {
-                    HorizonRadioClient.sendAddChartsToPlaylist(chartResults, true);
+                    HorizonRadioClient.sendAddChartsToPlaylist(toPlaylistSelections(chartResults), true);
                 } else {
                     List<SearchResult> request = beginChartAdd(chartResults);
                     if (!request.isEmpty()) {
-                        HorizonRadioClient.sendAddChartsToPlaylist(request);
+                        HorizonRadioClient.sendAddChartsToPlaylist(toPlaylistSelections(request));
                     }
                 }
                 return;
@@ -747,7 +747,7 @@ public class HorizonRadioScreen extends GuiScreen {
                         if (charts) {
                             List<SearchResult> request = beginChartAdd(Collections.singletonList(result));
                             if (!request.isEmpty()) {
-                                HorizonRadioClient.sendAddChartsToPlaylist(request);
+                                HorizonRadioClient.sendAddChartsToPlaylist(toPlaylistSelections(request));
                             }
                         } else {
                             sendResultToQueue(result, false);
@@ -755,7 +755,7 @@ public class HorizonRadioScreen extends GuiScreen {
                     }
                     return;
                 }
-                HorizonRadioClient.sendPlayNow(result.videoId, result.title, result.duration);
+                playResultNow(result);
                 currentTab = PLAYLIST_TAB;
                 return;
             }
@@ -891,7 +891,7 @@ public class HorizonRadioScreen extends GuiScreen {
             if (shouldSendReorder) {
                 HorizonRadioClient.sendReorder(fromIndex, targetIndex);
             } else if (shouldPlay && clickedEntry.isFinite()) {
-                HorizonRadioClient.sendPlayNow(clickedEntry.sourceId, clickedEntry.displayTitle(), clickedEntry.displayDuration());
+                HorizonRadioClient.sendPlayNow(clickedEntry.sourceId, clickedEntry.durationMs);
             }
         }
         if (volumeSlider != null) {
@@ -1776,11 +1776,45 @@ public class HorizonRadioScreen extends GuiScreen {
     }
 
     private void sendResultToQueue(SearchResult result, boolean charts) {
-        if (charts) {
-            HorizonRadioClient.sendAddChartsToPlaylist(Collections.singletonList(result));
-        } else {
-            HorizonRadioClient.sendAdd(result.videoId, result.title, result.duration);
+        if (result == null) {
+            return;
         }
+        long durationMs = DurationParser.parseMillisStrict(result.duration);
+        if (durationMs < 0L) {
+            return;
+        }
+        if (charts) {
+            HorizonRadioClient.sendAddChartsToPlaylist(toPlaylistSelections(Collections.singletonList(result)));
+        } else {
+            HorizonRadioClient.sendAdd(result.videoId, durationMs);
+        }
+    }
+
+    private void playResultNow(SearchResult result) {
+        if (result == null) {
+            return;
+        }
+        long durationMs = DurationParser.parseMillisStrict(result.duration);
+        if (durationMs >= 0L) {
+            HorizonRadioClient.sendPlayNow(result.videoId, durationMs);
+        }
+    }
+
+    private static List<HorizonRadioClient.PlaylistSelection> toPlaylistSelections(List<SearchResult> results) {
+        List<HorizonRadioClient.PlaylistSelection> selections = new ArrayList<HorizonRadioClient.PlaylistSelection>();
+        if (results == null) {
+            return selections;
+        }
+        for (SearchResult result : results) {
+            if (result == null) {
+                continue;
+            }
+            long durationMs = DurationParser.parseMillisStrict(result.duration);
+            if (durationMs >= 0L) {
+                selections.add(new HorizonRadioClient.PlaylistSelection(result.videoId, durationMs));
+            }
+        }
+        return selections;
     }
 
     private String chartRegionDisplayName() {

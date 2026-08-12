@@ -290,7 +290,7 @@ public class GuiLayoutTest {
     }
 
     @Test
-    public void chartsSearchSendsCanonicalRegionForGermanAlias() {
+    public void chartsSearchUsesCanonicalRegionWithoutDiscoveryTransport() {
         TestScreen screen = new TestScreen();
         screen.setScreenSize(300, 285);
         try {
@@ -300,8 +300,9 @@ public class GuiLayoutTest {
 
             screen.invokeSearchAction();
 
-            assertEquals("DE", transport.chartRegionCode);
-            assertTrue(HorizonRadioClient.isChartRequestPending());
+            assertEquals("DE", screen.getChartRegionCode());
+            assertFalse(HorizonRadioClient.isChartRequestPending());
+            assertEquals(0, transport.chartRequestCount);
         } finally {
             HorizonRadioScreen.clearActiveScreen(screen);
         }
@@ -368,7 +369,7 @@ public class GuiLayoutTest {
     }
 
     @Test
-    public void refreshButtonSendsOneForceRequestWhilePendingAndReenablesOnResults() {
+    public void unavailableChartRefreshDoesNotUseDiscoveryTransport() {
         TestScreen screen = new TestScreen();
         screen.setScreenSize(300, 285);
         try {
@@ -378,20 +379,16 @@ public class GuiLayoutTest {
             assertEquals(0, transport.forceChartsRequestCount);
             screen.setSearchText("Germany");
             screen.invokeSearchAction();
-            assertEquals(1, transport.chartRequestCount);
-            assertFalse(screen.refreshButton().enabled);
-
-            HorizonRadioClient.updateChartResults(new ArrayList<HorizonRadioScreen.SearchResult>(), "DE");
             assertFalse(HorizonRadioClient.isChartRequestPending());
             assertTrue(screen.refreshButton().enabled);
 
             screen.invokeRefreshAction();
             screen.invokeRefreshAction();
 
-            assertEquals(2, transport.chartRequestCount);
-            assertEquals(1, transport.forceChartsRequestCount);
-            assertTrue(HorizonRadioClient.isChartRequestPending());
-            assertFalse(screen.refreshButton().enabled);
+            assertEquals(0, transport.chartRequestCount);
+            assertEquals(0, transport.forceChartsRequestCount);
+            assertFalse(HorizonRadioClient.isChartRequestPending());
+            assertTrue(screen.refreshButton().enabled);
 
             HorizonRadioClient.updateChartResults(new ArrayList<HorizonRadioScreen.SearchResult>());
             assertFalse(HorizonRadioClient.isChartRequestPending());
@@ -433,18 +430,13 @@ public class GuiLayoutTest {
     }
 
     @Test
-    public void chartRequestRemainsPendingUntilTerminalResultsArrive() {
+    public void unavailableChartRequestCompletesWithoutTransport() {
         HorizonRadioClient.sendChartsRequest(true);
-
-        assertTrue(HorizonRadioClient.isChartRequestPending());
-        assertFalse(
-            HorizonRadioScreen.shouldEnableChartRefreshButton(false, HorizonRadioClient.isChartRequestPending()));
-
-        HorizonRadioClient.updateChartResults(new ArrayList<HorizonRadioScreen.SearchResult>());
 
         assertFalse(HorizonRadioClient.isChartRequestPending());
         assertTrue(
             HorizonRadioScreen.shouldEnableChartRefreshButton(false, HorizonRadioClient.isChartRequestPending()));
+        assertEquals(0, transport.chartRequestCount);
     }
 
     @Test
@@ -506,13 +498,8 @@ public class GuiLayoutTest {
     }
 
     @Test
-    public void clientTransportExposesAllTemporaryNoopOperations() {
-        HorizonRadioClient.sendSearch("lofi");
-        HorizonRadioClient.sendChartsRequest();
-        HorizonRadioClient.sendChartsRequest(true);
+    public void clientTransportExposesOnlyServerBoundOperations() {
         HorizonRadioClient.sendAddChartsToPlaylist(new ArrayList<HorizonRadioScreen.SearchResult>());
-        HorizonRadioClient.sendImportPlaylist("https://youtu.be/video?list=PLtest");
-        HorizonRadioClient.sendImportVideo("https://youtu.be/video");
         HorizonRadioClient.sendAdd("abc", "Song", "3:21");
         HorizonRadioClient.sendPlayNow("abc", "Song", "3:21");
         HorizonRadioClient.sendRemove("abc");
@@ -526,11 +513,11 @@ public class GuiLayoutTest {
         HorizonRadioClient.sendToggleLoop();
         HorizonRadioClient.sendToggleShuffle();
 
-        assertEquals("lofi", transport.searchQuery);
-        assertTrue(transport.chartsRequest);
-        assertTrue(transport.forceChartsRequest);
-        assertEquals("https://youtu.be/video?list=PLtest", transport.importPlaylistUrl);
-        assertEquals("https://youtu.be/video", transport.importVideoUrl);
+        assertNull(transport.searchQuery);
+        assertFalse(transport.chartsRequest);
+        assertFalse(transport.forceChartsRequest);
+        assertNull(transport.importPlaylistUrl);
+        assertNull(transport.importVideoUrl);
         assertEquals("abc|Song|3:21", transport.addRequest);
         assertEquals("abc|Song|3:21", transport.playNowRequest);
         assertTrue(transport.addChartsRequest);
@@ -613,7 +600,7 @@ public class GuiLayoutTest {
 
         screen.click(50, 77);
 
-        assertEquals("video|Song|2:00", transport.playNowRequest);
+        assertEquals("video|120000", transport.playNowRequest);
         assertTrue(screen.isPlaylistTab());
         assertNull(transport.addRequest);
         assertFalse(transport.addChartsRequest);
@@ -630,7 +617,7 @@ public class GuiLayoutTest {
 
         screen.click(50, 75);
 
-        assertEquals("video|Song|2:00", transport.playNowRequest);
+        assertEquals("video|120000", transport.playNowRequest);
         assertTrue(screen.isPlaylistTab());
         assertFalse(transport.stopRadio);
     }
@@ -651,7 +638,7 @@ public class GuiLayoutTest {
 
         screen.release(50, 52);
 
-        assertEquals("video|Song|2:00", transport.playNowRequest);
+        assertEquals("video|120000", transport.playNowRequest);
         assertNull(transport.removedVideoId);
         assertNull(transport.reorderRequest);
         assertFalse(transport.stopRadio);
@@ -689,7 +676,7 @@ public class GuiLayoutTest {
         screen.click(50, 52);
         screen.release(50, 52);
 
-        assertEquals("current|Current|2:00", transport.playNowRequest);
+        assertEquals("current|120000", transport.playNowRequest);
         assertNull(transport.reorderRequest);
 
         transport.playNowRequest = null;
@@ -709,15 +696,15 @@ public class GuiLayoutTest {
         screen.selectRadioTab();
 
         assertTrue(screen.isRadioTab());
-        assertEquals("", transport.radioSearchQuery);
+        assertNull(transport.radioSearchQuery);
 
         screen.initialize();
         screen.selectRadioTab();
         screen.setSearchText("jazz");
         screen.invokeSearchAction();
 
-        assertEquals("jazz", transport.radioSearchQuery);
-        assertTrue(screen.isRadioLoading());
+        assertNull(transport.radioSearchQuery);
+        assertFalse(screen.isRadioLoading());
     }
 
     @Test
@@ -1297,8 +1284,18 @@ public class GuiLayoutTest {
         }
 
         @Override
+        public void sendAdd(String videoId, long durationMs) {
+            addRequest = videoId + "|" + durationMs;
+        }
+
+        @Override
         public void sendPlayNow(String videoId, String title, String duration) {
             playNowRequest = videoId + "|" + title + "|" + duration;
+        }
+
+        @Override
+        public void sendPlayNow(String videoId, long durationMs) {
+            playNowRequest = videoId + "|" + durationMs;
         }
 
         @Override

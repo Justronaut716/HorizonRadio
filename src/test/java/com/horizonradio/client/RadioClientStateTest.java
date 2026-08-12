@@ -117,12 +117,12 @@ public class RadioClientStateTest {
     }
 
     @Test
-    public void radioActionsDelegateToConfiguredTransport() {
+    public void onlyRadioPlaybackActionsDelegateToConfiguredTransport() {
         HorizonRadioClient.sendRadioSearch("ambient");
         HorizonRadioClient.sendSelectRadio("station-uuid");
         HorizonRadioClient.sendStopRadio();
 
-        assertEquals("ambient", transport.radioSearchQuery);
+        assertNull(transport.radioSearchQuery);
         assertEquals("station-uuid", transport.selectedRadioUuid);
         assertTrue(transport.stopRadio);
     }

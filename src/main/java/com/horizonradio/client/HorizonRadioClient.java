@@ -83,14 +83,12 @@ public final class HorizonRadioClient {
     private static AudioDownloadService clientAudioDownloadService;
     private static ClientMediaService clientMediaService;
     private static ClientMetadataCache clientMetadataCache;
-    private static boolean localDiscoveryConfigured;
     private static final Set<String> requestedVideoMetadata = new HashSet<String>();
     private static final Set<String> requestedStationMetadata = new HashSet<String>();
     private static final ClientQueueState CLIENT_QUEUE = new ClientQueueState();
     private static boolean playlistResyncRequested;
-    private static long searchGeneration;
+    private static long searchTabDiscoveryGeneration;
     private static long chartGeneration;
-    private static long importGeneration;
     private static long radioSearchGeneration;
     private static String activeTrackVideoId;
     private static long activeTrackGeneration = -1L;
@@ -408,21 +406,16 @@ public final class HorizonRadioClient {
     static synchronized void setClientMediaService(ClientMediaService service) {
         clientMediaService = service;
         clientMetadataCache = service == null ? null : new ClientMetadataCache(service);
-        localDiscoveryConfigured = true;
         requestedVideoMetadata.clear();
         requestedStationMetadata.clear();
     }
 
     public static synchronized void sendSearch(String query) {
-        if (clientMediaService == null && !localDiscoveryConfigured) {
-            transport.sendSearch(query);
-            return;
-        }
         if (clientMediaService == null) {
             updateSearchResults(new ArrayList<HorizonRadioScreen.SearchResult>());
             return;
         }
-        final long generation = ++searchGeneration;
+        final long generation = ++searchTabDiscoveryGeneration;
         clientMediaService.search(query, maxTrackDurationMs())
             .whenComplete(new BiConsumer<List<SearchResult>, Throwable>() {
 
@@ -433,7 +426,7 @@ public final class HorizonRadioClient {
                         @Override
                         public void run() {
                             synchronized (HorizonRadioClient.class) {
-                                if (generation != searchGeneration) {
+                                if (generation != searchTabDiscoveryGeneration) {
                                     return;
                                 }
                                 if (failure != null) {
@@ -461,10 +454,6 @@ public final class HorizonRadioClient {
         pendingChartRegionCode = canonicalRegionCode;
         lastRequestedChartRegionCode = canonicalRegionCode;
         chartRequestPending = true;
-        if (clientMediaService == null && !localDiscoveryConfigured) {
-            transport.sendChartsRequest(canonicalRegionCode, forceRefresh);
-            return;
-        }
         if (clientMediaService == null) {
             updateChartResults(new ArrayList<HorizonRadioScreen.SearchResult>(), canonicalRegionCode);
             return;
@@ -512,10 +501,6 @@ public final class HorizonRadioClient {
     }
 
     public static synchronized void sendImportPlaylist(String playlistUrl) {
-        if (clientMediaService == null && !localDiscoveryConfigured) {
-            transport.sendImportPlaylist(playlistUrl);
-            return;
-        }
         if (clientMediaService == null) {
             updateSearchResults(new ArrayList<HorizonRadioScreen.SearchResult>());
             return;
@@ -524,15 +509,11 @@ public final class HorizonRadioClient {
     }
 
     public static synchronized void sendImportVideo(String videoUrl) {
-        if (clientMediaService == null && !localDiscoveryConfigured) {
-            transport.sendImportVideo(videoUrl);
-            return;
-        }
         if (clientMediaService == null) {
             updateSearchResults(new ArrayList<HorizonRadioScreen.SearchResult>());
             return;
         }
-        final long generation = ++importGeneration;
+        final long generation = ++searchTabDiscoveryGeneration;
         clientMediaService.importVideo(videoUrl)
             .whenComplete(new BiConsumer<SearchResult, Throwable>() {
 
@@ -543,7 +524,7 @@ public final class HorizonRadioClient {
                         @Override
                         public void run() {
                             synchronized (HorizonRadioClient.class) {
-                                if (generation != importGeneration) {
+                                if (generation != searchTabDiscoveryGeneration) {
                                     return;
                                 }
                                 List<SearchResult> imported = new ArrayList<SearchResult>();
@@ -661,10 +642,6 @@ public final class HorizonRadioClient {
     }
 
     public static synchronized void sendRadioSearch(String query) {
-        if (clientMediaService == null && !localDiscoveryConfigured) {
-            transport.sendRadioSearch(query);
-            return;
-        }
         if (clientMediaService == null) {
             updateRadioStations(null);
             return;
@@ -1074,9 +1051,8 @@ public final class HorizonRadioClient {
         cachedRadioState = null;
         CLIENT_QUEUE.applySnapshot(0L, false, false, new ArrayList<PlaylistEntry>());
         playlistResyncRequested = false;
-        searchGeneration++;
+        searchTabDiscoveryGeneration++;
         chartGeneration++;
-        importGeneration++;
         radioSearchGeneration++;
         AudioPlayer.getInstance()
             .stop();
@@ -1148,7 +1124,7 @@ public final class HorizonRadioClient {
     }
 
     private static void completeLocalImport(CompletableFuture<List<SearchResult>> future) {
-        final long generation = ++importGeneration;
+        final long generation = ++searchTabDiscoveryGeneration;
         future.whenComplete(new BiConsumer<List<SearchResult>, Throwable>() {
 
             @Override
@@ -1158,7 +1134,7 @@ public final class HorizonRadioClient {
                     @Override
                     public void run() {
                         synchronized (HorizonRadioClient.class) {
-                            if (generation == importGeneration) {
+                            if (generation == searchTabDiscoveryGeneration) {
                                 if (failure != null) {
                                     showSearchError();
                                 } else {
