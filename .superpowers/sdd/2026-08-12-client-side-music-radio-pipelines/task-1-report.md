@@ -31,7 +31,7 @@ Pre-existing untracked documents were not staged or modified.
 
 ## Commits
 
-The implementation commit is recorded after this report is staged; its hash is included in the final handoff.
+Implementation commit: `1e15f2f3bbe249de903b73556f8d31cd0e6444f5` (`refactor: model playlist sources explicitly`).
 
 ## Concerns
 
