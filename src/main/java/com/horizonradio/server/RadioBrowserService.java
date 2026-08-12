@@ -183,7 +183,7 @@ public class RadioBrowserService {
         return null;
     }
 
-    static RadioStation sanitizeForPublication(RadioStation station) {
+    public static RadioStation sanitizeForPublication(RadioStation station) {
         if (station == null) {
             return null;
         }
