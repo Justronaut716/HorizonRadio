@@ -18,6 +18,7 @@ import com.horizonradio.network.packets.ChartAddCompletionPacket;
 import com.horizonradio.network.packets.ClockSyncResponsePacket;
 import com.horizonradio.network.packets.NowPlayingPacket;
 import com.horizonradio.network.packets.PausePacket;
+import com.horizonradio.network.packets.PlaylistDeltaPacket;
 import com.horizonradio.network.packets.PlaylistSyncPacket;
 import com.horizonradio.network.packets.RadioAudioChunkPacket;
 import com.horizonradio.network.packets.RadioAudioStartPacket;
@@ -233,6 +234,8 @@ public class CommonProxy {
     public void handleChartResults(SearchResultsPacket packet) {}
 
     public void handlePlaylistSync(PlaylistSyncPacket packet) {}
+
+    public void handlePlaylistDelta(PlaylistDeltaPacket packet) {}
 
     public void handleChartAddCompletion(ChartAddCompletionPacket packet) {}
 

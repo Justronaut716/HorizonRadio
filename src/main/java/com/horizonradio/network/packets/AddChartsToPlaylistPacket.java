@@ -43,9 +43,8 @@ public class AddChartsToPlaylistPacket implements IMessage {
         buf.writeBoolean(remove);
         PacketBufferUtil.writeCount(buf, entries.size());
         for (Entry entry : entries) {
-            PacketBufferUtil.writeString(buf, entry.videoId);
-            PacketBufferUtil.writeString(buf, entry.title);
-            PacketBufferUtil.writeString(buf, entry.duration);
+            PacketBufferUtil.writeString(buf, entry.videoId, PlaylistSyncPacket.MAX_SOURCE_ID_BYTES);
+            buf.writeLong(entry.durationMs);
         }
     }
 
@@ -60,34 +59,55 @@ public class AddChartsToPlaylistPacket implements IMessage {
         for (int index = 0; index < count; index++) {
             entries.add(
                 new Entry(
-                    PacketBufferUtil.readString(buf),
-                    PacketBufferUtil.readString(buf),
-                    PacketBufferUtil.readString(buf)));
+                    PacketBufferUtil.readString(buf, PlaylistSyncPacket.MAX_SOURCE_ID_BYTES),
+                    buf.readLong()));
         }
     }
 
     public static final class Entry {
 
         private final String videoId;
-        private final String title;
-        private final String duration;
+        private final long durationMs;
 
-        public Entry(String videoId, String title, String duration) {
+        public Entry(String videoId, long durationMs) {
+            if (videoId == null || videoId.trim().isEmpty() || durationMs < 0L) {
+                throw new IllegalArgumentException("invalid chart playlist entry");
+            }
             this.videoId = videoId;
-            this.title = title;
-            this.duration = duration;
+            this.durationMs = durationMs;
+        }
+
+        /** Compatibility adapter; title is intentionally discarded. */
+        @Deprecated
+        public Entry(String videoId, String title, String duration) {
+            this(videoId, parseDuration(duration));
         }
 
         public String getVideoId() {
             return videoId;
         }
 
-        public String getTitle() {
-            return title;
+        public long getDurationMs() {
+            return durationMs;
         }
 
         public String getDuration() {
-            return duration;
+            return formatDuration(durationMs);
+        }
+
+        @Deprecated
+        public String getTitle() {
+            return "";
+        }
+
+        private static long parseDuration(String duration) {
+            long parsed = com.horizonradio.core.model.DurationParser.parseMillisStrict(duration);
+            return parsed < 0L ? 0L : parsed;
+        }
+
+        private static String formatDuration(long durationMs) {
+            long seconds = durationMs / 1000L;
+            return seconds / 60L + ":" + (seconds % 60L < 10L ? "0" : "") + seconds % 60L;
         }
     }
 }

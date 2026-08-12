@@ -6,6 +6,7 @@ import static org.junit.Assert.assertTrue;
 
 import org.junit.Test;
 
+import com.horizonradio.core.model.MediaSourceType;
 import com.horizonradio.network.packets.TrackSyncPacket;
 
 import io.netty.buffer.ByteBuf;
@@ -14,12 +15,13 @@ import io.netty.buffer.Unpooled;
 public class TrackSyncPacketTest {
 
     @Test
-    public void roundTripKeepsOnlyTheMinimalTrackSyncFields() {
-        TrackSyncPacket original = new TrackSyncPacket(17L, "video-id", 1_250L, 9_000L, false);
+    public void youtubeRoundTripKeepsFiniteTimingFields() {
+        TrackSyncPacket original = TrackSyncPacket.youtube(17L, "video-id", 1_250L, 9_000L, false);
         TrackSyncPacket decoded = roundTrip(original);
 
+        assertEquals(MediaSourceType.YOUTUBE, decoded.getSourceType());
         assertEquals(17L, decoded.getGeneration());
-        assertEquals("video-id", decoded.getVideoId());
+        assertEquals("video-id", decoded.getSourceId());
         assertEquals(1_250L, decoded.getPositionMs());
         assertEquals(9_000L, decoded.getStartAtMs());
         assertFalse(decoded.isPaused());
@@ -27,7 +29,7 @@ public class TrackSyncPacketTest {
 
     @Test
     public void pausedLateJoinCarriesPositionWithoutAStartTimestamp() {
-        TrackSyncPacket packet = new TrackSyncPacket(18L, "video-id", 42_000L, 0L, true);
+        TrackSyncPacket packet = TrackSyncPacket.youtube(18L, "video-id", 42_000L, 0L, true);
 
         assertTrue(packet.isPaused());
         assertEquals(42_000L, packet.getPositionMs());
@@ -36,7 +38,29 @@ public class TrackSyncPacketTest {
 
     @Test(expected = IllegalArgumentException.class)
     public void rejectsNegativeTrackPosition() {
-        new TrackSyncPacket(1L, "video-id", -1L, 2L, false);
+        TrackSyncPacket.youtube(1L, "video-id", -1L, 2L, false);
+    }
+
+    @Test
+    public void radioTrackSyncHasNoFiniteTimingFields() {
+        TrackSyncPacket packet = TrackSyncPacket.radio(4L, "station-id");
+        ByteBuf buffer = Unpooled.buffer();
+        packet.toBytes(buffer);
+        assertEquals(20, buffer.readableBytes());
+        TrackSyncPacket decoded = new TrackSyncPacket();
+        decoded.fromBytes(buffer);
+
+        assertEquals(MediaSourceType.RADIO, decoded.getSourceType());
+        assertEquals("station-id", decoded.getSourceId());
+        assertEquals(4L, decoded.getGeneration());
+        assertEquals(0L, decoded.getPositionMs());
+        assertEquals(0L, decoded.getStartAtMs());
+        assertFalse(decoded.isPaused());
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void rejectsRadioTrackSyncWithStartTime() {
+        new TrackSyncPacket(MediaSourceType.RADIO, "station-id", 4L, 0L, 1L, false);
     }
 
     private static TrackSyncPacket roundTrip(TrackSyncPacket original) {

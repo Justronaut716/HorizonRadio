@@ -15,6 +15,7 @@ import java.util.List;
 
 import org.junit.Test;
 
+import com.horizonradio.core.model.MediaSourceType;
 import com.horizonradio.network.packets.AddChartsToPlaylistPacket;
 import com.horizonradio.network.packets.AddToPlaylistPacket;
 import com.horizonradio.network.packets.AudioChunkPacket;
@@ -28,6 +29,7 @@ import com.horizonradio.network.packets.LoopStatePacket;
 import com.horizonradio.network.packets.NowPlayingPacket;
 import com.horizonradio.network.packets.PausePacket;
 import com.horizonradio.network.packets.PlayNowPacket;
+import com.horizonradio.network.packets.PlaylistResyncRequestPacket;
 import com.horizonradio.network.packets.PlaylistSyncPacket;
 import com.horizonradio.network.packets.PreviousTrackPacket;
 import com.horizonradio.network.packets.RadioAudioChunkPacket;
@@ -118,27 +120,25 @@ public class PacketRoundTripTest {
         SearchRequestPacket search = roundTrip(new SearchRequestPacket("café"), new SearchRequestPacket());
         assertEquals("café", search.getQuery());
 
-        AddToPlaylistPacket add = roundTrip(new AddToPlaylistPacket("id", "title", "3:21"), new AddToPlaylistPacket());
+        AddToPlaylistPacket add = roundTrip(new AddToPlaylistPacket("id", 201_000L), new AddToPlaylistPacket());
         assertEquals("id", add.getVideoId());
-        assertEquals("title", add.getTitle());
-        assertEquals("3:21", add.getDuration());
+        assertEquals(201_000L, add.getDurationMs());
 
-        PlayNowPacket playNow = roundTrip(new PlayNowPacket("id", "title", "3:21"), new PlayNowPacket());
+        PlayNowPacket playNow = roundTrip(new PlayNowPacket("id", 201_000L), new PlayNowPacket());
         assertEquals("id", playNow.getVideoId());
-        assertEquals("title", playNow.getTitle());
-        assertEquals("3:21", playNow.getDuration());
+        assertEquals(201_000L, playNow.getDurationMs());
         AddChartsToPlaylistPacket addCharts = roundTrip(
             new AddChartsToPlaylistPacket(
                 Arrays.asList(
-                    new AddChartsToPlaylistPacket.Entry("id", "title", ""),
-                    new AddChartsToPlaylistPacket.Entry("id-2", "title-2", "2:00"))),
+                    new AddChartsToPlaylistPacket.Entry("id", 0L),
+                    new AddChartsToPlaylistPacket.Entry("id-2", 120_000L))),
             new AddChartsToPlaylistPacket());
         assertEquals(
             2,
             addCharts.getEntries()
                 .size());
         AddChartsToPlaylistPacket removeCharts = roundTrip(
-            new AddChartsToPlaylistPacket(Arrays.asList(new AddChartsToPlaylistPacket.Entry("id", "title", "")), true),
+            new AddChartsToPlaylistPacket(Arrays.asList(new AddChartsToPlaylistPacket.Entry("id", 0L)), true),
             new AddChartsToPlaylistPacket());
         assertTrue(removeCharts.isRemove());
 
@@ -207,10 +207,27 @@ public class PacketRoundTripTest {
         assertEquals("GLOBAL", regionalChartResults.getChartRegionCode());
 
         List<PlaylistSyncPacket.Entry> entries = Arrays.asList(
-            new PlaylistSyncPacket.Entry("id-1", "One", "1:00", "Alice"),
-            new PlaylistSyncPacket.Entry("id-2", "Two", "2:00", "Bob"));
-        PlaylistSyncPacket playlist = roundTrip(new PlaylistSyncPacket(entries), new PlaylistSyncPacket());
+            new PlaylistSyncPacket.Entry(MediaSourceType.YOUTUBE, "id-1", "Alice"),
+            new PlaylistSyncPacket.Entry(MediaSourceType.RADIO, "station-id", "Bob"));
+        PlaylistSyncPacket playlist = roundTrip(new PlaylistSyncPacket(12L, true, false, entries), new PlaylistSyncPacket());
+        assertEquals(12L, playlist.getQueueRevision());
+        assertTrue(playlist.isShuffling());
+        assertFalse(playlist.isLooping());
         assertEquals(entries, playlist.getEntries());
+
+        ByteBuf snapshotBytes = Unpooled.buffer();
+        new PlaylistSyncPacket(
+            12L,
+            true,
+            false,
+            Arrays.asList(new PlaylistSyncPacket.Entry(MediaSourceType.RADIO, "station-id", "Alice")))
+                .toBytes(snapshotBytes);
+        assertEquals(29, snapshotBytes.readableBytes());
+
+        PlaylistResyncRequestPacket resync = roundTrip(
+            new PlaylistResyncRequestPacket(12L),
+            new PlaylistResyncRequestPacket());
+        assertEquals(12L, resync.getKnownRevision());
 
         List<String> completedChartIds = Arrays.asList("chart-1", "chart-2");
         ChartAddCompletionPacket chartCompletion = roundTrip(
@@ -449,6 +466,7 @@ public class PacketRoundTripTest {
         assertTrue(source.contains("HorizonRadio.proxy.handleRadioState(message)"));
         assertTrue(source.contains("HorizonRadio.proxy.handleRadioAudioStart(message)"));
         assertTrue(source.contains("HorizonRadio.proxy.handleRadioAudioChunk(message)"));
+        assertTrue(source.contains("HorizonRadio.proxy.handlePlaylistDelta(message)"));
     }
 
     @Test
@@ -459,6 +477,7 @@ public class PacketRoundTripTest {
         assertTrue(source.contains("hook.handleRadioSearch(player, message.getQuery())"));
         assertTrue(source.contains("hook.handleSelectRadio(player, message.getStationUuid())"));
         assertTrue(source.contains("hook.handleStopRadio(player)"));
+        assertTrue(source.contains("hook.handlePlaylistResyncRequest(player, message.getKnownRevision())"));
     }
 
     @Test
@@ -479,6 +498,8 @@ public class PacketRoundTripTest {
         assertTrue(source.contains("ChartAddCompletionPacket.class, 32, Side.CLIENT"));
         assertTrue(source.contains("ClockSyncRequestPacket.class, 33, Side.SERVER"));
         assertTrue(source.contains("ClockSyncResponsePacket.class, 34, Side.CLIENT"));
+        assertTrue(source.contains("PlaylistDeltaPacket.class, 36, Side.CLIENT"));
+        assertTrue(source.contains("PlaylistResyncRequestPacket.class, 37, Side.SERVER"));
     }
 
     private static <T extends cpw.mods.fml.common.network.simpleimpl.IMessage> T roundTrip(T source, T target) {

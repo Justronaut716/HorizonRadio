@@ -14,6 +14,8 @@ import com.horizonradio.network.packets.LoopStatePacket;
 import com.horizonradio.network.packets.NowPlayingPacket;
 import com.horizonradio.network.packets.PausePacket;
 import com.horizonradio.network.packets.PlayNowPacket;
+import com.horizonradio.network.packets.PlaylistDeltaPacket;
+import com.horizonradio.network.packets.PlaylistResyncRequestPacket;
 import com.horizonradio.network.packets.PlaylistSyncPacket;
 import com.horizonradio.network.packets.PreviousTrackPacket;
 import com.horizonradio.network.packets.RadioAudioChunkPacket;
@@ -146,6 +148,16 @@ public final class HorizonRadioNetwork {
             PlaylistSyncPacket.class,
             5,
             Side.CLIENT);
+        CHANNEL.registerMessage(
+            ClientboundMessageHandlers.PlaylistDeltaHandler.class,
+            PlaylistDeltaPacket.class,
+            36,
+            Side.CLIENT);
+        CHANNEL.registerMessage(
+            ServerMessageHandlers.PlaylistResyncRequestHandler.class,
+            PlaylistResyncRequestPacket.class,
+            37,
+            Side.SERVER);
         CHANNEL.registerMessage(
             ClientboundMessageHandlers.AudioChunkHandler.class,
             AudioChunkPacket.class,

@@ -13,6 +13,7 @@ import com.horizonradio.network.packets.ClockSyncResponsePacket;
 import com.horizonradio.network.packets.ImportPlaylistPacket;
 import com.horizonradio.network.packets.ImportVideoPacket;
 import com.horizonradio.network.packets.PlayNowPacket;
+import com.horizonradio.network.packets.PlaylistResyncRequestPacket;
 import com.horizonradio.network.packets.PreviousTrackPacket;
 import com.horizonradio.network.packets.RadioSearchRequestPacket;
 import com.horizonradio.network.packets.ReadyPacket;
@@ -100,6 +101,8 @@ public final class ServerMessageHandlers {
         void handleSelectRadio(EntityPlayerMP player, String stationUuid);
 
         void handleStopRadio(EntityPlayerMP player);
+
+        default void handlePlaylistResyncRequest(EntityPlayerMP player, long knownRevision) {}
     }
 
     private static final class NoOpServerPacketHook implements ServerPacketHook {
@@ -327,6 +330,25 @@ public final class ServerMessageHandlers {
                     @Override
                     public void run() {
                         hook.handleAdd(player, message.getVideoId(), message.getTitle(), message.getDuration());
+                    }
+                });
+            }
+            return null;
+        }
+    }
+
+    public static final class PlaylistResyncRequestHandler
+        implements IMessageHandler<PlaylistResyncRequestPacket, IMessage> {
+
+        @Override
+        public IMessage onMessage(final PlaylistResyncRequestPacket message, final MessageContext context) {
+            final EntityPlayerMP player = player(context);
+            if (player != null) {
+                schedule(new Runnable() {
+
+                    @Override
+                    public void run() {
+                        hook.handlePlaylistResyncRequest(player, message.getKnownRevision());
                     }
                 });
             }

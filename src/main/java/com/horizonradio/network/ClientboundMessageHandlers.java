@@ -7,6 +7,7 @@ import com.horizonradio.network.packets.ClockSyncResponsePacket;
 import com.horizonradio.network.packets.LoopStatePacket;
 import com.horizonradio.network.packets.NowPlayingPacket;
 import com.horizonradio.network.packets.PausePacket;
+import com.horizonradio.network.packets.PlaylistDeltaPacket;
 import com.horizonradio.network.packets.PlaylistSyncPacket;
 import com.horizonradio.network.packets.RadioAudioChunkPacket;
 import com.horizonradio.network.packets.RadioAudioStartPacket;
@@ -43,6 +44,15 @@ public final class ClientboundMessageHandlers {
         @Override
         public IMessage onMessage(PlaylistSyncPacket message, MessageContext context) {
             HorizonRadio.proxy.handlePlaylistSync(message);
+            return null;
+        }
+    }
+
+    public static final class PlaylistDeltaHandler implements IMessageHandler<PlaylistDeltaPacket, IMessage> {
+
+        @Override
+        public IMessage onMessage(PlaylistDeltaPacket message, MessageContext context) {
+            HorizonRadio.proxy.handlePlaylistDelta(message);
             return null;
         }
     }
