@@ -66,3 +66,29 @@ The deprecated accessors remain temporarily for callers that will be migrated by
 ### Concerns
 
 - The focused covering tests pass. The full suite was not rerun for this review round; the server-side rejection intentionally changes behavior for unresolved finite entries, as required by the review and Task 1 semantics.
+
+## Fix round 2 report
+
+### Changed files
+
+- `src/main/java/com/horizonradio/core/server/PlaylistState.java`
+- `src/test/java/com/horizonradio/core/server/PlaylistStateTest.java`
+
+### Finding addressed
+
+Added server-side positive-duration validation to every finite queue insertion or promotion path: `addAtFront`, `prepareImmediatePlayback`, and `advanceToNext`, while retaining zero-duration construction for client-side ID-only projections. Added focused regressions for each bypass.
+
+### Exact verification commands and outputs
+
+1. `GRADLE_USER_HOME=/tmp/horizonradio-gradle ./gradlew test --tests com.horizonradio.core.model.MediaSourceTypeTest --tests com.horizonradio.core.server.PlaylistStateTest`
+   - Output: `BUILD SUCCESSFUL in 2s`; `13 actionable tasks: 2 executed, 11 up-to-date`.
+2. `git diff --check`
+   - Output: no output; exit code `0`.
+
+### Commit
+
+- `ac88fc7df8ddb8cc6f0ea4146dfac160f51a4db2` — `fix: validate finite queue promotions`
+
+### Concerns
+
+- No remaining scoped concerns. Pre-existing untracked planning/spec documents remain untouched.
