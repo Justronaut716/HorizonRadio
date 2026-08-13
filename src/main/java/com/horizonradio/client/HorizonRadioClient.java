@@ -411,22 +411,43 @@ public final class HorizonRadioClient {
 
                 @Override
                 public void accept(final List<SearchResult> results, final Throwable failure) {
-                    ClientProxy.scheduleOnClientThread(new Runnable() {
+                    if (failure != null) {
+                        ClientProxy.scheduleOnClientThread(new Runnable() {
 
-                        @Override
-                        public void run() {
-                            synchronized (HorizonRadioClient.class) {
-                                if (generation != chartGeneration) {
-                                    return;
-                                }
-                                if (failure != null) {
-                                    showChartError();
-                                } else {
-                                    updateChartResults(toScreenResults(results), canonicalRegionCode);
+                            @Override
+                            public void run() {
+                                synchronized (HorizonRadioClient.class) {
+                                    if (generation == chartGeneration) {
+                                        showChartError();
+                                    }
                                 }
                             }
-                        }
-                    });
+                        });
+                        return;
+                    }
+                    resolveChartDurations(results)
+                        .whenComplete(new BiConsumer<List<SearchResult>, Throwable>() {
+
+                            @Override
+                            public void accept(final List<SearchResult> resolved, Throwable resolutionFailure) {
+                                ClientProxy.scheduleOnClientThread(new Runnable() {
+
+                                    @Override
+                                    public void run() {
+                                        synchronized (HorizonRadioClient.class) {
+                                            if (generation != chartGeneration) {
+                                                return;
+                                            }
+                                            if (resolutionFailure != null) {
+                                                showChartError();
+                                                return;
+                                            }
+                                            updateChartResults(toScreenResults(resolved), canonicalRegionCode);
+                                        }
+                                    }
+                                });
+                            }
+                        });
                 }
             });
     }
@@ -1444,6 +1465,76 @@ public final class HorizonRadioClient {
             }
         }
         return converted;
+    }
+
+    private static CompletableFuture<SearchResult> resolveChartDuration(final SearchResult chart) {
+        if (chart == null || durationMillis(chart.getDuration()) > 0L) {
+            return CompletableFuture.completedFuture(chart);
+        }
+        if (clientMetadataCache == null) {
+            return CompletableFuture.completedFuture(chartWithDuration(chart, "--:--"));
+        }
+        try {
+            CompletableFuture<SearchResult> lookup = clientMetadataCache.video(chart.getVideoId());
+            if (lookup == null) {
+                return CompletableFuture.completedFuture(chartWithDuration(chart, "--:--"));
+            }
+            if (lookup.isDone() && lookup.getNow(null) == null && !isYouTubeVideoId(chart.getVideoId())
+                && clientMediaService != null) {
+                return resolveChartDurationFromLookup(
+                    chart,
+                    clientMediaService.importVideo("https://www.youtube.com/watch?v=" + chart.getVideoId()));
+            }
+            return resolveChartDurationFromLookup(chart, lookup);
+        } catch (RuntimeException exception) {
+            return CompletableFuture.completedFuture(chartWithDuration(chart, "--:--"));
+        }
+    }
+
+    private static CompletableFuture<SearchResult> resolveChartDurationFromLookup(final SearchResult chart,
+        CompletableFuture<SearchResult> lookup) {
+        return lookup.handle(new BiFunction<SearchResult, Throwable, SearchResult>() {
+
+            @Override
+            public SearchResult apply(SearchResult metadata, Throwable failure) {
+                if (failure == null && metadata != null && durationMillis(metadata.getDuration()) > 0L) {
+                    return chartWithDuration(chart, metadata.getDuration());
+                }
+                return chartWithDuration(chart, "--:--");
+            }
+        });
+    }
+
+    private static CompletableFuture<List<SearchResult>> resolveChartDurations(List<SearchResult> charts) {
+        if (charts == null) {
+            return CompletableFuture.completedFuture(new ArrayList<SearchResult>());
+        }
+        final List<CompletableFuture<SearchResult>> resolved = new ArrayList<CompletableFuture<SearchResult>>();
+        for (SearchResult chart : charts) {
+            resolved.add(resolveChartDuration(chart));
+        }
+        CompletableFuture<?>[] futures = resolved.toArray(new CompletableFuture<?>[resolved.size()]);
+        return CompletableFuture.allOf(futures)
+            .thenApply(ignored -> {
+                List<SearchResult> enriched = new ArrayList<SearchResult>();
+                for (CompletableFuture<SearchResult> future : resolved) {
+                    enriched.add(future.getNow(null));
+                }
+                return enriched;
+            });
+    }
+
+    private static SearchResult chartWithDuration(SearchResult chart, String duration) {
+        return new SearchResult(
+            chart.getVideoId(),
+            chart.getTitle(),
+            chart.getChannel(),
+            duration,
+            chart.getThumbnail());
+    }
+
+    private static boolean isYouTubeVideoId(String videoId) {
+        return videoId != null && videoId.matches("[A-Za-z0-9_-]{11}");
     }
 
     public static synchronized void updateRadioSearchResults(List<RadioStation> stations) {
