@@ -131,22 +131,21 @@ public class PacketRoundTripTest {
             new PlaylistSyncPacket());
         assertEquals(12L, snapshot.getQueueRevision());
         assertEquals(entries, snapshot.getEntries());
-        assertEquals("station-id", snapshot.getEntries().get(1).getSourceId());
+        assertEquals(
+            "station-id",
+            snapshot.getEntries()
+                .get(1)
+                .getSourceId());
         ByteBuf snapshotBytes = Unpooled.buffer();
         new PlaylistSyncPacket(12L, true, false, entries).toBytes(snapshotBytes);
         assertEquals(43, snapshotBytes.readableBytes());
 
-        PlaylistDeltaPacket.Entry entry = new PlaylistDeltaPacket.Entry(
-            MediaSourceType.YOUTUBE,
-            "next-video",
-            "Carol");
+        PlaylistDeltaPacket.Entry entry = new PlaylistDeltaPacket.Entry(MediaSourceType.YOUTUBE, "next-video", "Carol");
         PlaylistDeltaPacket add = roundTrip(PlaylistDeltaPacket.add(13L, entry, 2), new PlaylistDeltaPacket());
         assertEquals(PlaylistDeltaPacket.Operation.ADD, add.getOperation());
         assertEquals(entry, add.getEntry());
         assertEquals(2, add.getIndex());
-        assertEquals(
-            3,
-            roundTrip(PlaylistDeltaPacket.remove(14L, 3), new PlaylistDeltaPacket()).getIndex());
+        assertEquals(3, roundTrip(PlaylistDeltaPacket.remove(14L, 3), new PlaylistDeltaPacket()).getIndex());
         PlaylistDeltaPacket move = roundTrip(PlaylistDeltaPacket.move(15L, 1, 4), new PlaylistDeltaPacket());
         assertEquals(1, move.getIndex());
         assertEquals(4, move.getTargetIndex());
@@ -155,11 +154,14 @@ public class PacketRoundTripTest {
             roundTrip(PlaylistDeltaPacket.clear(16L), new PlaylistDeltaPacket()).getOperation());
         assertEquals(
             entries.size(),
-            roundTrip(PlaylistDeltaPacket.replace(17L, Arrays.asList(
-                new PlaylistDeltaPacket.Entry(MediaSourceType.YOUTUBE, "video-id", "Alice"),
-                new PlaylistDeltaPacket.Entry(MediaSourceType.RADIO, "station-id", "Bob"))), new PlaylistDeltaPacket())
-                .getEntries()
-                .size());
+            roundTrip(
+                PlaylistDeltaPacket.replace(
+                    17L,
+                    Arrays.asList(
+                        new PlaylistDeltaPacket.Entry(MediaSourceType.YOUTUBE, "video-id", "Alice"),
+                        new PlaylistDeltaPacket.Entry(MediaSourceType.RADIO, "station-id", "Bob"))),
+                new PlaylistDeltaPacket()).getEntries()
+                    .size());
 
         TrackSyncPacket radio = roundTrip(TrackSyncPacket.radio(18L, "station-id"), new TrackSyncPacket());
         assertEquals(MediaSourceType.RADIO, radio.getSourceType());
@@ -169,7 +171,8 @@ public class PacketRoundTripTest {
         assertEquals(0L, radio.getStartAtMs());
         assertFalse(radio.isPaused());
         ByteBuf radioBytes = Unpooled.buffer();
-        TrackSyncPacket.radio(18L, "station-id").toBytes(radioBytes);
+        TrackSyncPacket.radio(18L, "station-id")
+            .toBytes(radioBytes);
         assertEquals(20, radioBytes.readableBytes());
     }
 
@@ -197,7 +200,11 @@ public class PacketRoundTripTest {
             2,
             addCharts.getEntries()
                 .size());
-        assertEquals("id", addCharts.getEntries().get(0).getTitle());
+        assertEquals(
+            "id",
+            addCharts.getEntries()
+                .get(0)
+                .getTitle());
         AddChartsToPlaylistPacket removeCharts = roundTrip(
             new AddChartsToPlaylistPacket(Arrays.asList(new AddChartsToPlaylistPacket.Entry("id", 1L)), true),
             new AddChartsToPlaylistPacket());

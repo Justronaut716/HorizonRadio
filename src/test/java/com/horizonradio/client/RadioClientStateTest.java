@@ -54,8 +54,8 @@ public class RadioClientStateTest {
 
     @Test
     public void radioStateIsClearedOnDisconnectCacheReset() {
-        HorizonRadioClient.updateRadioSearchResults(
-            Arrays.asList(new RadioStation("uuid", "Station", "", true, false)));
+        HorizonRadioClient
+            .updateRadioSearchResults(Arrays.asList(new RadioStation("uuid", "Station", "", true, false)));
         HorizonRadioClient.updateRadioPresentation(ClientRadioPresentation.active(3L, "uuid", "Station", "LIVE"));
 
         HorizonRadioClient.clearCache();
@@ -98,8 +98,8 @@ public class RadioClientStateTest {
 
     @Test
     public void radioResultsCacheReturnsDefensiveCopies() {
-        HorizonRadioClient.updateRadioSearchResults(
-            Arrays.asList(new RadioStation("uuid", "Station", "", true, false)));
+        HorizonRadioClient
+            .updateRadioSearchResults(Arrays.asList(new RadioStation("uuid", "Station", "", true, false)));
 
         List<RadioStation> results = HorizonRadioClient.getCachedRadioResults();
         results.clear();

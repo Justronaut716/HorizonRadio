@@ -70,7 +70,10 @@ public class PlaylistStateTest {
 
         assertEquals(before + 1L, state.getQueueRevision());
         assertEquals(1, state.size());
-        assertEquals("station-two", state.get(0).getSourceId());
+        assertEquals(
+            "station-two",
+            state.get(0)
+                .getSourceId());
         assertEquals(0, state.getCurrentIndex());
         assertEquals(MediaSourceType.RADIO, state.getCurrentSourceType());
     }
@@ -87,7 +90,10 @@ public class PlaylistStateTest {
         assertEquals(selected, state.get(0));
         assertEquals(-1, state.getCurrentIndex());
         assertFalse(state.isPlaying());
-        assertEquals("station", state.takeLastTrack().getSourceId());
+        assertEquals(
+            "station",
+            state.takeLastTrack()
+                .getSourceId());
     }
 
     @Test
@@ -119,7 +125,9 @@ public class PlaylistStateTest {
 
         state.clear();
 
-        assertTrue(state.snapshot().isEmpty());
+        assertTrue(
+            state.snapshot()
+                .isEmpty());
         assertFalse(state.isPlaying());
         assertFalse(state.isLooping());
         assertFalse(state.isShuffling());

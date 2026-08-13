@@ -2,6 +2,7 @@ package com.horizonradio.client;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
+
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
@@ -57,16 +58,23 @@ public class HorizonRadioClientDiscoveryTest {
             Files.readAllBytes(Paths.get("src/main/java/com/horizonradio/client/HorizonRadioClient.java")),
             Charset.forName("UTF-8"));
 
-        assertTrue(!methodBody(source, "public static synchronized void sendSearch(String query)")
-            .contains("transport.sendSearch"));
-        assertTrue(!methodBody(source, "public static synchronized void sendChartsRequest(String regionCode, boolean forceRefresh)")
-            .contains("transport.sendChartsRequest"));
-        assertTrue(!methodBody(source, "public static synchronized void sendImportPlaylist(String playlistUrl)")
-            .contains("transport.sendImportPlaylist"));
-        assertTrue(!methodBody(source, "public static synchronized void sendImportVideo(String videoUrl)")
-            .contains("transport.sendImportVideo"));
-        assertTrue(!methodBody(source, "public static synchronized void sendRadioSearch(String query)")
-            .contains("transport.sendRadioSearch"));
+        assertTrue(
+            !methodBody(source, "public static synchronized void sendSearch(String query)")
+                .contains("transport.sendSearch"));
+        assertTrue(
+            !methodBody(
+                source,
+                "public static synchronized void sendChartsRequest(String regionCode, boolean forceRefresh)")
+                    .contains("transport.sendChartsRequest"));
+        assertTrue(
+            !methodBody(source, "public static synchronized void sendImportPlaylist(String playlistUrl)")
+                .contains("transport.sendImportPlaylist"));
+        assertTrue(
+            !methodBody(source, "public static synchronized void sendImportVideo(String videoUrl)")
+                .contains("transport.sendImportVideo"));
+        assertTrue(
+            !methodBody(source, "public static synchronized void sendRadioSearch(String query)")
+                .contains("transport.sendRadioSearch"));
     }
 
     @Test
@@ -81,8 +89,8 @@ public class HorizonRadioClientDiscoveryTest {
             HorizonRadioClient.sendSearch("old search");
             HorizonRadioClient.sendImportPlaylist("https://example.test/playlist");
 
-            provider.importPlaylist.complete(
-                "{\"entries\":[{\"id\":\"import\",\"title\":\"Imported\",\"duration\":120}]}");
+            provider.importPlaylist
+                .complete("{\"entries\":[{\"id\":\"import\",\"title\":\"Imported\",\"duration\":120}]}");
             provider.search.complete(Collections.singletonList(result("search", "Old search")));
 
             assertEquals("import", searchResults(screen).get(0).videoId);
@@ -174,7 +182,8 @@ public class HorizonRadioClientDiscoveryTest {
         public Object invoke(Object proxy, Method method, Object[] arguments) {
             String name = method.getName();
             if ("sendSearch".equals(name) || "sendChartsRequest".equals(name)
-                || "sendImportPlaylist".equals(name) || "sendImportVideo".equals(name)
+                || "sendImportPlaylist".equals(name)
+                || "sendImportVideo".equals(name)
                 || "sendRadioSearch".equals(name)) {
                 discoveryCallCount++;
             }

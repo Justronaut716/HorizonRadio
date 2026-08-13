@@ -80,65 +80,66 @@ public class ClientProxy extends CommonProxy {
             AudioDownloadService audioDownloadService = new AudioDownloadService(audioDirectory.toPath());
             HorizonRadioClient.setClientAudioDownloadService(audioDownloadService);
             final ClientMediaService mediaService = new ClientMediaService(
-                new YouTubeService(), audioDownloadService, new RadioBrowserService());
+                new YouTubeService(),
+                audioDownloadService,
+                new RadioBrowserService());
             HorizonRadioClient.setClientMediaService(mediaService);
-            HorizonRadioClient.setClientRadioPlayback(
-                new ClientRadioPlayback(
-                    new ClientRadioPlayback.StationResolver() {
+            HorizonRadioClient
+                .setClientRadioPlayback(new ClientRadioPlayback(new ClientRadioPlayback.StationResolver() {
 
-                        @Override
-                        public CompletableFuture<RadioStation> lookup(String stationUuid) {
-                            return mediaService.lookupRadio(stationUuid);
-                        }
-                    },
-                    new ClientRadioPlayback.SessionFactory() {
+                    @Override
+                    public CompletableFuture<RadioStation> lookup(String stationUuid) {
+                        return mediaService.lookupRadio(stationUuid);
+                    }
+                }, new ClientRadioPlayback.SessionFactory() {
 
-                        @Override
-                        public RadioInputSession create(String streamUrl, RadioInputSession.RadioPcmListener listener) {
-                            return new RadioInputSession(streamUrl, listener);
-                        }
-                    },
-                    new ClientRadioPlayback.AudioSink() {
+                    @Override
+                    public RadioInputSession create(String streamUrl, RadioInputSession.RadioPcmListener listener) {
+                        return new RadioInputSession(streamUrl, listener);
+                    }
+                }, new ClientRadioPlayback.AudioSink() {
 
-                        @Override
-                        public boolean beginLocalRadioPcm(long generation) {
-                            return AudioPlayer.getInstance().beginLocalRadioPcm(generation);
-                        }
+                    @Override
+                    public boolean beginLocalRadioPcm(long generation) {
+                        return AudioPlayer.getInstance()
+                            .beginLocalRadioPcm(generation);
+                    }
 
-                        @Override
-                        public void bufferLocalRadioPcm(long generation, byte[] pcm) {
-                            AudioPlayer.getInstance().bufferLocalRadioPcm(generation, pcm);
-                        }
+                    @Override
+                    public void bufferLocalRadioPcm(long generation, byte[] pcm) {
+                        AudioPlayer.getInstance()
+                            .bufferLocalRadioPcm(generation, pcm);
+                    }
 
-                        @Override
-                        public void stopLocalRadioPcm() {
-                            AudioPlayer.getInstance().stopRadio();
-                        }
-                    },
-                    new ClientRadioPlayback.StatusListener() {
+                    @Override
+                    public void stopLocalRadioPcm() {
+                        AudioPlayer.getInstance()
+                            .stopRadio();
+                    }
+                }, new ClientRadioPlayback.StatusListener() {
 
-                        @Override
-                        public void onStarted(final long generation, final String stationUuid, final String stationName) {
-                            scheduleOnClientThread(new Runnable() {
+                    @Override
+                    public void onStarted(final long generation, final String stationUuid, final String stationName) {
+                        scheduleOnClientThread(new Runnable() {
 
-                                @Override
-                                public void run() {
-                                    HorizonRadioClient.handleLocalRadioStarted(generation, stationUuid, stationName);
-                                }
-                            });
-                        }
+                            @Override
+                            public void run() {
+                                HorizonRadioClient.handleLocalRadioStarted(generation, stationUuid, stationName);
+                            }
+                        });
+                    }
 
-                        @Override
-                        public void onFailure(final long generation, final String stationUuid, final String message) {
-                            scheduleOnClientThread(new Runnable() {
+                    @Override
+                    public void onFailure(final long generation, final String stationUuid, final String message) {
+                        scheduleOnClientThread(new Runnable() {
 
-                                @Override
-                                public void run() {
-                                    HorizonRadioClient.handleLocalRadioFailure(generation, stationUuid, message);
-                                }
-                            });
-                        }
-                    }));
+                            @Override
+                            public void run() {
+                                HorizonRadioClient.handleLocalRadioFailure(generation, stationUuid, message);
+                            }
+                        });
+                    }
+                }));
         } catch (IOException exception) {
             HorizonRadioClient.setClientMediaService(null);
             HorizonRadioClient.setClientRadioPlayback(null);

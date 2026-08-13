@@ -44,14 +44,18 @@ public class ClientMetadataCacheTest {
         assertEquals(expected, cache.getVideo("video-id"));
 
         CompletableFuture<RadioStation> failed = cache.station("station-id");
-        service.stationFutures.get("station-id").completeExceptionally(new IllegalStateException("offline"));
+        service.stationFutures.get("station-id")
+            .completeExceptionally(new IllegalStateException("offline"));
         try {
             failed.get();
         } catch (Exception expectedFailure) {
             // The failure remains local and is exposed through the cache state.
         }
         assertFalse(cache.isStationLoading("station-id"));
-        assertEquals("offline", cache.getStationError("station-id").getMessage());
+        assertEquals(
+            "offline",
+            cache.getStationError("station-id")
+                .getMessage());
     }
 
     private static final class FakeMediaService implements ClientMetadataCache.MetadataProvider {

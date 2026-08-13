@@ -157,7 +157,9 @@ public final class HorizonRadioConfig {
 
         FileOutputStream output = new FileOutputStream(new File(configDirectory, "horizonradio.json"));
         try {
-            output.write(new Gson().toJson(object).getBytes(Charset.forName("UTF-8")));
+            output.write(
+                new Gson().toJson(object)
+                    .getBytes(Charset.forName("UTF-8")));
         } finally {
             output.close();
         }

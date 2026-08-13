@@ -38,15 +38,27 @@ public final class ClientRadioPresentation {
         return new ClientRadioPresentation(false, generation, stationUuid, stationName, status, stalled);
     }
 
-    public boolean isActive() { return active; }
+    public boolean isActive() {
+        return active;
+    }
 
-    public long getGeneration() { return generation; }
+    public long getGeneration() {
+        return generation;
+    }
 
-    public String getStationUuid() { return stationUuid; }
+    public String getStationUuid() {
+        return stationUuid;
+    }
 
-    public String getStationName() { return stationName; }
+    public String getStationName() {
+        return stationName;
+    }
 
-    public String getStatus() { return status; }
+    public String getStatus() {
+        return status;
+    }
 
-    public boolean isMusicMode() { return musicMode; }
+    public boolean isMusicMode() {
+        return musicMode;
+    }
 }

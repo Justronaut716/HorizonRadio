@@ -91,7 +91,9 @@ public class PlaylistSyncPacket implements IMessage {
         if (entry == null) {
             throw new IllegalArgumentException("playlist entry must not be null");
         }
-        buf.writeByte(entry.getSourceType().getWireValue());
+        buf.writeByte(
+            entry.getSourceType()
+                .getWireValue());
         PacketBufferUtil.writeString(buf, entry.getSourceId(), MAX_SOURCE_ID_BYTES);
         PacketBufferUtil.writeString(buf, entry.getAddedBy(), MAX_ADDED_BY_BYTES);
     }
@@ -129,7 +131,10 @@ public class PlaylistSyncPacket implements IMessage {
         private final String addedBy;
 
         public Entry(MediaSourceType sourceType, String sourceId, String addedBy) {
-            if (sourceType == null || sourceId == null || sourceId.trim().isEmpty() || addedBy == null) {
+            if (sourceType == null || sourceId == null
+                || sourceId.trim()
+                    .isEmpty()
+                || addedBy == null) {
                 throw new IllegalArgumentException("invalid playlist packet entry");
             }
             if (sourceId.getBytes(java.nio.charset.StandardCharsets.UTF_8).length > MAX_SOURCE_ID_BYTES

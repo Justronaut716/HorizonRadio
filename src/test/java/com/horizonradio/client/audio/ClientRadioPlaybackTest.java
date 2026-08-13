@@ -1,7 +1,7 @@
 package com.horizonradio.client.audio;
 
-import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertArrayEquals;
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
@@ -58,7 +58,9 @@ public class ClientRadioPlaybackTest {
         ClientRadioPlayback playback = new ClientRadioPlayback(resolver, sessions, new RecordingAudioSink(), status);
 
         playback.start(21L, "station-id");
-        resolver.complete("station-id", new RadioStation("station-id", "Station", "https://radio.example/live", false, false));
+        resolver.complete(
+            "station-id",
+            new RadioStation("station-id", "Station", "https://radio.example/live", false, false));
 
         assertTrue(sessions.openedUrls.isEmpty());
         assertEquals("Station is unavailable", status.failureMessage);
@@ -81,7 +83,10 @@ public class ClientRadioPlaybackTest {
         oldSession.emitPcm(new byte[] { 5, 6, 7, 8 });
 
         assertEquals(1, audio.receivedPcm.size());
-        assertEquals(21L, audio.receivedGenerations.get(0).longValue());
+        assertEquals(
+            21L,
+            audio.receivedGenerations.get(0)
+                .longValue());
         assertArrayEquals(new byte[] { 1, 2, 3, 4 }, audio.receivedPcm.get(0));
     }
 
@@ -127,7 +132,8 @@ public class ClientRadioPlaybackTest {
         }
 
         private void complete(String stationUuid, RadioStation station) {
-            lookups.get(stationUuid).complete(station);
+            lookups.get(stationUuid)
+                .complete(station);
         }
     }
 

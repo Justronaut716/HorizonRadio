@@ -9,8 +9,8 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
 
-import com.horizonradio.core.model.PlaylistEntry;
 import com.horizonradio.core.model.MediaSourceType;
+import com.horizonradio.core.model.PlaylistEntry;
 
 /**
  * Java-8-only playlist and late-join state. Minecraft and network side effects
@@ -46,8 +46,7 @@ public final class PlaylistState {
     }
 
     public boolean add(PlaylistEntry entry) {
-        if (entry == null || playlist.size() >= maxPlaylistSize
-            || (entry.isFinite() && entry.getDurationMs() <= 0L)) {
+        if (entry == null || playlist.size() >= maxPlaylistSize || (entry.isFinite() && entry.getDurationMs() <= 0L)) {
             return false;
         }
         playlist.add(entry);
@@ -73,8 +72,7 @@ public final class PlaylistState {
         }
         for (int index = 0; index < playlist.size(); index++) {
             PlaylistEntry entry = playlist.get(index);
-            if (entry.isFinite() && videoId.equals(entry.getSourceId())
-                && playerName.equals(entry.getAddedBy())) {
+            if (entry.isFinite() && videoId.equals(entry.getSourceId()) && playerName.equals(entry.getAddedBy())) {
                 return index;
             }
         }
@@ -90,8 +88,10 @@ public final class PlaylistState {
             return -1;
         }
         for (int index = 0; index < playlist.size(); index++) {
-            if (sourceType == playlist.get(index).getSourceType()
-                && sourceId.equals(playlist.get(index).getSourceId())) {
+            if (sourceType == playlist.get(index)
+                .getSourceType() && sourceId.equals(
+                    playlist.get(index)
+                        .getSourceId())) {
                 return index;
             }
         }
@@ -181,7 +181,8 @@ public final class PlaylistState {
             return false;
         }
 
-        boolean replacesFrontRadio = !playlist.isEmpty() && playlist.get(0).isRadio();
+        boolean replacesFrontRadio = !playlist.isEmpty() && playlist.get(0)
+            .isRadio();
         if (replacesFrontRadio) {
             playlist.set(0, station);
         } else {
@@ -196,7 +197,8 @@ public final class PlaylistState {
         if (station == null || !station.isRadio()) {
             return false;
         }
-        return (!playlist.isEmpty() && playlist.get(0).isRadio()) || playlist.size() < maxPlaylistSize;
+        return (!playlist.isEmpty() && playlist.get(0)
+            .isRadio()) || playlist.size() < maxPlaylistSize;
     }
 
     public boolean moveQueued(int fromIndex, int targetIndex) {
@@ -288,7 +290,8 @@ public final class PlaylistState {
 
     public long pausePlayback(long positionMs, long nowMs) {
         if (!playing || currentSourceType != MediaSourceType.YOUTUBE
-            || currentSourceId == null || currentTrackDurationMs <= 0L) {
+            || currentSourceId == null
+            || currentTrackDurationMs <= 0L) {
             return -1L;
         }
         long maximumPosition = Math.max(0L, currentTrackDurationMs - 1L);
@@ -311,7 +314,8 @@ public final class PlaylistState {
 
     public long seek(long positionMs, long nowMs) {
         if (!playing || currentSourceType != MediaSourceType.YOUTUBE
-            || currentSourceId == null || currentTrackDurationMs <= 0L) {
+            || currentSourceId == null
+            || currentTrackDurationMs <= 0L) {
             return -1L;
         }
         long maximumPosition = Math.max(0L, currentTrackDurationMs - 1L);
@@ -442,8 +446,7 @@ public final class PlaylistState {
     }
 
     public boolean beginLateJoin(UUID playerUuid, long elapsedMs, long nowMs) {
-        if (playerUuid == null || !playing || currentSourceType != MediaSourceType.YOUTUBE
-            || currentSourceId == null) {
+        if (playerUuid == null || !playing || currentSourceType != MediaSourceType.YOUTUBE || currentSourceId == null) {
             return false;
         }
 
@@ -580,8 +583,12 @@ public final class PlaylistState {
 
     private void requireEntry(int index, MediaSourceType sourceType, String sourceId) {
         if (index < 0 || index >= playlist.size()
-            || sourceType != playlist.get(index).getSourceType()
-            || sourceId == null || !sourceId.equals(playlist.get(index).getSourceId())) {
+            || sourceType != playlist.get(index)
+                .getSourceType()
+            || sourceId == null
+            || !sourceId.equals(
+                playlist.get(index)
+                    .getSourceId())) {
             throw new IllegalArgumentException("current source does not match playlist entry");
         }
     }

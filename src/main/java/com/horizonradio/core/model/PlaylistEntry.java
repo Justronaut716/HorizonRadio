@@ -13,7 +13,8 @@ public final class PlaylistEntry {
         if (sourceType == null) {
             throw new IllegalArgumentException("sourceType must not be null");
         }
-        if (sourceId == null || sourceId.trim().isEmpty()) {
+        if (sourceId == null || sourceId.trim()
+            .isEmpty()) {
             throw new IllegalArgumentException("sourceId must not be empty");
         }
         if (durationMs < 0L || (sourceType == MediaSourceType.RADIO && durationMs != 0L)) {
@@ -25,8 +26,7 @@ public final class PlaylistEntry {
         this.addedBy = addedBy;
     }
 
-    public static PlaylistEntry of(
-        MediaSourceType sourceType, String sourceId, long durationMs, String addedBy) {
+    public static PlaylistEntry of(MediaSourceType sourceType, String sourceId, long durationMs, String addedBy) {
         return new PlaylistEntry(sourceType, sourceId, durationMs, addedBy);
     }
 
@@ -101,8 +101,7 @@ public final class PlaylistEntry {
             return false;
         }
         PlaylistEntry that = (PlaylistEntry) other;
-        return durationMs == that.durationMs
-            && sourceType == that.sourceType
+        return durationMs == that.durationMs && sourceType == that.sourceType
             && Objects.equals(sourceId, that.sourceId)
             && Objects.equals(addedBy, that.addedBy);
     }
@@ -114,10 +113,17 @@ public final class PlaylistEntry {
 
     @Override
     public String toString() {
-        return "PlaylistEntry{" + "sourceType=" + sourceType
-            + ", sourceId='" + sourceId + '\''
-            + ", durationMs=" + durationMs
-            + ", addedBy='" + addedBy + '\'' + '}';
+        return "PlaylistEntry{" + "sourceType="
+            + sourceType
+            + ", sourceId='"
+            + sourceId
+            + '\''
+            + ", durationMs="
+            + durationMs
+            + ", addedBy='"
+            + addedBy
+            + '\''
+            + '}';
     }
 
     private static long legacyDurationMillis(String duration) {

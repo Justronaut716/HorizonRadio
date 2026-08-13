@@ -2003,19 +2003,21 @@ public class HorizonRadioScreen extends GuiScreen {
             this.sourceType = sourceType;
             this.sourceId = sourceId;
             this.addedBy = addedBy;
-            this.localVideoMetadata = videoMetadata == null ? null : new SearchResult(
-                videoMetadata.getVideoId(),
-                videoMetadata.getTitle(),
-                videoMetadata.getChannel(),
-                videoMetadata.getDuration(),
-                videoMetadata.getThumbnail());
+            this.localVideoMetadata = videoMetadata == null ? null
+                : new SearchResult(
+                    videoMetadata.getVideoId(),
+                    videoMetadata.getTitle(),
+                    videoMetadata.getChannel(),
+                    videoMetadata.getDuration(),
+                    videoMetadata.getThumbnail());
             this.localStationMetadata = stationMetadata == null ? null
                 : new RadioStationResult(stationMetadata.getStationUuid(), stationMetadata.getName());
             this.videoId = sourceType == MediaSourceType.YOUTUBE ? sourceId : null;
             this.title = displayTitle();
             this.duration = displayDuration();
             this.durationMs = sourceType == MediaSourceType.YOUTUBE
-                ? Math.max(0L, DurationParser.parseMillisStrict(this.duration)) : 0L;
+                ? Math.max(0L, DurationParser.parseMillisStrict(this.duration))
+                : 0L;
         }
 
         public boolean isFinite() {
@@ -2035,8 +2037,7 @@ public class HorizonRadioScreen extends GuiScreen {
         }
 
         public String displayDuration() {
-            return localVideoMetadata == null || localVideoMetadata.duration == null ? ""
-                : localVideoMetadata.duration;
+            return localVideoMetadata == null || localVideoMetadata.duration == null ? "" : localVideoMetadata.duration;
         }
 
         static String boundedSourceId(String sourceId) {

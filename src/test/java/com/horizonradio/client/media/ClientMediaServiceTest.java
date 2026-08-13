@@ -24,7 +24,10 @@ public class ClientMediaServiceTest {
 
         ClientMediaService service = new ClientMediaService(provider);
 
-        assertEquals(provider.searchResults, service.search("query", 900_000L).get());
+        assertEquals(
+            provider.searchResults,
+            service.search("query", 900_000L)
+                .get());
         assertEquals("query", provider.lastQuery);
         assertEquals(900_000L, provider.lastMaxDurationMs);
     }
@@ -38,8 +41,12 @@ public class ClientMediaServiceTest {
 
         assertEquals(
             Arrays.asList(new SearchResult("dQw4w9WgXcQ", "Imported", "", "1:00", "")),
-            service.importPlaylist("https://www.youtube.com/playlist?list=PL1").get());
-        assertEquals(new SearchResult("dQw4w9WgXcQ", "Video", "", "1:30", ""), service.importVideo("https://youtu.be/dQw4w9WgXcQ").get());
+            service.importPlaylist("https://www.youtube.com/playlist?list=PL1")
+                .get());
+        assertEquals(
+            new SearchResult("dQw4w9WgXcQ", "Video", "", "1:30", ""),
+            service.importVideo("https://youtu.be/dQw4w9WgXcQ")
+                .get());
     }
 
     @Test
@@ -47,7 +54,9 @@ public class ClientMediaServiceTest {
         FakeProvider provider = new FakeProvider();
         provider.station = new RadioStation("station-id", "Broken", "ftp://example.invalid/stream", true, false);
 
-        assertNull(new ClientMediaService(provider).lookupRadio("station-id").get());
+        assertNull(
+            new ClientMediaService(provider).lookupRadio("station-id")
+                .get());
     }
 
     private static final class FakeProvider implements ClientMediaService.RemoteProvider {

@@ -24,8 +24,8 @@ public class TrackSyncPacket implements IMessage {
         sourceId = "";
     }
 
-    public TrackSyncPacket(
-        MediaSourceType sourceType, String sourceId, long generation, long positionMs, long startAtMs, boolean paused) {
+    public TrackSyncPacket(MediaSourceType sourceType, String sourceId, long generation, long positionMs,
+        long startAtMs, boolean paused) {
         this.sourceType = sourceType;
         this.sourceId = sourceId;
         this.generation = generation;
@@ -41,7 +41,8 @@ public class TrackSyncPacket implements IMessage {
         this(MediaSourceType.YOUTUBE, videoId, generation, positionMs, startAtMs, paused);
     }
 
-    public static TrackSyncPacket youtube(long generation, String videoId, long positionMs, long startAtMs, boolean paused) {
+    public static TrackSyncPacket youtube(long generation, String videoId, long positionMs, long startAtMs,
+        boolean paused) {
         return new TrackSyncPacket(MediaSourceType.YOUTUBE, videoId, generation, positionMs, startAtMs, paused);
     }
 
@@ -153,7 +154,9 @@ public class TrackSyncPacket implements IMessage {
             }
             return;
         }
-        if (sourceType == null || sourceId == null || sourceId.trim().isEmpty()
+        if (sourceType == null || sourceId == null
+            || sourceId.trim()
+                .isEmpty()
             || sourceId.getBytes(java.nio.charset.StandardCharsets.UTF_8).length > MAX_SOURCE_ID_BYTES) {
             throw new IllegalArgumentException("invalid track synchronization packet");
         }

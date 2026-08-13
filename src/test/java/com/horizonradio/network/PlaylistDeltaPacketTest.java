@@ -35,12 +35,20 @@ public class PlaylistDeltaPacketTest {
         assertEquals(PlaylistDeltaPacket.Operation.CLEAR, clear.getOperation());
 
         PlaylistDeltaPacket replace = roundTrip(
-            PlaylistDeltaPacket.replace(13L, Arrays.asList(entry, new PlaylistDeltaPacket.Entry(
-                MediaSourceType.RADIO, "station-id", "Bob"))));
+            PlaylistDeltaPacket.replace(
+                13L,
+                Arrays.asList(entry, new PlaylistDeltaPacket.Entry(MediaSourceType.RADIO, "station-id", "Bob"))));
         assertEquals(13L, replace.getQueueRevision());
         assertEquals(PlaylistDeltaPacket.Operation.REPLACE, replace.getOperation());
-        assertEquals(2, replace.getEntries().size());
-        assertEquals(MediaSourceType.RADIO, replace.getEntries().get(1).getSourceType());
+        assertEquals(
+            2,
+            replace.getEntries()
+                .size());
+        assertEquals(
+            MediaSourceType.RADIO,
+            replace.getEntries()
+                .get(1)
+                .getSourceType());
     }
 
     @Test(expected = IllegalArgumentException.class)

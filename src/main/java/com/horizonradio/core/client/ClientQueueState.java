@@ -49,7 +49,8 @@ public final class ClientQueueState {
                     break;
                 case MOVE:
                     if (delta.getIndex() < 0 || delta.getIndex() >= candidate.size()
-                        || delta.getTargetIndex() < 0 || delta.getTargetIndex() >= candidate.size()) {
+                        || delta.getTargetIndex() < 0
+                        || delta.getTargetIndex() >= candidate.size()) {
                         return rejectDelta();
                     }
                     PlaylistEntry entry = candidate.remove(delta.getIndex());

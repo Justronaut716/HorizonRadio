@@ -58,7 +58,9 @@ public class HorizonRadioConfigTest {
 
             JsonObject generated = new Gson().fromJson(readConfig(configDirectory), JsonObject.class);
             assertTrue(generated.has("serverDebugChat"));
-            assertFalse(generated.get("serverDebugChat").getAsBoolean());
+            assertFalse(
+                generated.get("serverDebugChat")
+                    .getAsBoolean());
         } finally {
             deleteRecursively(configDirectory);
         }
@@ -72,13 +74,19 @@ public class HorizonRadioConfigTest {
             .toFile();
         try {
             writeConfig(sourceDirectory, "{\"serverDebugChat\":true}");
-            HorizonRadioConfig.load(sourceDirectory).save(savedDirectory);
-            assertTrue(HorizonRadioConfig.load(savedDirectory).isServerDebugChat());
+            HorizonRadioConfig.load(sourceDirectory)
+                .save(savedDirectory);
+            assertTrue(
+                HorizonRadioConfig.load(savedDirectory)
+                    .isServerDebugChat());
             assertTrue(readConfig(savedDirectory).contains("\"serverDebugChat\":true"));
 
             writeConfig(sourceDirectory, "{\"serverDebugChat\":false}");
-            HorizonRadioConfig.load(sourceDirectory).save(savedDirectory);
-            assertFalse(HorizonRadioConfig.load(savedDirectory).isServerDebugChat());
+            HorizonRadioConfig.load(sourceDirectory)
+                .save(savedDirectory);
+            assertFalse(
+                HorizonRadioConfig.load(savedDirectory)
+                    .isServerDebugChat());
             assertTrue(readConfig(savedDirectory).contains("\"serverDebugChat\":false"));
         } finally {
             deleteRecursively(sourceDirectory);

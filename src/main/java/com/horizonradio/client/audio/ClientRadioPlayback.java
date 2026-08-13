@@ -1,9 +1,9 @@
 package com.horizonradio.client.audio;
 
 import java.util.concurrent.CompletableFuture;
+import java.util.function.BiConsumer;
 import java.util.logging.Level;
 import java.util.logging.Logger;
-import java.util.function.BiConsumer;
 
 import com.horizonradio.core.model.RadioStation;
 import com.horizonradio.server.media.RadioInputSession;
@@ -38,7 +38,9 @@ public final class ClientRadioPlayback {
 
     public synchronized void start(final long generation, final String stationUuid) {
         stopActiveLocked();
-        if (generation < 0L || stationUuid == null || stationUuid.trim().isEmpty()) {
+        if (generation < 0L || stationUuid == null
+            || stationUuid.trim()
+                .isEmpty()) {
             return;
         }
         activeGeneration = generation;
@@ -128,7 +130,8 @@ public final class ClientRadioPlayback {
             failActiveLocked(
                 generation,
                 stationUuid,
-                message == null || message.trim().isEmpty() ? "Radio stream failed" : message,
+                message == null || message.trim()
+                    .isEmpty() ? "Radio stream failed" : message,
                 null);
         }
     }
@@ -138,9 +141,12 @@ public final class ClientRadioPlayback {
     }
 
     private static boolean isUsableStation(RadioStation station, String stationUuid) {
-        return station != null && stationUuid.equals(station.getStationUuid()) && station.isLastCheckOk()
+        return station != null && stationUuid.equals(station.getStationUuid())
+            && station.isLastCheckOk()
             && station.getStreamUrl() != null
-            && !station.getStreamUrl().trim().isEmpty();
+            && !station.getStreamUrl()
+                .trim()
+                .isEmpty();
     }
 
     private void stopActiveLocked() {

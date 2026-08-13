@@ -10,12 +10,12 @@ import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.BiConsumer;
 
+import com.horizonradio.HorizonRadio;
 import com.horizonradio.client.audio.AudioPlayer;
 import com.horizonradio.client.audio.ClientRadioPlayback;
 import com.horizonradio.client.audio.PlaybackClock;
 import com.horizonradio.client.media.ClientMediaService;
 import com.horizonradio.client.media.ClientMetadataCache;
-import com.horizonradio.HorizonRadio;
 import com.horizonradio.core.client.ClientQueueState;
 import com.horizonradio.core.config.HorizonRadioConfig;
 import com.horizonradio.core.model.DurationParser;
@@ -118,12 +118,13 @@ public final class HorizonRadioClient {
             List<HorizonRadioScreen.SearchResult> legacy = new ArrayList<HorizonRadioScreen.SearchResult>();
             if (selections != null) {
                 for (PlaylistSelection selection : selections) {
-                    legacy.add(new HorizonRadioScreen.SearchResult(
-                        selection.videoId,
-                        selection.videoId,
-                        "",
-                        formatDuration(selection.durationMs),
-                        ""));
+                    legacy.add(
+                        new HorizonRadioScreen.SearchResult(
+                            selection.videoId,
+                            selection.videoId,
+                            "",
+                            formatDuration(selection.durationMs),
+                            ""));
                 }
             }
             sendAddChartsToPlaylist(legacy, remove);
@@ -527,8 +528,7 @@ public final class HorizonRadioClient {
         sendAddChartsToPlaylist(selections, false);
     }
 
-    public static synchronized void sendAddChartsToPlaylist(List<?> selections,
-        boolean remove) {
+    public static synchronized void sendAddChartsToPlaylist(List<?> selections, boolean remove) {
         List<PlaylistSelection> mapped = toPlaylistSelections(selections);
         transport.sendAddChartSelections(mapped, remove);
         if (!remove) {
@@ -841,14 +841,16 @@ public final class HorizonRadioClient {
         activeTrackSourceId = packet.getSourceId();
         String previousVideoId = activeTrackVideoId;
         activeTrackVideoId = packet.getVideoId();
-        if (clientAudioDownloadService != null && previousSourceType == MediaSourceType.YOUTUBE && previousVideoId != null
+        if (clientAudioDownloadService != null && previousSourceType == MediaSourceType.YOUTUBE
+            && previousVideoId != null
             && (packet.getSourceType() != MediaSourceType.YOUTUBE || !previousVideoId.equals(activeTrackVideoId))) {
             clientAudioDownloadService.cancelDownload(previousVideoId);
         }
 
         if (packet.getSourceType() == MediaSourceType.RADIO) {
             clearCachedMusicState();
-            AudioPlayer.getInstance().stop();
+            AudioPlayer.getInstance()
+                .stop();
             setLocalRadioPresentation(ClientRadioPresentation.live(packet.getGeneration(), packet.getSourceId()));
             if (clientRadioPlayback != null) {
                 clientRadioPlayback.start(packet.getGeneration(), packet.getSourceId());
@@ -862,7 +864,8 @@ public final class HorizonRadioClient {
         if (clientRadioPlayback != null) {
             clientRadioPlayback.stop();
         }
-        AudioPlayer.getInstance().stopRadio();
+        AudioPlayer.getInstance()
+            .stopRadio();
         if (cachedRadioActive) {
             updateRadioPresentation(null);
         }
@@ -950,14 +953,17 @@ public final class HorizonRadioClient {
             return packet.getGeneration() > currentGeneration;
         }
         if (packet.getSourceType() == null || packet.getSourceId() == null
-            || packet.getSourceId().trim().length() == 0) {
+            || packet.getSourceId()
+                .trim()
+                .length() == 0) {
             return false;
         }
         if (packet.getGeneration() > currentGeneration) {
             return true;
         }
         return packet.getGeneration() == currentGeneration
-            && (packet.getSourceType() != currentSourceType || !packet.getSourceId().equals(currentSourceId));
+            && (packet.getSourceType() != currentSourceType || !packet.getSourceId()
+                .equals(currentSourceId));
     }
 
     public static synchronized void handlePause(long positionMs) {
@@ -1061,8 +1067,10 @@ public final class HorizonRadioClient {
         if (clientRadioPlayback != null) {
             clientRadioPlayback.stop();
         }
-        AudioPlayer.getInstance().stop();
-        AudioPlayer.getInstance().stopRadio();
+        AudioPlayer.getInstance()
+            .stop();
+        AudioPlayer.getInstance()
+            .stopRadio();
         if (cachedRadioActive) {
             updateRadioPresentation(null);
         }
@@ -1086,7 +1094,8 @@ public final class HorizonRadioClient {
             return;
         }
         for (PlaylistEntry entry : CLIENT_QUEUE.snapshot()) {
-            if (entry.isRadio() && cachedRadioPresentation.getStationUuid().equals(entry.getSourceId())) {
+            if (entry.isRadio() && cachedRadioPresentation.getStationUuid()
+                .equals(entry.getSourceId())) {
                 return;
             }
         }
@@ -1112,7 +1121,8 @@ public final class HorizonRadioClient {
         cachedRadioActive = false;
         cachedRadioPresentation = ClientRadioPresentation.stopped(generation, message);
         clearCachedMusicState();
-        AudioPlayer.getInstance().stopRadio();
+        AudioPlayer.getInstance()
+            .stopRadio();
         HorizonRadioScreen screen = getOpenScreen();
         if (screen != null) {
             screen.updateRadioPresentation(cachedRadioPresentation);
@@ -1130,7 +1140,9 @@ public final class HorizonRadioClient {
         }
         SearchResult metadata = clientMetadataCache == null ? null : clientMetadataCache.getVideo(activeTrackVideoId);
         if (metadata != null) {
-            if (metadata.getTitle() != null && metadata.getTitle().trim().length() > 0) {
+            if (metadata.getTitle() != null && metadata.getTitle()
+                .trim()
+                .length() > 0) {
                 cachedNowPlaying = metadata.getTitle();
             }
             activeTrackDurationMs = DurationParser.parseMillisStrict(metadata.getDuration());
@@ -1139,11 +1151,8 @@ public final class HorizonRadioClient {
             cachedNowPlaying = activeTrackVideoId;
         }
         long positionMs = cachedPaused ? activeTrackPositionMs
-            : PlaybackClock.finiteTrackPositionMs(
-                activeTrackPositionMs,
-                activeTrackStartAtMs,
-                serverClockOffsetMs,
-                clientNowMs);
+            : PlaybackClock
+                .finiteTrackPositionMs(activeTrackPositionMs, activeTrackStartAtMs, serverClockOffsetMs, clientNowMs);
         cachedProgress = activeTrackDurationMs <= 0L ? 0.0f
             : Math.max(0.0f, Math.min(1.0f, (float) positionMs / (float) activeTrackDurationMs));
         HorizonRadioScreen screen = getOpenScreen();
@@ -1155,7 +1164,8 @@ public final class HorizonRadioClient {
 
     private static boolean isActiveRadio(long generation, String stationUuid) {
         return activeTrackSourceType == MediaSourceType.RADIO && activeTrackGeneration == generation
-            && stationUuid != null && stationUuid.equals(activeTrackSourceId);
+            && stationUuid != null
+            && stationUuid.equals(activeTrackSourceId);
     }
 
     private static void setLocalRadioPresentation(ClientRadioPresentation presentation) {
@@ -1270,7 +1280,11 @@ public final class HorizonRadioClient {
             }
         }
         return new HorizonRadioScreen.PlaylistEntry(
-            entry.getSourceType(), entry.getSourceId(), entry.getAddedBy(), video, station);
+            entry.getSourceType(),
+            entry.getSourceId(),
+            entry.getAddedBy(),
+            video,
+            station);
     }
 
     private static void requestVideoMetadata(final String sourceId) {
@@ -1309,7 +1323,8 @@ public final class HorizonRadioClient {
                         @Override
                         public void run() {
                             synchronized (HorizonRadioClient.class) {
-                                if (generation == activeTrackGeneration && activeTrackSourceType == MediaSourceType.YOUTUBE
+                                if (generation == activeTrackGeneration
+                                    && activeTrackSourceType == MediaSourceType.YOUTUBE
                                     && videoId.equals(activeTrackVideoId)) {
                                     refreshLocalFinitePresentation(System.currentTimeMillis());
                                 }
@@ -1347,8 +1362,13 @@ public final class HorizonRadioClient {
         if (results != null) {
             for (SearchResult result : results) {
                 if (result != null) {
-                    converted.add(new HorizonRadioScreen.SearchResult(
-                        result.getVideoId(), result.getTitle(), result.getChannel(), result.getDuration(), result.getThumbnail()));
+                    converted.add(
+                        new HorizonRadioScreen.SearchResult(
+                            result.getVideoId(),
+                            result.getTitle(),
+                            result.getChannel(),
+                            result.getDuration(),
+                            result.getThumbnail()));
                 }
             }
         }
@@ -1425,12 +1445,14 @@ public final class HorizonRadioClient {
     }
 
     private static boolean isValidSelection(String videoId, long durationMs) {
-        return videoId != null && videoId.trim().length() > 0 && durationMs > 0L;
+        return videoId != null && videoId.trim()
+            .length() > 0 && durationMs > 0L;
     }
 
     private static long maxTrackDurationMs() {
         int minutes = HorizonRadio.getConfig() == null ? HorizonRadioConfig.DEFAULT_MAX_TRACK_DURATION_MINUTES
-            : HorizonRadio.getConfig().getMaxTrackDurationMinutes();
+            : HorizonRadio.getConfig()
+                .getMaxTrackDurationMinutes();
         return (long) minutes * 60L * 1000L;
     }
 

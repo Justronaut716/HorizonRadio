@@ -43,8 +43,14 @@ public class PlaylistManagerTest {
         try {
             manager.handleSelectRadio(testPlayer(), "station-id");
 
-            assertEquals(MediaSourceType.RADIO, playlist(manager).get(0).getSourceType());
-            assertEquals("station-id", playlist(manager).get(0).getSourceId());
+            assertEquals(
+                MediaSourceType.RADIO,
+                playlist(manager).get(0)
+                    .getSourceType());
+            assertEquals(
+                "station-id",
+                playlist(manager).get(0)
+                    .getSourceId());
             assertEquals(1, playlist(manager).size());
             assertEquals(MediaSourceType.RADIO, current(manager).getSourceType());
         } finally {
@@ -62,9 +68,18 @@ public class PlaylistManagerTest {
             manager.handleAddToPlaylist(player, VIDEO_ID, 60_000L);
 
             assertEquals(MediaSourceType.RADIO, current(manager).getSourceType());
-            assertEquals(MediaSourceType.YOUTUBE, playlist(manager).get(1).getSourceType());
-            assertEquals(VIDEO_ID, playlist(manager).get(1).getSourceId());
-            assertEquals(60_000L, playlist(manager).get(1).getDurationMs());
+            assertEquals(
+                MediaSourceType.YOUTUBE,
+                playlist(manager).get(1)
+                    .getSourceType());
+            assertEquals(
+                VIDEO_ID,
+                playlist(manager).get(1)
+                    .getSourceId());
+            assertEquals(
+                60_000L,
+                playlist(manager).get(1)
+                    .getDurationMs());
         } finally {
             manager.shutdown();
         }
@@ -122,7 +137,10 @@ public class PlaylistManagerTest {
             assertEquals(SECOND_VIDEO_ID, current(manager).getSourceId());
             assertEquals(90_000L, current(manager).getDurationMs());
             assertEquals(2, playlist(manager).size());
-            assertEquals(VIDEO_ID, playlist(manager).get(1).getSourceId());
+            assertEquals(
+                VIDEO_ID,
+                playlist(manager).get(1)
+                    .getSourceId());
         } finally {
             manager.shutdown();
         }
@@ -297,8 +315,13 @@ public class PlaylistManagerTest {
         assertFalse(state(manager).isPlaying());
         assertEquals(expectedGeneration, playbackGeneration(manager));
         assertNull(advanceFuture(manager));
-        assertTrue(broadcaster.lastTrackSync().isStop());
-        assertEquals(expectedGeneration, broadcaster.lastTrackSync().getGeneration());
+        assertTrue(
+            broadcaster.lastTrackSync()
+                .isStop());
+        assertEquals(
+            expectedGeneration,
+            broadcaster.lastTrackSync()
+                .getGeneration());
     }
 
     private static long playbackGeneration(PlaylistManager manager) throws Exception {

@@ -20,7 +20,6 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.horizonradio.client.media.ClientMediaService;
 import com.horizonradio.client.media.ClientMetadataCache;
-import com.horizonradio.core.model.SearchResult;
 import com.horizonradio.server.media.YouTubeMediaModels;
 import com.horizonradio.server.media.YouTubeMetadataResolver;
 
@@ -63,7 +62,8 @@ public class AudioDownloadMetadataTest {
             ClientMetadataCache cache = new ClientMetadataCache(
                 new ClientMediaService(new YouTubeService(), service, new RadioBrowserService()));
             try {
-                cache.video("dQw4w9WgXcQ").get(2, TimeUnit.SECONDS);
+                cache.video("dQw4w9WgXcQ")
+                    .get(2, TimeUnit.SECONDS);
                 fail("expected production metadata failure");
             } catch (ExecutionException expected) {
                 assertNotNull(expected.getCause());

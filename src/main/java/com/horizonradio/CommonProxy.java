@@ -142,8 +142,7 @@ public class CommonProxy {
         }
     }
 
-    public void onPlayerLoggedOut(EntityPlayerMP player) {
-    }
+    public void onPlayerLoggedOut(EntityPlayerMP player) {}
 
     public void handlePlaylistSync(PlaylistSyncPacket packet) {}
 

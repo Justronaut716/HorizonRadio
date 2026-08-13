@@ -58,7 +58,8 @@ public class AddToPlaylistPacket implements IMessage {
     }
 
     private void validate() {
-        if (videoId == null || videoId.trim().isEmpty() || durationMs <= 0L) {
+        if (videoId == null || videoId.trim()
+            .isEmpty() || durationMs <= 0L) {
             throw new IllegalArgumentException("invalid add-to-playlist packet");
         }
     }

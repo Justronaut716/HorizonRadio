@@ -58,9 +58,7 @@ public class AddChartsToPlaylistPacket implements IMessage {
         entries = new ArrayList<Entry>(count);
         for (int index = 0; index < count; index++) {
             entries.add(
-                new Entry(
-                    PacketBufferUtil.readString(buf, PlaylistSyncPacket.MAX_SOURCE_ID_BYTES),
-                    buf.readLong()));
+                new Entry(PacketBufferUtil.readString(buf, PlaylistSyncPacket.MAX_SOURCE_ID_BYTES), buf.readLong()));
         }
     }
 
@@ -70,7 +68,8 @@ public class AddChartsToPlaylistPacket implements IMessage {
         private final long durationMs;
 
         public Entry(String videoId, long durationMs) {
-            if (videoId == null || videoId.trim().isEmpty() || durationMs <= 0L) {
+            if (videoId == null || videoId.trim()
+                .isEmpty() || durationMs <= 0L) {
                 throw new IllegalArgumentException("invalid chart playlist entry");
             }
             this.videoId = videoId;

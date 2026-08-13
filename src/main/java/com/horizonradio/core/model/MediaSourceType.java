@@ -2,6 +2,7 @@ package com.horizonradio.core.model;
 
 /** Identifies the kind of media represented by a playlist entry. */
 public enum MediaSourceType {
+
     YOUTUBE((byte) 1),
     RADIO((byte) 2);
 

@@ -188,7 +188,9 @@ public final class PlaylistManager {
     }
 
     public void handleRemoveFromPlaylist(EntityPlayerMP player, String videoId) {
-        if (!acceptsPlayer(player) || videoId == null || videoId.trim().isEmpty()) {
+        if (!acceptsPlayer(player) || videoId == null
+            || videoId.trim()
+                .isEmpty()) {
             return;
         }
         removeFiniteById(videoId, true);
@@ -221,8 +223,10 @@ public final class PlaylistManager {
     }
 
     public void handleSeek(EntityPlayerMP player, float progress) {
-        if (!acceptsPlayer(player) || Float.isNaN(progress) || Float.isInfinite(progress)
-            || state.getCurrentSourceType() != MediaSourceType.YOUTUBE || !state.isPlaying()) {
+        if (!acceptsPlayer(player) || Float.isNaN(progress)
+            || Float.isInfinite(progress)
+            || state.getCurrentSourceType() != MediaSourceType.YOUTUBE
+            || !state.isPlaying()) {
             return;
         }
 
@@ -289,7 +293,8 @@ public final class PlaylistManager {
         if (!acceptsPlayer(player) || state.getCurrentSourceType() != MediaSourceType.YOUTUBE || !state.isPlaying()) {
             return;
         }
-        long positionMs = state.isPaused() ? state.getPausedPositionMs() : currentPositionMs(System.currentTimeMillis());
+        long positionMs = state.isPaused() ? state.getPausedPositionMs()
+            : currentPositionMs(System.currentTimeMillis());
         if (!state.wasPreviousRestarted() || positionMs > 10_000L) {
             state.markPreviousRestarted();
             handleSeek(player, 0.0F);
@@ -351,21 +356,13 @@ public final class PlaylistManager {
             sendTo(TrackSyncPacket.radio(playbackGeneration, current.getSourceId()), player);
         } else if (state.isPaused()) {
             sendTo(
-                TrackSyncPacket.youtube(
-                    playbackGeneration,
-                    current.getSourceId(),
-                    state.getPausedPositionMs(),
-                    0L,
-                    true),
+                TrackSyncPacket
+                    .youtube(playbackGeneration, current.getSourceId(), state.getPausedPositionMs(), 0L, true),
                 player);
         } else {
             sendTo(
-                TrackSyncPacket.youtube(
-                    playbackGeneration,
-                    current.getSourceId(),
-                    0L,
-                    state.getPlaybackStartTime(),
-                    false),
+                TrackSyncPacket
+                    .youtube(playbackGeneration, current.getSourceId(), 0L, state.getPlaybackStartTime(), false),
                 player);
         }
     }
@@ -394,8 +391,7 @@ public final class PlaylistManager {
             if (!state.add(entry)) {
                 break;
             }
-            broadcastDelta(
-                PlaylistDeltaPacket.add(state.getQueueRevision(), toDeltaEntry(entry), state.size() - 1));
+            broadcastDelta(PlaylistDeltaPacket.add(state.getQueueRevision(), toDeltaEntry(entry), state.size() - 1));
         }
         if (!wasPlaying && state.size() > 0) {
             startNextFinite();
@@ -465,8 +461,7 @@ public final class PlaylistManager {
         long generation = nextPlaybackGeneration();
         long startAtMs = System.currentTimeMillis() + CLIENT_TRACK_START_DELAY_MS;
         state.startFiniteTrack(index, entry.getSourceId(), entry.getDurationMs(), startAtMs);
-        broadcastTrackSync(
-            TrackSyncPacket.youtube(generation, entry.getSourceId(), 0L, startAtMs, false));
+        broadcastTrackSync(TrackSyncPacket.youtube(generation, entry.getSourceId(), 0L, startAtMs, false));
         scheduleAdvancement(generation, 0L, entry.getDurationMs(), startAtMs);
     }
 
@@ -496,7 +491,8 @@ public final class PlaylistManager {
 
     private void advanceAfterCompletion(long generation) {
         if (shuttingDown || generation != playbackGeneration
-            || state.getCurrentSourceType() != MediaSourceType.YOUTUBE || !state.isPlaying()) {
+            || state.getCurrentSourceType() != MediaSourceType.YOUTUBE
+            || !state.isPlaying()) {
             return;
         }
         advanceFuture = null;
@@ -522,8 +518,7 @@ public final class PlaylistManager {
     }
 
     private void broadcastReplace() {
-        broadcastDelta(
-            PlaylistDeltaPacket.replace(state.getQueueRevision(), toDeltaEntries(state.snapshot())));
+        broadcastDelta(PlaylistDeltaPacket.replace(state.getQueueRevision(), toDeltaEntries(state.snapshot())));
     }
 
     private void broadcastDelta(PlaylistDeltaPacket packet) {
@@ -591,7 +586,8 @@ public final class PlaylistManager {
     }
 
     private static boolean isValidStationId(String stationUuid) {
-        if (stationUuid == null || stationUuid.trim().isEmpty()) {
+        if (stationUuid == null || stationUuid.trim()
+            .isEmpty()) {
             return false;
         }
         try {
@@ -638,7 +634,8 @@ public final class PlaylistManager {
     private void sendChat(EntityPlayerMP player, EnumChatFormatting color, String message) {
         LOGGER.info("HorizonRadio: " + message);
         if (serverDebugChat && server != null && player != null) {
-            player.addChatMessage(new ChatComponentText(EnumChatFormatting.YELLOW + "[HorizonRadio] " + color + message));
+            player
+                .addChatMessage(new ChatComponentText(EnumChatFormatting.YELLOW + "[HorizonRadio] " + color + message));
         }
     }
 

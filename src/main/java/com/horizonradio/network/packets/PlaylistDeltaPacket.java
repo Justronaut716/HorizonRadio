@@ -194,6 +194,7 @@ public class PlaylistDeltaPacket implements IMessage {
     }
 
     public enum Operation {
+
         ADD((byte) 1),
         REMOVE((byte) 2),
         MOVE((byte) 3),

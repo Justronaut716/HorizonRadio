@@ -1,7 +1,7 @@
 package com.horizonradio.client;
 
-import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
@@ -67,8 +67,14 @@ public class HorizonRadioClientTrackSyncTest {
         HorizonRadioClient.handleTrackSync(TrackSyncPacket.radio(5L, "station-id"));
 
         assertTrue(HorizonRadioClient.isRadioActive());
-        assertEquals(5L, HorizonRadioClient.getCachedRadioPresentation().getGeneration());
-        assertEquals("station-id", HorizonRadioClient.getCachedRadioPresentation().getStationUuid());
+        assertEquals(
+            5L,
+            HorizonRadioClient.getCachedRadioPresentation()
+                .getGeneration());
+        assertEquals(
+            "station-id",
+            HorizonRadioClient.getCachedRadioPresentation()
+                .getStationUuid());
         assertFalse(HorizonRadioClient.isPaused());
     }
 
@@ -89,13 +95,22 @@ public class HorizonRadioClientTrackSyncTest {
 
         HorizonRadioClient.handleLocalRadioStarted(5L, "station-id", "Station name");
 
-        assertEquals("Station name", HorizonRadioClient.getCachedRadioPresentation().getStationName());
-        assertEquals("LIVE", HorizonRadioClient.getCachedRadioPresentation().getStatus());
+        assertEquals(
+            "Station name",
+            HorizonRadioClient.getCachedRadioPresentation()
+                .getStationName());
+        assertEquals(
+            "LIVE",
+            HorizonRadioClient.getCachedRadioPresentation()
+                .getStatus());
 
         HorizonRadioClient.handleLocalRadioFailure(5L, "station-id", "Connection lost");
 
         assertFalse(HorizonRadioClient.isRadioActive());
-        assertEquals("Connection lost", HorizonRadioClient.getCachedRadioPresentation().getStatus());
+        assertEquals(
+            "Connection lost",
+            HorizonRadioClient.getCachedRadioPresentation()
+                .getStatus());
     }
 
     @Test
@@ -134,11 +149,8 @@ public class HorizonRadioClientTrackSyncTest {
 
         assertFalse(HorizonRadioClient.isPaused());
         assertFalse(
-            HorizonRadioClient.shouldAcceptTrackSync(
-                6L,
-                null,
-                null,
-                TrackSyncPacket.youtube(5L, "video-id", 0L, 3_000L, false)));
+            HorizonRadioClient
+                .shouldAcceptTrackSync(6L, null, null, TrackSyncPacket.youtube(5L, "video-id", 0L, 3_000L, false)));
         assertFalse(HorizonRadioClient.shouldAcceptTrackSync(6L, null, null, TrackSyncPacket.stop(6L)));
     }
 
@@ -169,8 +181,8 @@ public class HorizonRadioClientTrackSyncTest {
 
         @Override
         public CompletableFuture<String> extractVideoJson(String videoUrl) {
-            return CompletableFuture.completedFuture(
-                "{\"id\":\"dQw4w9WgXcQ\",\"title\":\"Local title\",\"duration\":2}");
+            return CompletableFuture
+                .completedFuture("{\"id\":\"dQw4w9WgXcQ\",\"title\":\"Local title\",\"duration\":2}");
         }
 
         @Override
