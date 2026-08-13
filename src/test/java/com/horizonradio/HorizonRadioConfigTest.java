@@ -1,6 +1,8 @@
 package com.horizonradio;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -23,7 +25,7 @@ public class HorizonRadioConfigTest {
                 configDirectory,
                 "{\"downloadDir\":\"D:/audio\",\"maxPlaylistSize\":12,"
                     + "\"maxTrackDurationMinutes\":7,\"youtubeCookiesFromBrowser\":\"chrome\","
-                    + "\"youtubeCookiesFile\":\"D:/cookies.txt\"}");
+                    + "\"youtubeCookiesFile\":\"D:/cookies.txt\",\"serverDebugChat\":true}");
 
             HorizonRadioConfig config = HorizonRadioConfig.load(configDirectory);
 
@@ -32,6 +34,7 @@ public class HorizonRadioConfigTest {
             assertEquals(7, config.getMaxTrackDurationMinutes());
             assertEquals("chrome", config.getYoutubeCookiesFromBrowser());
             assertEquals("D:/cookies.txt", config.getYoutubeCookiesFile());
+            assertTrue(config.isServerDebugChat());
         } finally {
             deleteRecursively(configDirectory);
         }
@@ -49,6 +52,7 @@ public class HorizonRadioConfigTest {
             assertEquals(15, config.getMaxTrackDurationMinutes());
             assertEquals("", config.getYoutubeCookiesFromBrowser());
             assertEquals("", config.getYoutubeCookiesFile());
+            assertFalse(config.isServerDebugChat());
         } finally {
             deleteRecursively(configDirectory);
         }

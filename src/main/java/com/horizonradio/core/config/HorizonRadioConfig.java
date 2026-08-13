@@ -19,20 +19,23 @@ public final class HorizonRadioConfig {
     public static final String DEFAULT_DOWNLOAD_DIR = "./horizonradio-downloads";
     public static final String DEFAULT_YOUTUBE_COOKIES_FROM_BROWSER = "";
     public static final String DEFAULT_YOUTUBE_COOKIES_FILE = "";
+    public static final boolean DEFAULT_SERVER_DEBUG_CHAT = false;
 
     private final int maxPlaylistSize;
     private final int maxTrackDurationMinutes;
     private final String downloadDir;
     private final String youtubeCookiesFromBrowser;
     private final String youtubeCookiesFile;
+    private final boolean serverDebugChat;
 
     private HorizonRadioConfig(int maxPlaylistSize, int maxTrackDurationMinutes, String downloadDir,
-        String youtubeCookiesFromBrowser, String youtubeCookiesFile) {
+        String youtubeCookiesFromBrowser, String youtubeCookiesFile, boolean serverDebugChat) {
         this.maxPlaylistSize = maxPlaylistSize;
         this.maxTrackDurationMinutes = maxTrackDurationMinutes;
         this.downloadDir = downloadDir;
         this.youtubeCookiesFromBrowser = youtubeCookiesFromBrowser;
         this.youtubeCookiesFile = youtubeCookiesFile;
+        this.serverDebugChat = serverDebugChat;
     }
 
     public static HorizonRadioConfig load(File configDirectory) {
@@ -41,6 +44,7 @@ public final class HorizonRadioConfig {
         String downloadDir = DEFAULT_DOWNLOAD_DIR;
         String youtubeCookiesFromBrowser = DEFAULT_YOUTUBE_COOKIES_FROM_BROWSER;
         String youtubeCookiesFile = DEFAULT_YOUTUBE_COOKIES_FILE;
+        boolean serverDebugChat = DEFAULT_SERVER_DEBUG_CHAT;
 
         if (configDirectory == null) {
             return new HorizonRadioConfig(
@@ -48,7 +52,8 @@ public final class HorizonRadioConfig {
                 maxTrackDurationMinutes,
                 downloadDir,
                 youtubeCookiesFromBrowser,
-                youtubeCookiesFile);
+                youtubeCookiesFile,
+                serverDebugChat);
         }
 
         File configFile = new File(configDirectory, "horizonradio.json");
@@ -58,7 +63,8 @@ public final class HorizonRadioConfig {
                 maxTrackDurationMinutes,
                 downloadDir,
                 youtubeCookiesFromBrowser,
-                youtubeCookiesFile);
+                youtubeCookiesFile,
+                serverDebugChat);
         }
 
         BufferedReader reader = null;
@@ -95,6 +101,11 @@ public final class HorizonRadioConfig {
                     youtubeCookiesFile = object.get("youtubeCookiesFile")
                         .getAsString();
                 }
+                if (object.has("serverDebugChat") && !object.get("serverDebugChat")
+                    .isJsonNull()) {
+                    serverDebugChat = object.get("serverDebugChat")
+                        .getAsBoolean();
+                }
             }
         } catch (IOException e) {
             // Keep the documented defaults when the optional file cannot be read.
@@ -117,7 +128,8 @@ public final class HorizonRadioConfig {
             maxTrackDurationMinutes,
             downloadDir,
             youtubeCookiesFromBrowser,
-            youtubeCookiesFile);
+            youtubeCookiesFile,
+            serverDebugChat);
     }
 
     public int getMaxPlaylistSize() {
@@ -138,5 +150,9 @@ public final class HorizonRadioConfig {
 
     public String getYoutubeCookiesFile() {
         return youtubeCookiesFile;
+    }
+
+    public boolean isServerDebugChat() {
+        return serverDebugChat;
     }
 }

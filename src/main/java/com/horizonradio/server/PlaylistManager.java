@@ -10,6 +10,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
+import java.util.logging.Logger;
 
 import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.server.MinecraftServer;
@@ -41,6 +42,7 @@ import cpw.mods.fml.common.network.simpleimpl.IMessage;
 public final class PlaylistManager {
 
     private static final long CLIENT_TRACK_START_DELAY_MS = 3000L;
+    private static final Logger LOGGER = Logger.getLogger(PlaylistManager.class.getName());
 
     interface PacketBroadcaster {
 
@@ -61,6 +63,7 @@ public final class PlaylistManager {
     private final PlaylistState state;
     private final int maxPlaylistSize;
     private final long maxTrackDurationMs;
+    private final boolean serverDebugChat;
     private final ScheduledExecutorService scheduler;
     private final PacketBroadcaster packetBroadcaster;
 
@@ -81,6 +84,7 @@ public final class PlaylistManager {
         }
         maxPlaylistSize = config.getMaxPlaylistSize();
         maxTrackDurationMs = config.getMaxTrackDurationMinutes() * 60L * 1000L;
+        serverDebugChat = config.isServerDebugChat();
         state = new PlaylistState(maxPlaylistSize);
         scheduler = Executors.newSingleThreadScheduledExecutor(new ThreadFactory() {
 
@@ -644,7 +648,8 @@ public final class PlaylistManager {
     }
 
     private void sendChat(EntityPlayerMP player, EnumChatFormatting color, String message) {
-        if (server != null && player != null) {
+        LOGGER.info("HorizonRadio: " + message);
+        if (serverDebugChat && server != null && player != null) {
             player.addChatMessage(new ChatComponentText(EnumChatFormatting.YELLOW + "[HorizonRadio] " + color + message));
         }
     }

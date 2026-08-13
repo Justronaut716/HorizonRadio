@@ -30,10 +30,10 @@ import org.junit.Before;
 import org.junit.Test;
 
 import com.horizonradio.client.audio.AudioPlayer;
+import com.horizonradio.core.model.RadioStation;
 import com.horizonradio.network.packets.AudioChunkPacket;
 import com.horizonradio.network.packets.RadioAudioChunkPacket;
 import com.horizonradio.network.packets.RadioAudioStartPacket;
-import com.horizonradio.network.packets.RadioSearchResultsPacket;
 
 public class RadioClientStateTest {
 
@@ -55,7 +55,7 @@ public class RadioClientStateTest {
     @Test
     public void radioStateIsClearedOnDisconnectCacheReset() {
         HorizonRadioClient.updateRadioSearchResults(
-            new RadioSearchResultsPacket(Arrays.asList(new RadioSearchResultsPacket.Entry("uuid", "Station"))));
+            Arrays.asList(new RadioStation("uuid", "Station", "", true, false)));
         HorizonRadioClient.updateRadioPresentation(ClientRadioPresentation.active(3L, "uuid", "Station", "LIVE"));
 
         HorizonRadioClient.clearCache();
@@ -99,9 +99,9 @@ public class RadioClientStateTest {
     @Test
     public void radioResultsCacheReturnsDefensiveCopies() {
         HorizonRadioClient.updateRadioSearchResults(
-            new RadioSearchResultsPacket(Arrays.asList(new RadioSearchResultsPacket.Entry("uuid", "Station"))));
+            Arrays.asList(new RadioStation("uuid", "Station", "", true, false)));
 
-        List<RadioSearchResultsPacket.Entry> results = HorizonRadioClient.getCachedRadioResults();
+        List<RadioStation> results = HorizonRadioClient.getCachedRadioResults();
         results.clear();
 
         assertEquals(

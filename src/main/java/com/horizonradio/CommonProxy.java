@@ -9,16 +9,12 @@ import net.minecraft.server.MinecraftServer;
 import com.horizonradio.core.config.HorizonRadioConfig;
 import com.horizonradio.network.ServerMessageHandlers;
 import com.horizonradio.network.packets.AddChartsToPlaylistPacket;
-import com.horizonradio.network.packets.AudioChunkPacket;
 import com.horizonradio.network.packets.ChartAddCompletionPacket;
 import com.horizonradio.network.packets.ClockSyncResponsePacket;
-import com.horizonradio.network.packets.NowPlayingPacket;
 import com.horizonradio.network.packets.PausePacket;
 import com.horizonradio.network.packets.PlaylistDeltaPacket;
 import com.horizonradio.network.packets.PlaylistSyncPacket;
-import com.horizonradio.network.packets.RadioSearchResultsPacket;
 import com.horizonradio.network.packets.ResumePacket;
-import com.horizonradio.network.packets.SearchResultsPacket;
 import com.horizonradio.network.packets.TrackSyncPacket;
 import com.horizonradio.server.PlaylistManager;
 
@@ -150,10 +146,6 @@ public class CommonProxy {
     public void onPlayerLoggedOut(EntityPlayerMP player) {
     }
 
-    public void handleSearchResults(SearchResultsPacket packet) {}
-
-    public void handleChartResults(SearchResultsPacket packet) {}
-
     public void handlePlaylistSync(PlaylistSyncPacket packet) {}
 
     public void handlePlaylistDelta(PlaylistDeltaPacket packet) {}
@@ -162,11 +154,7 @@ public class CommonProxy {
 
     public void handleClockSync(ClockSyncResponsePacket packet) {}
 
-    public void handleAudioChunk(AudioChunkPacket packet) {}
-
     public void handleTrackSync(TrackSyncPacket packet) {}
-
-    public void handleNowPlaying(NowPlayingPacket packet) {}
 
     public void handlePause(PausePacket packet) {}
 
@@ -175,7 +163,5 @@ public class CommonProxy {
     public void handleLoopState(boolean looping) {}
 
     public void handleShuffleState(boolean shuffling) {}
-
-    public void handleRadioSearchResults(RadioSearchResultsPacket packet) {}
 
 }

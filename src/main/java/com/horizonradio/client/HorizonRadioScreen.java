@@ -20,9 +20,9 @@ import org.lwjgl.opengl.GL11;
 
 import com.horizonradio.core.model.DurationParser;
 import com.horizonradio.core.model.MediaSourceType;
+import com.horizonradio.core.model.RadioStation;
 import com.horizonradio.core.server.ChartRegion;
 import com.horizonradio.core.server.ChartRegionCatalog;
-import com.horizonradio.network.packets.RadioSearchResultsPacket;
 
 /** Forge 1.7.10 port of the active HorizonRadio search and playlist screen. */
 public class HorizonRadioScreen extends GuiScreen {
@@ -175,7 +175,7 @@ public class HorizonRadioScreen extends GuiScreen {
         playlist = HorizonRadioClient.getCachedPlaylist();
         radioLoading = false;
         radioResultsRevealPending = false;
-        updateRadioResultsFromPacketEntries(HorizonRadioClient.getCachedRadioResults());
+        updateRadioResultsFromStations(HorizonRadioClient.getCachedRadioResults());
         nowPlaying = HorizonRadioClient.getCachedNowPlaying();
         playbackProgress = HorizonRadioClient.getCachedProgress();
         refreshCurrentDuration();
@@ -1068,11 +1068,13 @@ public class HorizonRadioScreen extends GuiScreen {
         }
     }
 
-    void updateRadioResultsFromPacketEntries(List<RadioSearchResultsPacket.Entry> entries) {
+    void updateRadioResultsFromStations(List<RadioStation> stations) {
         List<RadioStationResult> results = new ArrayList<RadioStationResult>();
-        if (entries != null) {
-            for (RadioSearchResultsPacket.Entry entry : entries) {
-                results.add(new RadioStationResult(entry.getStationUuid(), entry.getName()));
+        if (stations != null) {
+            for (RadioStation station : stations) {
+                if (station != null) {
+                    results.add(new RadioStationResult(station.getStationUuid(), station.getName()));
+                }
             }
         }
         updateRadioResults(results);

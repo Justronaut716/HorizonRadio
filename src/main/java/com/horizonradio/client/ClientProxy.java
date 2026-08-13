@@ -2,8 +2,6 @@ package com.horizonradio.client;
 
 import java.io.File;
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -17,16 +15,12 @@ import com.horizonradio.client.audio.AudioPlayer;
 import com.horizonradio.client.audio.ClientRadioPlayback;
 import com.horizonradio.client.media.ClientMediaService;
 import com.horizonradio.core.model.RadioStation;
-import com.horizonradio.network.packets.AudioChunkPacket;
 import com.horizonradio.network.packets.ChartAddCompletionPacket;
 import com.horizonradio.network.packets.ClockSyncResponsePacket;
-import com.horizonradio.network.packets.NowPlayingPacket;
 import com.horizonradio.network.packets.PausePacket;
 import com.horizonradio.network.packets.PlaylistDeltaPacket;
 import com.horizonradio.network.packets.PlaylistSyncPacket;
-import com.horizonradio.network.packets.RadioSearchResultsPacket;
 import com.horizonradio.network.packets.ResumePacket;
-import com.horizonradio.network.packets.SearchResultsPacket;
 import com.horizonradio.network.packets.TrackSyncPacket;
 import com.horizonradio.server.AudioDownloadService;
 import com.horizonradio.server.RadioBrowserService;
@@ -169,48 +163,6 @@ public class ClientProxy extends CommonProxy {
     }
 
     @Override
-    public void handleSearchResults(final SearchResultsPacket packet) {
-        schedule(new Runnable() {
-
-            @Override
-            public void run() {
-                List<HorizonRadioScreen.SearchResult> results = new ArrayList<HorizonRadioScreen.SearchResult>();
-                for (SearchResultsPacket.Entry entry : packet.getResults()) {
-                    results.add(
-                        new HorizonRadioScreen.SearchResult(
-                            entry.getVideoId(),
-                            entry.getTitle(),
-                            entry.getChannel(),
-                            entry.getDuration(),
-                            entry.getThumbnail()));
-                }
-                HorizonRadioClient.updateSearchResults(results);
-            }
-        });
-    }
-
-    @Override
-    public void handleChartResults(final SearchResultsPacket packet) {
-        schedule(new Runnable() {
-
-            @Override
-            public void run() {
-                List<HorizonRadioScreen.SearchResult> results = new ArrayList<HorizonRadioScreen.SearchResult>();
-                for (SearchResultsPacket.Entry entry : packet.getResults()) {
-                    results.add(
-                        new HorizonRadioScreen.SearchResult(
-                            entry.getVideoId(),
-                            entry.getTitle(),
-                            entry.getChannel(),
-                            entry.getDuration(),
-                            entry.getThumbnail()));
-                }
-                HorizonRadioClient.updateChartResults(results, packet.getChartRegionCode());
-            }
-        });
-    }
-
-    @Override
     public void handlePlaylistSync(final PlaylistSyncPacket packet) {
         schedule(new Runnable() {
 
@@ -256,34 +208,12 @@ public class ClientProxy extends CommonProxy {
     }
 
     @Override
-    public void handleAudioChunk(final AudioChunkPacket packet) {
-        schedule(new Runnable() {
-
-            @Override
-            public void run() {
-                HorizonRadioClient.handleAudioChunk(packet);
-            }
-        });
-    }
-
-    @Override
     public void handleTrackSync(final TrackSyncPacket packet) {
         schedule(new Runnable() {
 
             @Override
             public void run() {
                 HorizonRadioClient.handleTrackSync(packet);
-            }
-        });
-    }
-
-    @Override
-    public void handleNowPlaying(final NowPlayingPacket packet) {
-        schedule(new Runnable() {
-
-            @Override
-            public void run() {
-                HorizonRadioClient.updateNowPlaying(packet.getTitle(), packet.getProgress());
             }
         });
     }
@@ -328,17 +258,6 @@ public class ClientProxy extends CommonProxy {
             @Override
             public void run() {
                 HorizonRadioClient.updateShuffling(shuffling);
-            }
-        });
-    }
-
-    @Override
-    public void handleRadioSearchResults(final RadioSearchResultsPacket packet) {
-        schedule(new Runnable() {
-
-            @Override
-            public void run() {
-                HorizonRadioClient.updateRadioSearchResults(packet);
             }
         });
     }

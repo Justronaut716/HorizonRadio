@@ -450,6 +450,27 @@ public class PacketRoundTripTest {
     }
 
     @Test
+    public void commonHandlersAndClientLifecycleDoNotRetainLegacyMediaTraffic() throws IOException {
+        String serverHandlers = readSource("src/main/java/com/horizonradio/network/ServerMessageHandlers.java");
+        String client = readSource("src/main/java/com/horizonradio/client/HorizonRadioClient.java");
+        String proxy = readSource("src/main/java/com/horizonradio/client/ClientProxy.java");
+        String radioBrowser = readSource("src/main/java/com/horizonradio/server/RadioBrowserService.java");
+
+        assertFalse(serverHandlers.contains("net.minecraft.client"));
+        assertFalse(serverHandlers.contains("org.lwjgl"));
+        assertFalse(serverHandlers.contains("javax.sound"));
+        assertFalse(serverHandlers.contains("ClientProxy"));
+        assertFalse(client.contains("AudioChunkPacket"));
+        assertFalse(client.contains("RadioSearchResultsPacket"));
+        assertFalse(proxy.contains("AudioChunkPacket"));
+        assertFalse(proxy.contains("NowPlayingPacket"));
+        assertFalse(proxy.contains("RadioSearchResultsPacket"));
+        assertFalse(proxy.contains("SearchResultsPacket"));
+        assertFalse(radioBrowser.contains("RadioSearchResultsPacket"));
+        assertFalse(radioBrowser.contains("RadioStatePacket"));
+    }
+
+    @Test
     public void radioServerHandlersAuthenticateAndScheduleThroughServerExecutor() throws IOException {
         String source = readSource("src/main/java/com/horizonradio/network/ServerMessageHandlers.java");
         assertTrue(source.contains("final EntityPlayerMP player = player(context)"));

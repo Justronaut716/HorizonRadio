@@ -29,7 +29,6 @@ import com.horizonradio.network.HorizonRadioNetwork;
 import com.horizonradio.network.packets.AddChartsToPlaylistPacket;
 import com.horizonradio.network.packets.AddChartsToPlaylistPacket.Entry;
 import com.horizonradio.network.packets.AddToPlaylistPacket;
-import com.horizonradio.network.packets.AudioChunkPacket;
 import com.horizonradio.network.packets.ClearPlaylistPacket;
 import com.horizonradio.network.packets.ClockSyncRequestPacket;
 import com.horizonradio.network.packets.ClockSyncResponsePacket;
@@ -38,7 +37,6 @@ import com.horizonradio.network.packets.PlaylistDeltaPacket;
 import com.horizonradio.network.packets.PlaylistResyncRequestPacket;
 import com.horizonradio.network.packets.PlaylistSyncPacket;
 import com.horizonradio.network.packets.PreviousTrackPacket;
-import com.horizonradio.network.packets.RadioSearchResultsPacket;
 import com.horizonradio.network.packets.RemoveFromPlaylistPacket;
 import com.horizonradio.network.packets.ReorderPlaylistPacket;
 import com.horizonradio.network.packets.SeekRequestPacket;
@@ -56,7 +54,7 @@ public final class HorizonRadioClient {
 
     private static final List<HorizonRadioScreen.PlaylistEntry> CACHED_PLAYLIST = new ArrayList<HorizonRadioScreen.PlaylistEntry>();
     private static final List<HorizonRadioScreen.SearchResult> CACHED_CHARTS = new ArrayList<HorizonRadioScreen.SearchResult>();
-    private static final List<RadioSearchResultsPacket.Entry> CACHED_RADIO_RESULTS = new ArrayList<RadioSearchResultsPacket.Entry>();
+    private static final List<RadioStation> CACHED_RADIO_RESULTS = new ArrayList<RadioStation>();
     private static final long CHART_CACHE_TTL_MILLIS = 7L * 24L * 60L * 60L * 1000L;
     private static String cachedNowPlaying;
     private static float cachedProgress;
@@ -587,7 +585,7 @@ public final class HorizonRadioClient {
 
     public static synchronized void sendRadioSearch(String query) {
         if (clientMediaService == null) {
-            updateRadioStations(null);
+            updateRadioSearchResults(null);
             return;
         }
         final long generation = ++radioSearchGeneration;
@@ -607,7 +605,7 @@ public final class HorizonRadioClient {
                                 if (failure != null) {
                                     showRadioError();
                                 } else {
-                                    updateRadioStations(stations);
+                                    updateRadioSearchResults(stations);
                                 }
                             }
                         }
@@ -640,8 +638,8 @@ public final class HorizonRadioClient {
         return cachedChartRegionCode;
     }
 
-    public static synchronized List<RadioSearchResultsPacket.Entry> getCachedRadioResults() {
-        return new ArrayList<RadioSearchResultsPacket.Entry>(CACHED_RADIO_RESULTS);
+    public static synchronized List<RadioStation> getCachedRadioResults() {
+        return new ArrayList<RadioStation>(CACHED_RADIO_RESULTS);
     }
 
     public static synchronized ClientRadioPresentation getCachedRadioPresentation() {
@@ -777,17 +775,6 @@ public final class HorizonRadioClient {
         }
     }
 
-    public static synchronized void updateRadioSearchResults(RadioSearchResultsPacket packet) {
-        CACHED_RADIO_RESULTS.clear();
-        if (packet != null) {
-            CACHED_RADIO_RESULTS.addAll(packet.getEntries());
-        }
-        HorizonRadioScreen screen = getOpenScreen();
-        if (screen != null) {
-            screen.updateRadioResultsFromPacketEntries(CACHED_RADIO_RESULTS);
-        }
-    }
-
     public static synchronized void updateRadioPresentation(ClientRadioPresentation presentation) {
         boolean wasRadioActive = cachedRadioActive;
         cachedRadioPresentation = presentation;
@@ -825,11 +812,6 @@ public final class HorizonRadioClient {
         if (screen != null) {
             screen.updateNowPlaying(cachedNowPlaying, cachedProgress);
         }
-    }
-
-    public static synchronized void handleAudioChunk(AudioChunkPacket packet) {
-        AudioPlayer.getInstance()
-            .receiveChunk(packet);
     }
 
     public static synchronized void handleTrackSync(final TrackSyncPacket packet) {
@@ -1363,13 +1345,15 @@ public final class HorizonRadioClient {
         return converted;
     }
 
-    private static void updateRadioStations(List<RadioStation> stations) {
-        List<HorizonRadioScreen.RadioStationResult> results = new ArrayList<HorizonRadioScreen.RadioStationResult>();
+    public static synchronized void updateRadioSearchResults(List<RadioStation> stations) {
+        CACHED_RADIO_RESULTS.clear();
         if (stations != null) {
-            for (RadioStation station : stations) {
-                if (station != null) {
-                    results.add(new HorizonRadioScreen.RadioStationResult(station.getStationUuid(), station.getName()));
-                }
+            CACHED_RADIO_RESULTS.addAll(stations);
+        }
+        List<HorizonRadioScreen.RadioStationResult> results = new ArrayList<HorizonRadioScreen.RadioStationResult>();
+        for (RadioStation station : CACHED_RADIO_RESULTS) {
+            if (station != null) {
+                results.add(new HorizonRadioScreen.RadioStationResult(station.getStationUuid(), station.getName()));
             }
         }
         HorizonRadioScreen screen = getOpenScreen();

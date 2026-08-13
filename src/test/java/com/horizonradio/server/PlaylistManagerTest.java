@@ -249,17 +249,36 @@ public class PlaylistManagerTest {
         assertFalse(managerSource.contains("RadioAudioStartPacket"));
         assertFalse(managerSource.contains("RadioAudioChunkPacket"));
         assertFalse(managerSource.contains("RadioStatePacket"));
+        assertTrue(managerSource.contains("Logger.getLogger(PlaylistManager.class.getName())"));
+        assertTrue(managerSource.contains("config.isServerDebugChat()"));
         assertFalse(proxySource.contains("new YouTubeService"));
         assertFalse(proxySource.contains("new AudioDownloadService"));
         assertFalse(proxySource.contains("new RadioBrowserService"));
         assertFalse(proxySource.contains("new RadioStreamService"));
+        assertFalse(proxySource.contains("SearchResultsPacket"));
+        assertFalse(proxySource.contains("AudioChunkPacket"));
+        assertFalse(proxySource.contains("NowPlayingPacket"));
+        assertFalse(proxySource.contains("RadioSearchResultsPacket"));
         assertFalse(networkSource.contains("SearchRequestHandler.class"));
+        assertFalse(networkSource.contains("SearchRequestPacket.class"));
+        assertFalse(networkSource.contains("SearchResultsPacket.class"));
+        assertFalse(networkSource.contains("ImportPlaylistPacket.class"));
+        assertFalse(networkSource.contains("ImportVideoPacket.class"));
         assertFalse(networkSource.contains("RequestChartsHandler.class"));
+        assertFalse(networkSource.contains("RequestChartsPacket.class"));
         assertFalse(networkSource.contains("RadioSearchRequestHandler.class"));
+        assertFalse(networkSource.contains("RadioSearchRequestPacket.class"));
+        assertFalse(networkSource.contains("RadioSearchResultsPacket.class"));
         assertFalse(networkSource.contains("AudioChunkHandler.class"));
+        assertFalse(networkSource.contains("AudioChunkPacket.class"));
         assertFalse(networkSource.contains("NowPlayingHandler.class"));
+        assertFalse(networkSource.contains("NowPlayingPacket.class"));
         assertFalse(networkSource.contains("RadioAudioStartHandler.class"));
+        assertFalse(networkSource.contains("RadioAudioStartPacket.class"));
         assertFalse(networkSource.contains("RadioAudioChunkHandler.class"));
+        assertFalse(networkSource.contains("RadioAudioChunkPacket.class"));
+        assertFalse(networkSource.contains("RadioStatePacket.class"));
+        assertFalse(networkSource.contains("ReadyPacket.class"));
     }
 
     private static PlaylistManager manager() throws IOException {
