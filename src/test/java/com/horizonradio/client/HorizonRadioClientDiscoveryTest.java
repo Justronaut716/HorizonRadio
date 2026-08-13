@@ -175,9 +175,9 @@ public class HorizonRadioClientDiscoveryTest {
     public void chartsPublishOnlyAfterMissingDurationsAreResolved() {
         DeferredProvider provider = new DeferredProvider();
         provider.chartResults = Arrays.asList(
-            new SearchResult("missing-duration", "First", "", "", ""),
-            new SearchResult("known-duration", "Second", "", "2:00", ""));
-        CompletableFuture<String> metadata = provider.deferVideo("missing-duration");
+            new SearchResult("MdDurPref01", "First", "", "", ""),
+            new SearchResult("KnDurPref02", "Second", "", "2:00", ""));
+        CompletableFuture<String> metadata = provider.deferVideo("MdDurPref01");
         HorizonRadioClient.setClientMediaService(new ClientMediaService(provider));
         HorizonRadioScreen screen = new HorizonRadioScreen();
         HorizonRadioScreen.setActiveScreen(screen);
@@ -187,9 +187,9 @@ public class HorizonRadioClientDiscoveryTest {
             assertTrue(chartResults(screen).isEmpty());
             assertEquals(1, provider.videoLookupCount);
 
-            metadata.complete("{\"id\":\"missing-duration\",\"title\":\"First\",\"duration\":90}");
+            metadata.complete("{\"id\":\"MdDurPref01\",\"title\":\"First\",\"duration\":90}");
 
-            assertEquals(Arrays.asList("missing-duration", "known-duration"), chartVideoIds(screen));
+            assertEquals(Arrays.asList("MdDurPref01", "KnDurPref02"), chartVideoIds(screen));
             assertEquals("1:30", chartResults(screen).get(0).duration);
             assertEquals("2:00", chartResults(screen).get(1).duration);
         } finally {
@@ -201,9 +201,9 @@ public class HorizonRadioClientDiscoveryTest {
     public void failedChartMetadataLeavesPlaceholderAndOtherChartsPresent() {
         DeferredProvider provider = new DeferredProvider();
         provider.chartResults = Arrays.asList(
-            new SearchResult("failed-duration", "Failed", "", "", ""),
-            new SearchResult("known-duration", "Known", "", "2:00", ""));
-        CompletableFuture<String> metadata = provider.deferVideo("failed-duration");
+            new SearchResult("FlDurPref03", "Failed", "", "", ""),
+            new SearchResult("KnDurPref02", "Known", "", "2:00", ""));
+        CompletableFuture<String> metadata = provider.deferVideo("FlDurPref03");
         HorizonRadioClient.setClientMediaService(new ClientMediaService(provider));
         HorizonRadioScreen screen = new HorizonRadioScreen();
         HorizonRadioScreen.setActiveScreen(screen);
@@ -211,7 +211,7 @@ public class HorizonRadioClientDiscoveryTest {
             HorizonRadioClient.sendChartsRequest("DE", false);
             metadata.completeExceptionally(new IllegalStateException("metadata unavailable"));
 
-            assertEquals(Arrays.asList("failed-duration", "known-duration"), chartVideoIds(screen));
+            assertEquals(Arrays.asList("FlDurPref03", "KnDurPref02"), chartVideoIds(screen));
             assertEquals("--:--", chartResults(screen).get(0).duration);
             assertEquals("2:00", chartResults(screen).get(1).duration);
         } finally {
@@ -223,21 +223,21 @@ public class HorizonRadioClientDiscoveryTest {
     public void chartDurationPrefetchIsReusedWhenAddingPublishedResult() {
         DeferredProvider provider = new DeferredProvider();
         provider.chartResults = Collections.singletonList(
-            new SearchResult("cached-duration", "Cached", "", "", ""));
-        CompletableFuture<String> metadata = provider.deferVideo("cached-duration");
+            new SearchResult("CaDurPref04", "Cached", "", "", ""));
+        CompletableFuture<String> metadata = provider.deferVideo("CaDurPref04");
         HorizonRadioClient.setClientMediaService(new ClientMediaService(provider));
         HorizonRadioScreen screen = new HorizonRadioScreen();
         HorizonRadioScreen.setActiveScreen(screen);
         try {
             HorizonRadioClient.sendChartsRequest("DE", false);
-            metadata.complete("{\"id\":\"cached-duration\",\"title\":\"Cached\",\"duration\":90}");
+            metadata.complete("{\"id\":\"CaDurPref04\",\"title\":\"Cached\",\"duration\":90}");
 
             assertEquals("1:30", chartResults(screen).get(0).duration);
             assertEquals(1, provider.videoLookupCount);
 
             HorizonRadioClient.sendAddChartsToPlaylist(chartResults(screen));
 
-            assertEquals(Collections.singletonList("cached-duration|90000"), transport.chartSelections);
+            assertEquals(Collections.singletonList("CaDurPref04|90000"), transport.chartSelections);
             assertEquals(1, provider.videoLookupCount);
         } finally {
             HorizonRadioScreen.clearActiveScreen(screen);
@@ -249,7 +249,7 @@ public class HorizonRadioClientDiscoveryTest {
         DeferredProvider provider = new DeferredProvider();
         CompletableFuture<List<SearchResult>> older = provider.deferCharts();
         CompletableFuture<List<SearchResult>> newer = provider.deferCharts();
-        CompletableFuture<String> olderMetadata = provider.deferVideo("old-chart");
+        CompletableFuture<String> olderMetadata = provider.deferVideo("OlChartP005");
         HorizonRadioClient.setClientMediaService(new ClientMediaService(provider));
         HorizonRadioScreen screen = new HorizonRadioScreen();
         HorizonRadioScreen.setActiveScreen(screen);
@@ -258,15 +258,15 @@ public class HorizonRadioClientDiscoveryTest {
             HorizonRadioClient.sendChartsRequest("DE", true);
 
             older.complete(Collections.singletonList(
-                new SearchResult("old-chart", "Old", "", "", "")));
+                new SearchResult("OlChartP005", "Old", "", "", "")));
             newer.complete(Collections.singletonList(
-                new SearchResult("new-chart", "New", "", "2:00", "")));
+                new SearchResult("NeChartP006", "New", "", "2:00", "")));
 
-            assertEquals(Collections.singletonList("new-chart"), chartVideoIds(screen));
+            assertEquals(Collections.singletonList("NeChartP006"), chartVideoIds(screen));
 
-            olderMetadata.complete("{\"id\":\"old-chart\",\"title\":\"Old\",\"duration\":90}");
+            olderMetadata.complete("{\"id\":\"OlChartP005\",\"title\":\"Old\",\"duration\":90}");
 
-            assertEquals(Collections.singletonList("new-chart"), chartVideoIds(screen));
+            assertEquals(Collections.singletonList("NeChartP006"), chartVideoIds(screen));
         } finally {
             HorizonRadioScreen.clearActiveScreen(screen);
         }
