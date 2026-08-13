@@ -1479,12 +1479,6 @@ public final class HorizonRadioClient {
             if (lookup == null) {
                 return CompletableFuture.completedFuture(chartWithDuration(chart, "--:--"));
             }
-            if (lookup.isDone() && lookup.getNow(null) == null && !isYouTubeVideoId(chart.getVideoId())
-                && clientMediaService != null) {
-                return resolveChartDurationFromLookup(
-                    chart,
-                    clientMediaService.importVideo("https://www.youtube.com/watch?v=" + chart.getVideoId()));
-            }
             return resolveChartDurationFromLookup(chart, lookup);
         } catch (RuntimeException exception) {
             return CompletableFuture.completedFuture(chartWithDuration(chart, "--:--"));
@@ -1531,10 +1525,6 @@ public final class HorizonRadioClient {
             chart.getChannel(),
             duration,
             chart.getThumbnail());
-    }
-
-    private static boolean isYouTubeVideoId(String videoId) {
-        return videoId != null && videoId.matches("[A-Za-z0-9_-]{11}");
     }
 
     public static synchronized void updateRadioSearchResults(List<RadioStation> stations) {
