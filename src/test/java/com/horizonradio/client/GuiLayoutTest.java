@@ -883,14 +883,14 @@ public class GuiLayoutTest {
     }
 
     @Test
-    public void musicModeIsDistinguishedFromPausedRadioState() throws IOException {
-        String packet = readSource("src/main/java/com/horizonradio/network/packets/RadioStatePacket.java");
+    public void radioPlaybackUsesSourceAwareTrackSynchronization() throws IOException {
+        String packet = readSource("src/main/java/com/horizonradio/network/packets/TrackSyncPacket.java");
         String manager = readSource("src/main/java/com/horizonradio/server/PlaylistManager.java");
-        String screen = readSource("src/main/java/com/horizonradio/client/HorizonRadioScreen.java");
 
-        assertTrue(packet.contains("isMusicMode"));
-        assertTrue(manager.contains("RadioPlaybackState.Mode.MUSIC"));
-        assertTrue(screen.contains("isMusicMode()"));
+        assertTrue(packet.contains("MediaSourceType.RADIO"));
+        assertTrue(packet.contains("radio track synchronization cannot carry finite timing"));
+        assertTrue(manager.contains("TrackSyncPacket.radio"));
+        assertFalse(manager.contains("RadioPlaybackState"));
     }
 
     @Test

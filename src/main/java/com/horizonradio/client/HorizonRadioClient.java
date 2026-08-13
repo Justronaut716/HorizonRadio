@@ -1300,7 +1300,7 @@ public final class HorizonRadioClient {
     }
 
     private static boolean isValidSelection(String videoId, long durationMs) {
-        return videoId != null && videoId.trim().length() > 0 && durationMs >= 0L;
+        return videoId != null && videoId.trim().length() > 0 && durationMs > 0L;
     }
 
     private static long maxTrackDurationMs() {

@@ -5,7 +5,7 @@ import com.horizonradio.network.PacketBufferUtil;
 import cpw.mods.fml.common.network.simpleimpl.IMessage;
 import io.netty.buffer.ByteBuf;
 
-/** ID and finite duration only; server-side metadata resolution owns display fields. */
+/** ID and positive finite duration only; display metadata stays client-side. */
 public class AddToPlaylistPacket implements IMessage {
 
     private String videoId;
@@ -58,7 +58,7 @@ public class AddToPlaylistPacket implements IMessage {
     }
 
     private void validate() {
-        if (videoId == null || videoId.trim().isEmpty() || durationMs < 0L) {
+        if (videoId == null || videoId.trim().isEmpty() || durationMs <= 0L) {
             throw new IllegalArgumentException("invalid add-to-playlist packet");
         }
     }

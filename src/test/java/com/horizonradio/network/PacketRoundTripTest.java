@@ -132,7 +132,7 @@ public class PacketRoundTripTest {
         AddChartsToPlaylistPacket addCharts = roundTrip(
             new AddChartsToPlaylistPacket(
                 Arrays.asList(
-                    new AddChartsToPlaylistPacket.Entry("id", 0L),
+                    new AddChartsToPlaylistPacket.Entry("id", 1L),
                     new AddChartsToPlaylistPacket.Entry("id-2", 120_000L))),
             new AddChartsToPlaylistPacket());
         assertEquals(
@@ -141,7 +141,7 @@ public class PacketRoundTripTest {
                 .size());
         assertEquals("id", addCharts.getEntries().get(0).getTitle());
         AddChartsToPlaylistPacket removeCharts = roundTrip(
-            new AddChartsToPlaylistPacket(Arrays.asList(new AddChartsToPlaylistPacket.Entry("id", 0L)), true),
+            new AddChartsToPlaylistPacket(Arrays.asList(new AddChartsToPlaylistPacket.Entry("id", 1L)), true),
             new AddChartsToPlaylistPacket());
         assertTrue(removeCharts.isRemove());
 
@@ -353,22 +353,20 @@ public class PacketRoundTripTest {
         new AudioChunkPacket("id", "title", 0, AudioChunkPacket.MAX_CHUNKS + 1, 0L, new byte[0]);
     }
 
+    @Test(expected = IllegalArgumentException.class)
+    public void rejectsUnknownDurationForFiniteQueueMutation() {
+        new AddToPlaylistPacket("id", 0L);
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void rejectsUnknownDurationForChartQueueMutation() {
+        new AddChartsToPlaylistPacket.Entry("id", 0L);
+    }
+
     @Test
     public void registersAllMessagesFromCommonCodeWithExpectedSides() throws IOException {
         String source = normalizeSource(readSource("src/main/java/com/horizonradio/network/HorizonRadioNetwork.java"));
         assertTrue(source.contains("NetworkRegistry.INSTANCE.newSimpleChannel(HorizonRadioProtocol.CHANNEL_NAME)"));
-        assertTrue(
-            source.contains(
-                "registerMessage(ServerMessageHandlers.SearchRequestHandler.class, SearchRequestPacket.class, 0, Side.SERVER)"));
-        assertTrue(
-            source.contains(
-                "registerMessage(ServerMessageHandlers.ImportPlaylistHandler.class, ImportPlaylistPacket.class, 19, Side.SERVER)"));
-        assertTrue(
-            source.contains(
-                "registerMessage(ServerMessageHandlers.ImportVideoHandler.class, ImportVideoPacket.class, 20, Side.SERVER)"));
-        assertTrue(
-            source.contains(
-                "registerMessage(ServerMessageHandlers.RequestChartsHandler.class, RequestChartsPacket.class, 21, Side.SERVER)"));
         assertTrue(
             source.contains(
                 "registerMessage(ServerMessageHandlers.AddToPlaylistHandler.class, AddToPlaylistPacket.class, 1, Side.SERVER)"));
@@ -379,9 +377,6 @@ public class PacketRoundTripTest {
         assertTrue(
             source.contains(
                 "registerMessage(ServerMessageHandlers.RemoveFromPlaylistHandler.class, RemoveFromPlaylistPacket.class, 2, Side.SERVER)"));
-        assertTrue(
-            source.contains(
-                "registerMessage(ServerMessageHandlers.ReadyHandler.class, ReadyPacket.class, 3, Side.SERVER)"));
         assertTrue(
             source.contains(
                 "registerMessage(ServerMessageHandlers.ReorderPlaylistHandler.class, ReorderPlaylistPacket.class, 10, Side.SERVER)"));
@@ -411,16 +406,7 @@ public class PacketRoundTripTest {
                 "registerMessage(ClientboundMessageHandlers.ShuffleStateHandler.class, ShuffleStatePacket.class, 18, Side.CLIENT)"));
         assertTrue(
             source.contains(
-                "registerMessage(ClientboundMessageHandlers.SearchResultsHandler.class, SearchResultsPacket.class, 4, Side.CLIENT)"));
-        assertTrue(
-            source.contains(
                 "registerMessage(ClientboundMessageHandlers.PlaylistSyncHandler.class, PlaylistSyncPacket.class, 5, Side.CLIENT)"));
-        assertTrue(
-            source.contains(
-                "registerMessage(ClientboundMessageHandlers.AudioChunkHandler.class, AudioChunkPacket.class, 6, Side.CLIENT)"));
-        assertTrue(
-            source.contains(
-                "registerMessage(ClientboundMessageHandlers.NowPlayingHandler.class, NowPlayingPacket.class, 7, Side.CLIENT)"));
         assertTrue(
             source.contains(
                 "registerMessage(ClientboundMessageHandlers.PauseHandler.class, PausePacket.class, 8, Side.CLIENT)"));
@@ -429,32 +415,25 @@ public class PacketRoundTripTest {
                 "registerMessage(ClientboundMessageHandlers.ResumeHandler.class, ResumePacket.class, 9, Side.CLIENT)"));
         assertTrue(
             source.contains(
-                "registerMessage(ServerMessageHandlers.RadioSearchRequestHandler.class, RadioSearchRequestPacket.class, 25, Side.SERVER)"));
-        assertTrue(
-            source.contains(
                 "registerMessage(ServerMessageHandlers.SelectRadioStationHandler.class, SelectRadioStationPacket.class, 26, Side.SERVER)"));
         assertTrue(
             source.contains(
                 "registerMessage(ServerMessageHandlers.StopRadioHandler.class, StopRadioPacket.class, 27, Side.SERVER)"));
-        assertTrue(
-            source.contains(
-                "registerMessage(ClientboundMessageHandlers.RadioSearchResultsHandler.class, RadioSearchResultsPacket.class, 28, Side.CLIENT)"));
-        assertTrue(
-            source.contains(
-                "registerMessage(ClientboundMessageHandlers.RadioStateHandler.class, RadioStatePacket.class, 29, Side.CLIENT)"));
-        assertTrue(
-            source.contains(
-                "registerMessage(ClientboundMessageHandlers.RadioAudioStartHandler.class, RadioAudioStartPacket.class, 30, Side.CLIENT)"));
-        assertTrue(
-            source.contains(
-                "registerMessage(ClientboundMessageHandlers.RadioAudioChunkHandler.class, RadioAudioChunkPacket.class, 31, Side.CLIENT)"));
-        assertEquals(1, countOccurrences(source, "RadioSearchRequestPacket.class, 25, Side.SERVER"));
         assertEquals(1, countOccurrences(source, "SelectRadioStationPacket.class, 26, Side.SERVER"));
         assertEquals(1, countOccurrences(source, "StopRadioPacket.class, 27, Side.SERVER"));
-        assertEquals(1, countOccurrences(source, "RadioSearchResultsPacket.class, 28, Side.CLIENT"));
-        assertEquals(1, countOccurrences(source, "RadioStatePacket.class, 29, Side.CLIENT"));
-        assertEquals(1, countOccurrences(source, "RadioAudioStartPacket.class, 30, Side.CLIENT"));
-        assertEquals(1, countOccurrences(source, "RadioAudioChunkPacket.class, 31, Side.CLIENT"));
+        assertFalse(source.contains("SearchRequestHandler.class"));
+        assertFalse(source.contains("ImportPlaylistHandler.class"));
+        assertFalse(source.contains("ImportVideoHandler.class"));
+        assertFalse(source.contains("RequestChartsHandler.class"));
+        assertFalse(source.contains("RadioSearchRequestHandler.class"));
+        assertFalse(source.contains("ReadyHandler.class"));
+        assertFalse(source.contains("SearchResultsHandler.class"));
+        assertFalse(source.contains("AudioChunkHandler.class"));
+        assertFalse(source.contains("NowPlayingHandler.class"));
+        assertFalse(source.contains("RadioSearchResultsHandler.class"));
+        assertFalse(source.contains("RadioStateHandler.class"));
+        assertFalse(source.contains("RadioAudioStartHandler.class"));
+        assertFalse(source.contains("RadioAudioChunkHandler.class"));
         assertEquals(1, countOccurrences(source, "registerMessages()"));
     }
 
@@ -467,10 +446,6 @@ public class PacketRoundTripTest {
         assertTrue(!source.contains("javax.sound"));
         assertTrue(!source.contains("ClientProxy"));
         assertTrue(!source.contains("cpw.mods.fml.client"));
-        assertTrue(source.contains("HorizonRadio.proxy.handleRadioSearchResults(message)"));
-        assertTrue(source.contains("HorizonRadio.proxy.handleRadioState(message)"));
-        assertTrue(source.contains("HorizonRadio.proxy.handleRadioAudioStart(message)"));
-        assertTrue(source.contains("HorizonRadio.proxy.handleRadioAudioChunk(message)"));
         assertTrue(source.contains("HorizonRadio.proxy.handlePlaylistDelta(message)"));
     }
 
@@ -479,7 +454,6 @@ public class PacketRoundTripTest {
         String source = readSource("src/main/java/com/horizonradio/network/ServerMessageHandlers.java");
         assertTrue(source.contains("final EntityPlayerMP player = player(context)"));
         assertTrue(source.contains("ServerThreadExecutor.execute(server, task)"));
-        assertTrue(source.contains("hook.handleRadioSearch(player, message.getQuery())"));
         assertTrue(source.contains("hook.handleSelectRadio(player, message.getStationUuid())"));
         assertTrue(source.contains("hook.handleStopRadio(player)"));
         assertTrue(source.contains("hook.handlePlaylistResyncRequest(player, message.getKnownRevision())"));
@@ -488,11 +462,9 @@ public class PacketRoundTripTest {
     @Test
     public void clientTransportUsesForgeChannel() throws IOException {
         String source = readSource("src/main/java/com/horizonradio/client/HorizonRadioClient.java");
-        assertTrue(source.contains("CHANNEL.sendToServer(new SearchRequestPacket(query))"));
-        assertTrue(source.contains("CHANNEL.sendToServer(new AddToPlaylistPacket(videoId, title, duration))"));
-        assertTrue(source.contains("CHANNEL.sendToServer(new PlayNowPacket(videoId, title, duration))"));
+        assertTrue(source.contains("CHANNEL.sendToServer(new AddToPlaylistPacket(videoId, durationMs))"));
+        assertTrue(source.contains("CHANNEL.sendToServer(new PlayNowPacket(videoId, durationMs))"));
         assertTrue(source.contains("CHANNEL.sendToServer(new RemoveFromPlaylistPacket(videoId))"));
-        assertTrue(source.contains("CHANNEL.sendToServer(new ReadyPacket(videoId))"));
     }
 
     @Test

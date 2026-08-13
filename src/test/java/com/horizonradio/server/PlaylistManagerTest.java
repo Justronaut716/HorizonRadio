@@ -4,740 +4,191 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
+import java.io.File;
 import java.io.IOException;
 import java.lang.reflect.Field;
-import java.lang.reflect.Method;
 import java.nio.charset.Charset;
 import java.nio.file.Files;
-import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.List;
-import java.util.concurrent.CompletableFuture;
 
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.entity.player.EntityPlayerMP;
-import net.minecraft.util.EnumChatFormatting;
+import net.minecraft.server.MinecraftServer;
 
 import org.junit.Test;
 
+import com.horizonradio.core.model.MediaSourceType;
 import com.horizonradio.core.model.PlaylistEntry;
-import com.horizonradio.core.model.RadioStation;
-import com.horizonradio.core.model.SearchResult;
-import com.horizonradio.core.server.ChartCache;
-import com.horizonradio.core.server.ChartRegion;
-import com.horizonradio.core.server.ChartRegionCatalog;
 import com.horizonradio.core.server.PlaylistState;
-import com.horizonradio.network.packets.AddChartsToPlaylistPacket;
-import com.horizonradio.network.packets.RadioStatePacket;
-import com.horizonradio.network.packets.SearchResultsPacket;
 import com.mojang.authlib.GameProfile;
 
 import sun.misc.Unsafe;
 
 public class PlaylistManagerTest {
 
-    private static final RadioStation STATION_A = new RadioStation(
-        "station-a",
-        "Station A",
-        "https://stream.example/a",
-        true,
-        false);
-    private static final RadioStation STATION_B = new RadioStation(
-        "station-b",
-        "Station B",
-        "https://stream.example/b",
-        true,
-        false);
+    private static final String VIDEO_ID = "abcdefghijk";
+    private static final String SECOND_VIDEO_ID = "lmnopqrstuv";
 
     @Test
-    public void radioSelectionPromotesOnlyAfterTheCandidateIsReady() {
-        FakeRadioBrowser browser = new FakeRadioBrowser(STATION_A);
-        FakeRadioStream stream = new FakeRadioStream();
-        PlaylistManager manager = new PlaylistManager(browser, stream);
+    public void selectingRadioCreatesQueueEntryWithoutDirectoryLookupOrRelay() throws Exception {
+        PlaylistManager manager = manager();
         try {
-            manager.selectRadioStation(null, "station-a");
+            manager.handleSelectRadio(testPlayer(), "station-id");
 
-            assertFalse(manager.isRadioActive());
-            assertEquals(0, stream.promotions);
-
-            stream.ready();
-
-            assertTrue(manager.isRadioActive());
-            assertEquals(1, stream.promotions);
-            assertEquals(1, browser.clickCounts);
+            assertEquals(MediaSourceType.RADIO, playlist(manager).get(0).getSourceType());
+            assertEquals("station-id", playlist(manager).get(0).getSourceId());
+            assertEquals(1, playlist(manager).size());
+            assertEquals(MediaSourceType.RADIO, current(manager).getSourceType());
         } finally {
             manager.shutdown();
         }
     }
 
     @Test
-    public void initialRadioFailureBroadcastsFailureStatus() throws Exception {
-        FakeRadioBrowser browser = new FakeRadioBrowser(STATION_A);
-        FakeRadioStream stream = new FakeRadioStream();
-        List<RadioStatePacket> radioStates = new ArrayList<RadioStatePacket>();
-        PlaylistManager manager = new PlaylistManager(
-            new YouTubeService(),
-            new FakeAudioDownload(new ArrayList<String>()),
-            browser,
-            stream,
-            radioStates::add);
-        try {
-            manager.selectRadioStation(null, "station-a");
-            stream.fail("Stream unavailable");
-
-            assertEquals(1, radioStates.size());
-            assertFalse(
-                radioStates.get(0)
-                    .isActive());
-            assertEquals(
-                "Stream unavailable",
-                radioStates.get(0)
-                    .getStatus());
-        } finally {
-            manager.shutdown();
-        }
-    }
-
-    @Test
-    public void failedReplacementCandidatePreservesPublishedRadio() {
-        FakeRadioBrowser browser = new FakeRadioBrowser(STATION_A);
-        FakeRadioStream stream = new FakeRadioStream();
-        PlaylistManager manager = new PlaylistManager(browser, stream);
-        try {
-            manager.selectRadioStation(null, "station-a");
-            stream.ready();
-            browser.station = STATION_B;
-
-            manager.selectRadioStation(null, "station-b");
-            stream.fail("unavailable");
-
-            assertTrue(manager.isRadioActive());
-            assertEquals(1, stream.promotions);
-            assertEquals(0, stream.stopAllCalls);
-        } finally {
-            manager.shutdown();
-        }
-    }
-
-    @Test
-    public void newerFailedSelectionInvalidatesThePriorUnpublishedCandidate() {
-        FakeRadioBrowser browser = new FakeRadioBrowser(STATION_A);
-        FakeRadioStream stream = new FakeRadioStream();
-        PlaylistManager manager = new PlaylistManager(browser, stream);
-        try {
-            manager.selectRadioStation(null, "station-a");
-            browser.station = STATION_B;
-            manager.selectRadioStation(null, "station-b");
-            browser.failNextLookup();
-
-            manager.selectRadioStation(null, "station-c");
-            stream.ready(1);
-
-            assertFalse(manager.isRadioActive());
-            assertEquals(0, stream.promotions);
-            assertEquals(2, stream.stopGenerationCalls);
-        } finally {
-            manager.shutdown();
-        }
-    }
-
-    @Test
-    public void publishedStationContinuesRelayingWhileReplacementCandidateStarts() throws Exception {
-        FakeRadioBrowser browser = new FakeRadioBrowser(STATION_A);
-        FakeRadioStream stream = new FakeRadioStream();
-        PlaylistManager manager = new PlaylistManager(browser, stream);
-        try {
-            manager.selectRadioStation(null, "station-a");
-            stream.ready(0);
-            browser.station = STATION_B;
-            manager.selectRadioStation(null, "station-b");
-
-            stream.chunk(0, 1L);
-
-            assertTrue(manager.isRadioActive());
-            assertEquals(1L, radioLastSequence(manager));
-        } finally {
-            manager.shutdown();
-        }
-    }
-
-    @Test
-    public void publishedFailureStopsPendingReplacementCandidate() {
-        FakeRadioBrowser browser = new FakeRadioBrowser(STATION_A);
-        FakeRadioStream stream = new FakeRadioStream();
-        PlaylistManager manager = new PlaylistManager(browser, stream);
-        try {
-            manager.selectRadioStation(null, "station-a");
-            stream.ready(0);
-            browser.station = STATION_B;
-            manager.selectRadioStation(null, "station-b");
-            long publishedGeneration = stream.generation(0);
-            long pendingCandidateGeneration = stream.generation(1);
-
-            assertTrue(publishedGeneration != pendingCandidateGeneration);
-
-            stream.fail(0, "published stream ended");
-            stream.ready(1);
-
-            assertFalse(manager.isRadioActive());
-            assertEquals(2, stream.stoppedGenerations.size());
-            assertTrue(stream.stoppedGenerations.contains(Long.valueOf(publishedGeneration)));
-            assertTrue(stream.stoppedGenerations.contains(Long.valueOf(pendingCandidateGeneration)));
-            assertEquals(1, stream.promotions);
-        } finally {
-            manager.shutdown();
-        }
-    }
-
-    @Test
-    public void playNowStopsRadioBeforeStartingTheRequestedMusicDownload() throws Exception {
-        FakeRadioBrowser browser = new FakeRadioBrowser(STATION_A);
-        List<String> events = new ArrayList<String>();
-        FakeRadioStream stream = new FakeRadioStream(events);
-        FakeAudioDownload audioDownload = new FakeAudioDownload(events);
-        PlaylistManager manager = new PlaylistManager(new YouTubeService(), audioDownload, browser, stream);
-        try {
-            manager.selectRadioStation(null, "station-a");
-            stream.ready();
-
-            manager.handlePlayNow(null, "song", "Song", "1:00");
-
-            assertFalse(manager.isRadioActive());
-            assertEquals(1, stream.stopAllCalls);
-            assertEquals(1, audioDownload.downloadCalls);
-            assertEquals("stopRadio", events.get(0));
-            assertEquals("download:song", events.get(1));
-        } finally {
-            manager.shutdown();
-        }
-    }
-
-    @Test
-    public void searchEntriesReturnFirstTenPlayableResults() {
-        List<SearchResult> candidates = Arrays.asList(
-            new SearchResult("valid-1", "Valid 1", "channel", "2:00", ""),
-            new SearchResult("unknown", "Unknown", "channel", "", ""),
-            new SearchResult("too-long", "Too long", "channel", "15:00", ""),
-            new SearchResult("valid-2", "Valid 2", "channel", "3:00", ""),
-            new SearchResult("valid-3", "Valid 3", "channel", "3:00", ""),
-            new SearchResult("valid-4", "Valid 4", "channel", "3:00", ""),
-            new SearchResult("valid-5", "Valid 5", "channel", "3:00", ""),
-            new SearchResult("valid-6", "Valid 6", "channel", "3:00", ""),
-            new SearchResult("valid-7", "Valid 7", "channel", "3:00", ""),
-            new SearchResult("valid-8", "Valid 8", "channel", "3:00", ""),
-            new SearchResult("valid-9", "Valid 9", "channel", "3:00", ""),
-            new SearchResult("valid-10", "Valid 10", "channel", "3:00", ""),
-            new SearchResult("valid-11", "Valid 11", "channel", "3:00", ""));
-
-        List<SearchResultsPacket.Entry> entries = PlaylistManager.buildSearchEntries(candidates, 15L * 60L * 1000L);
-
-        assertEquals(10, entries.size());
-        assertEquals(
-            "valid-10",
-            entries.get(9)
-                .getVideoId());
-        assertFalse(containsVideoId(entries, "unknown"));
-        assertFalse(containsVideoId(entries, "too-long"));
-    }
-
-    @Test
-    public void searchEntriesReturnAllPlayableResultsWhenFewerThanTenExist() {
-        List<SearchResultsPacket.Entry> entries = PlaylistManager.buildSearchEntries(
-            Arrays.asList(
-                new SearchResult("valid-1", "Valid 1", "channel", "2:00", ""),
-                new SearchResult("valid-2", "Valid 2", "channel", "3:00", ""),
-                new SearchResult("unknown", "Unknown", "channel", "unknown", "")),
-            15L * 60L * 1000L);
-
-        assertEquals(Arrays.asList("valid-1", "valid-2"), entryIds(entries));
-    }
-
-    @Test
-    public void searchEntriesRejectObviousNonMusicVideos() {
-        List<SearchResultsPacket.Entry> entries = PlaylistManager.buildSearchEntries(
-            Arrays.asList(
-                new SearchResult("podcast", "The Daily Podcast", "channel", "3:00", ""),
-                new SearchResult("tutorial", "How to make a guitar stand", "channel", "3:00", ""),
-                new SearchResult("reaction", "Reaction to the new music video", "channel", "3:00", ""),
-                new SearchResult("song", "Artist - Song (Official Music Video)", "channel", "3:00", "")),
-            15L * 60L * 1000L);
-
-        assertEquals(Arrays.asList("song"), entryIds(entries));
-    }
-
-    @Test
-    public void searchEntriesStillFillTenSongsAfterFilteringCandidates() {
-        List<SearchResult> candidates = new ArrayList<SearchResult>();
-        candidates.add(new SearchResult("podcast", "The Daily Podcast", "channel", "3:00", ""));
-        for (int index = 0; index < 10; index++) {
-            candidates.add(
-                new SearchResult(
-                    "song-" + index,
-                    "Artist " + index + " - Song " + index + " (Official Audio)",
-                    "channel",
-                    "3:00",
-                    ""));
-        }
-
-        List<SearchResultsPacket.Entry> entries = PlaylistManager.buildSearchEntries(candidates, 15L * 60L * 1000L);
-
-        assertEquals(10, entries.size());
-        assertEquals(
-            "song-0",
-            entries.get(0)
-                .getVideoId());
-        assertEquals(
-            "song-9",
-            entries.get(9)
-                .getVideoId());
-    }
-
-    @Test
-    public void radioFailureThenPlayNowBroadcastsClearedRadioStateBeforeMusic() throws Exception {
-        FakeRadioBrowser browser = new FakeRadioBrowser(STATION_A);
-        FakeRadioStream stream = new FakeRadioStream();
-        FakeAudioDownload audioDownload = new FakeAudioDownload(new ArrayList<String>());
-        List<RadioStatePacket> radioStates = new ArrayList<RadioStatePacket>();
-        PlaylistManager manager = new PlaylistManager(
-            new YouTubeService(),
-            audioDownload,
-            browser,
-            stream,
-            radioStates::add);
-        try {
-            manager.selectRadioStation(null, "station-a");
-            stream.ready();
-            radioStates.clear();
-
-            stream.fail("Radio stream stopped producing PCM data");
-
-            assertEquals(1, radioStates.size());
-            assertFalse(
-                radioStates.get(0)
-                    .isActive());
-            assertEquals(
-                "Radio stream stopped producing PCM data",
-                radioStates.get(0)
-                    .getStatus());
-
-            radioStates.clear();
-            manager.handlePlayNow(null, "song", "Song", "1:00");
-            audioDownload.completeLastDownload();
-
-            assertEquals(1, radioStates.size());
-            assertFalse(
-                radioStates.get(0)
-                    .isActive());
-            assertTrue(
-                radioStates.get(0)
-                    .isMusicMode());
-            assertEquals(
-                "",
-                radioStates.get(0)
-                    .getStatus());
-            assertEquals(
-                "station-a",
-                radioStates.get(0)
-                    .getStationUuid());
-            assertEquals(
-                "Station A",
-                radioStates.get(0)
-                    .getStationName());
-        } finally {
-            manager.shutdown();
-        }
-    }
-
-    @Test
-    public void playlistHandlersDoNotStartMusicOrDestroyRadioWhileRadioIsActive() throws Exception {
-        FakeRadioBrowser browser = new FakeRadioBrowser(STATION_A);
-        FakeRadioStream stream = new FakeRadioStream();
-        FakeAudioDownload audioDownload = new FakeAudioDownload(new ArrayList<String>());
-        PlaylistManager manager = new PlaylistManager(new YouTubeService(), audioDownload, browser, stream);
-        try {
-            manager.selectRadioStation(null, "station-a");
-            stream.ready();
-
-            manager.handleAddToPlaylist(null, "one", "One", "1:00");
-            manager.handleAddToPlaylist(null, "two", "Two", "1:00");
-            manager.handleImportVideo(null, "https://www.youtube.com/watch?v=imported");
-            manager.handleImportPlaylist(null, "https://www.youtube.com/playlist?list=import-list");
-            manager.handleReorder(null, 0, 1);
-            manager.handleRemoveFromPlaylist(null, "one");
-            manager.handleClearPlaylist(null);
-
-            assertTrue(manager.isRadioActive());
-            assertEquals(0, audioDownload.downloadCalls);
-            assertEquals(0, stream.stopAllCalls);
-        } finally {
-            manager.shutdown();
-        }
-    }
-
-    @Test
-    public void explicitRadioStopStopsTheRelayAndLeavesItInactive() {
-        FakeRadioBrowser browser = new FakeRadioBrowser(STATION_A);
-        FakeRadioStream stream = new FakeRadioStream();
-        PlaylistManager manager = new PlaylistManager(browser, stream);
-        try {
-            manager.selectRadioStation(null, "station-a");
-            stream.ready();
-
-            manager.stopRadio();
-
-            assertFalse(manager.isRadioActive());
-            assertEquals(1, stream.stopAllCalls);
-        } finally {
-            manager.shutdown();
-        }
-    }
-
-    @Test
-    public void multibyteStationNameIsBoundedBeforeCandidatePromotion() {
-        RadioStation oversized = new RadioStation(
-            "station-long-name",
-            repeat("界", 100),
-            "https://stream.example/long-name",
-            true,
-            false);
-        FakeRadioBrowser browser = new FakeRadioBrowser(oversized);
-        FakeRadioStream stream = new FakeRadioStream();
-        PlaylistManager manager = new PlaylistManager(browser, stream);
-        try {
-            manager.selectRadioStation(null, oversized.getStationUuid());
-            stream.ready();
-
-            assertTrue(manager.isRadioActive());
-            assertEquals(1, stream.promotions);
-            assertEquals(
-                repeat("界", 50),
-                stream.station(0)
-                    .getName());
-        } finally {
-            manager.shutdown();
-        }
-    }
-
-    @Test
-    public void invalidStationUuidIsRejectedBeforeStartingCandidate() {
-        FakeRadioBrowser browser = new FakeRadioBrowser(STATION_A);
-        FakeRadioStream stream = new FakeRadioStream();
-        PlaylistManager manager = new PlaylistManager(browser, stream);
-        try {
-            manager.selectRadioStation(null, "station-a");
-            stream.ready();
-            browser.station = new RadioStation(
-                repeat("u", 65),
-                "Invalid station",
-                "https://stream.example/invalid",
-                true,
-                false);
-
-            manager.selectRadioStation(null, "station-invalid");
-
-            assertTrue(manager.isRadioActive());
-            assertEquals("station-a", publishedStationUuid(manager));
-            assertEquals(1, stream.sessionCount());
-            assertEquals(1, stream.promotions);
-        } finally {
-            manager.shutdown();
-        }
-    }
-
-    @Test
-    public void oversizedReadyChunkCannotRetirePublishedStation() {
-        FakeRadioBrowser browser = new FakeRadioBrowser(STATION_A);
-        FakeRadioStream stream = new FakeRadioStream();
-        PlaylistManager manager = new PlaylistManager(browser, stream);
-        try {
-            manager.selectRadioStation(null, "station-a");
-            stream.ready();
-            browser.station = STATION_B;
-            manager.selectRadioStation(null, "station-b");
-
-            stream.readyWithData(1, new byte[30 * 1024 + 1]);
-
-            assertTrue(manager.isRadioActive());
-            assertEquals("station-a", publishedStationUuid(manager));
-            assertEquals(1, stream.promotions);
-            assertTrue(stream.stoppedGenerations.contains(Long.valueOf(stream.generation(1))));
-        } finally {
-            manager.shutdown();
-        }
-    }
-
-    @Test
-    public void activeFailureBoundsMultibyteStatusBeforeBroadcast() {
-        FakeRadioBrowser browser = new FakeRadioBrowser(STATION_A);
-        FakeRadioStream stream = new FakeRadioStream();
-        PlaylistManager manager = new PlaylistManager(browser, stream);
-        try {
-            manager.selectRadioStation(null, "station-a");
-            stream.ready();
-
-            stream.fail(repeat("界", 100));
-
-            assertFalse(manager.isRadioActive());
-        } finally {
-            manager.shutdown();
-        }
-    }
-
-    @Test
-    public void cachedChartsAreTerminalOnlyForFreshNonForceRequests() {
-        assertTrue(PlaylistManager.shouldServeCachedCharts(true, false, true));
-        assertFalse(PlaylistManager.shouldServeCachedCharts(true, true, true));
-        assertFalse(PlaylistManager.shouldServeCachedCharts(true, false, false));
-        assertFalse(PlaylistManager.shouldServeCachedCharts(false, false, true));
-    }
-
-    @Test
-    public void freshNonForceChartRequestSendsCachedResultsWithoutRefreshActions() {
-        RecordingChartActions actions = process(false, false, true, true);
-
-        assertEquals(list("results"), actions.events);
-    }
-
-    @Test
-    public void staleNonForceChartRequestWaitsForRefreshBeforeSendingResults() {
-        RecordingChartActions actions = process(false, false, true, false);
-
-        assertEquals(list("chat:YELLOW:Loading Global YouTube Music Top 50...", "waiter", "refresh"), actions.events);
-    }
-
-    @Test
-    public void forceChartRequestWithCacheWaitsForRefreshBeforeSendingResults() {
-        RecordingChartActions actions = process(true, true, true, true);
-
-        assertEquals(
-            list("chat:YELLOW:Refreshing Global YouTube Music Top 50...", "waiter", "refresh"),
-            actions.events);
-    }
-
-    @Test
-    public void chartRefreshDoesNotStartDurationLookup() throws Exception {
-        FakeRadioBrowser browser = new FakeRadioBrowser(STATION_A);
-        FakeRadioStream stream = new FakeRadioStream();
-        FakeAudioDownload audioDownload = new FakeAudioDownload(new ArrayList<String>());
-        RecordingChartYouTube youtube = new RecordingChartYouTube();
-        youtube.charts = Arrays.asList(new SearchResult("chart", "Chart Song", "Artist", "", ""));
-        PlaylistManager manager = new PlaylistManager(youtube, audioDownload, browser, stream);
-        try {
-            invokeChartRefresh(manager, ChartRegionCatalog.byCode("DE"));
-
-            assertEquals(0, audioDownload.durationLookupCalls);
-            assertEquals(
-                Arrays.asList(new SearchResult("chart", "Chart Song", "Artist", "", "")),
-                cachedCharts(manager, "DE"));
-        } finally {
-            manager.shutdown();
-        }
-    }
-
-    @Test
-    public void chartResultsKeepSongsBeyondTheNormalDurationLimit() {
-        List<SearchResultsPacket.Entry> entries = PlaylistManager.buildChartEntries(
-            Arrays.asList(new SearchResult("long-chart", "Long Chart", "Artist", "20:00", "")),
-            15L * 60L * 1000L);
-
-        assertEquals(1, entries.size());
-        assertEquals(
-            "long-chart",
-            entries.get(0)
-                .getVideoId());
-    }
-
-    @Test
-    public void chartPlaybackResolvesMissingDurationBeforeDownloading() throws Exception {
-        FakeRadioBrowser browser = new FakeRadioBrowser(STATION_A);
-        FakeRadioStream stream = new FakeRadioStream();
-        FakeAudioDownload audioDownload = new FakeAudioDownload(new ArrayList<String>());
-        PlaylistManager manager = new PlaylistManager(new YouTubeService(), audioDownload, browser, stream);
-        try {
-            PlaylistState state = playlistState(manager);
-            state.add(new PlaylistEntry("chart", "Chart Song", "", "test"));
-
-            invokePlayNext(manager);
-
-            assertEquals(1, audioDownload.durationLookupCalls);
-            assertEquals(1, audioDownload.downloadCalls);
-            audioDownload.completeLastDuration("chart\\t1:00");
-            assertEquals(1, audioDownload.downloadCalls);
-            assertEquals(60_000L, state.getCurrentTrackDurationMs());
-        } finally {
-            manager.shutdown();
-        }
-    }
-
-    @Test
-    public void chartBulkRequestAddsAllRequestedSongsWithoutDurationLookup() throws Exception {
-        FakeRadioBrowser browser = new FakeRadioBrowser(STATION_A);
-        FakeRadioStream stream = new FakeRadioStream();
-        FakeAudioDownload audioDownload = new FakeAudioDownload(new ArrayList<String>());
-        PlaylistManager manager = new PlaylistManager(new YouTubeService(), audioDownload, browser, stream);
+    public void addingFiniteTrackReportsOnlyIdAndDurationAndLeavesRadioCurrent() throws Exception {
+        PlaylistManager manager = manager();
         try {
             EntityPlayerMP player = testPlayer();
-            manager.handleAddToPlaylist(player, "playing", "Playing", "1:00");
+            manager.handleSelectRadio(player, "station-id");
 
-            manager.handleAddChartsToPlaylist(player, chartEntries(21, 0), false);
+            manager.handleAddToPlaylist(player, VIDEO_ID, 60_000L);
 
-            assertEquals(0, audioDownload.durationLookupCalls);
-            assertEquals(22, playlistState(manager).size());
+            assertEquals(MediaSourceType.RADIO, current(manager).getSourceType());
+            assertEquals(MediaSourceType.YOUTUBE, playlist(manager).get(1).getSourceType());
+            assertEquals(VIDEO_ID, playlist(manager).get(1).getSourceId());
+            assertEquals(60_000L, playlist(manager).get(1).getDurationMs());
         } finally {
             manager.shutdown();
         }
     }
 
     @Test
-    public void chartBulkRequestReportsHowManySongsWereAdded() throws IOException {
-        String source = new String(
-            Files.readAllBytes(Paths.get("src/main/java/com/horizonradio/server/PlaylistManager.java")),
-            Charset.forName("UTF-8"));
-
-        assertTrue(source.contains("Added \" + added + \" chart songs to the playlist."));
-    }
-
-    @Test
-    public void productionPlaybackPublishesAThreeSecondIdOnlyTrackSync() throws IOException {
-        String source = new String(
-            Files.readAllBytes(Paths.get("src/main/java/com/horizonradio/server/PlaylistManager.java")),
-            Charset.forName("UTF-8"));
-
-        assertTrue(source.contains("CLIENT_TRACK_START_DELAY_MS = 3000L"));
-        assertTrue(source.contains("new TrackSyncPacket("));
-        assertTrue(source.contains("startClientTrack"));
-    }
-
-    @Test
-    public void playlistSnapshotsUseAuthoritativeQueueState() throws IOException {
-        String source = new String(
-            Files.readAllBytes(Paths.get("src/main/java/com/horizonradio/server/PlaylistManager.java")),
-            Charset.forName("UTF-8"));
-
-        assertEquals(
-            2,
-            countOccurrences(
-                source.replaceAll("\\s+", " "),
-                "new PlaylistSyncPacket( state.getQueueRevision(), state.isShuffling(), state.isLooping(), toPacketEntries(state.snapshot()))"));
-    }
-
-    @Test
-    public void chartBulkRequestKeepsEntriesBeyondTheNormalSongDurationLimit() throws Exception {
-        FakeRadioBrowser browser = new FakeRadioBrowser(STATION_A);
-        FakeRadioStream stream = new FakeRadioStream();
-        FakeAudioDownload audioDownload = new FakeAudioDownload(new ArrayList<String>());
-        PlaylistManager manager = new PlaylistManager(new YouTubeService(), audioDownload, browser, stream);
+    public void stoppingRadioRemovesIndexZeroAndStartsNextFiniteTrack() throws Exception {
+        PlaylistManager manager = manager();
         try {
             EntityPlayerMP player = testPlayer();
-            manager.handleAddToPlaylist(player, "playing", "Playing", "1:00");
+            manager.handleSelectRadio(player, "station-id");
+            manager.handleAddToPlaylist(player, VIDEO_ID, 60_000L);
 
-            manager.handleAddChartsToPlaylist(
-                player,
-                Arrays.asList(new AddChartsToPlaylistPacket.Entry("long-chart", "Long Chart", "20:00")),
-                false);
+            manager.handleStopRadio(player);
 
-            assertEquals(2, playlistState(manager).size());
-            assertEquals(
-                "20:00",
-                playlistState(manager).get(1)
-                    .getDuration());
+            assertEquals(1, playlist(manager).size());
+            assertEquals(MediaSourceType.YOUTUBE, current(manager).getSourceType());
+            assertEquals(VIDEO_ID, current(manager).getSourceId());
         } finally {
             manager.shutdown();
         }
     }
 
     @Test
-    public void chartPlayNowResolvesMissingDurationBeforeStartingMusic() throws Exception {
-        FakeRadioBrowser browser = new FakeRadioBrowser(STATION_A);
-        FakeRadioStream stream = new FakeRadioStream();
-        FakeAudioDownload audioDownload = new FakeAudioDownload(new ArrayList<String>());
-        PlaylistManager manager = new PlaylistManager(new YouTubeService(), audioDownload, browser, stream);
+    public void selectingAnotherRadioIsOneAtomicQueueMutation() throws Exception {
+        PlaylistManager manager = manager();
         try {
-            manager.handlePlayNow(null, "chart", "Chart Song", "");
+            EntityPlayerMP player = testPlayer();
+            manager.handleSelectRadio(player, "station-one");
+            long before = state(manager).getQueueRevision();
 
-            assertEquals(1, audioDownload.durationLookupCalls);
-            assertEquals(0, audioDownload.downloadCalls);
+            manager.handleSelectRadio(player, "station-two");
 
-            audioDownload.completeLastDuration("chart\\t1:00");
-
-            assertEquals(1, audioDownload.downloadCalls);
+            assertEquals(before + 1L, state(manager).getQueueRevision());
+            assertEquals(1, playlist(manager).size());
+            assertEquals("station-two", current(manager).getSourceId());
         } finally {
             manager.shutdown();
         }
     }
 
     @Test
-    public void unauthorizedForceChartRequestSendsCachedResultsAndDenialWithoutRefreshActions() {
-        RecordingChartActions actions = process(true, false, true, false);
+    public void playNowAtomicallyReplacesRadioAndStartsRequestedFiniteTrack() throws Exception {
+        PlaylistManager manager = manager();
+        try {
+            EntityPlayerMP player = testPlayer();
+            manager.handleSelectRadio(player, "station-id");
+            manager.handleAddToPlaylist(player, VIDEO_ID, 60_000L);
+            long before = state(manager).getQueueRevision();
 
-        assertEquals(list("results", "chat:RED:Only server operators can refresh the charts."), actions.events);
+            manager.handlePlayNow(player, SECOND_VIDEO_ID, 90_000L);
+
+            assertEquals(before + 1L, state(manager).getQueueRevision());
+            assertEquals(MediaSourceType.YOUTUBE, current(manager).getSourceType());
+            assertEquals(SECOND_VIDEO_ID, current(manager).getSourceId());
+            assertEquals(90_000L, current(manager).getDurationMs());
+            assertEquals(2, playlist(manager).size());
+            assertEquals(VIDEO_ID, playlist(manager).get(1).getSourceId());
+        } finally {
+            manager.shutdown();
+        }
     }
 
     @Test
-    public void chartRequestMessagesUseSelectedRegion() {
-        RecordingChartActions actions = new RecordingChartActions();
+    public void rejectsUnknownDurationAndMalformedFiniteIds() throws Exception {
+        PlaylistManager manager = manager();
+        try {
+            EntityPlayerMP player = testPlayer();
 
-        PlaylistManager.processChartRequest(ChartRegionCatalog.byCode("US"), false, false, false, false, actions);
+            manager.handleAddToPlaylist(player, VIDEO_ID, 0L);
+            manager.handleAddToPlaylist(player, "short", 60_000L);
 
-        assertEquals(
-            list("chat:YELLOW:Loading United States YouTube Music Top 50...", "waiter", "refresh"),
-            actions.events);
+            assertTrue(playlist(manager).isEmpty());
+            assertEquals(0L, state(manager).getQueueRevision());
+        } finally {
+            manager.shutdown();
+        }
     }
 
     @Test
-    public void staleSearchRequestTokensAreRejected() {
-        assertTrue(PlaylistManager.isLatestSearchRequest(Long.valueOf(7L), 7L));
-        assertFalse(PlaylistManager.isLatestSearchRequest(Long.valueOf(8L), 7L));
-        assertFalse(PlaylistManager.isLatestSearchRequest(null, 7L));
+    public void radioRejectsPauseAndSeekWithoutChangingPlaybackState() throws Exception {
+        PlaylistManager manager = manager();
+        try {
+            EntityPlayerMP player = testPlayer();
+            manager.handleSelectRadio(player, "station-id");
+
+            manager.handleTogglePlayback(player);
+            manager.handleSeek(player, 0.5F);
+
+            assertTrue(state(manager).isPlaying());
+            assertFalse(state(manager).isPaused());
+            assertEquals(MediaSourceType.RADIO, state(manager).getCurrentSourceType());
+        } finally {
+            manager.shutdown();
+        }
     }
 
     @Test
-    public void chartFetcherReceivesCanonicalRegions() throws Exception {
-        RecordingChartYouTube service = new RecordingChartYouTube();
+    public void productionServerManagerHasNoMediaServicesOrLegacyRelayPaths() throws IOException {
+        String managerSource = source("src/main/java/com/horizonradio/server/PlaylistManager.java");
+        String proxySource = source("src/main/java/com/horizonradio/CommonProxy.java");
+        String networkSource = source("src/main/java/com/horizonradio/network/HorizonRadioNetwork.java");
 
-        service.fetchTopCharts(ChartRegionCatalog.global())
-            .get();
-        service.fetchTopCharts(ChartRegionCatalog.byCode("DE"))
-            .get();
-
-        assertEquals(Arrays.asList("GLOBAL", "DE"), service.regionCodes());
+        assertFalse(managerSource.contains("YouTubeService"));
+        assertFalse(managerSource.contains("AudioDownloadService"));
+        assertFalse(managerSource.contains("RadioBrowserService"));
+        assertFalse(managerSource.contains("RadioStreamService"));
+        assertFalse(managerSource.contains("ChartCache"));
+        assertFalse(managerSource.contains("AudioChunkPacket"));
+        assertFalse(managerSource.contains("NowPlayingPacket"));
+        assertFalse(managerSource.contains("RadioAudioStartPacket"));
+        assertFalse(managerSource.contains("RadioAudioChunkPacket"));
+        assertFalse(managerSource.contains("RadioStatePacket"));
+        assertFalse(proxySource.contains("new YouTubeService"));
+        assertFalse(proxySource.contains("new AudioDownloadService"));
+        assertFalse(proxySource.contains("new RadioBrowserService"));
+        assertFalse(proxySource.contains("new RadioStreamService"));
+        assertFalse(networkSource.contains("SearchRequestHandler.class"));
+        assertFalse(networkSource.contains("RequestChartsHandler.class"));
+        assertFalse(networkSource.contains("RadioSearchRequestHandler.class"));
+        assertFalse(networkSource.contains("AudioChunkHandler.class"));
+        assertFalse(networkSource.contains("NowPlayingHandler.class"));
+        assertFalse(networkSource.contains("RadioAudioStartHandler.class"));
+        assertFalse(networkSource.contains("RadioAudioChunkHandler.class"));
     }
 
-    private static RecordingChartActions process(boolean forceRefresh, boolean operator, boolean hasCachedCharts,
-        boolean cacheFresh) {
-        RecordingChartActions actions = new RecordingChartActions();
-        PlaylistManager.processChartRequest(forceRefresh, operator, hasCachedCharts, cacheFresh, actions);
-        return actions;
+    private static PlaylistManager manager() throws IOException {
+        return new PlaylistManager(testServer(), testConfigDirectory());
     }
 
-    private static List<String> list(String... events) {
-        List<String> result = new ArrayList<String>();
-        for (String event : events) {
-            result.add(event);
-        }
-        return result;
-    }
-
-    private static int countOccurrences(String source, String needle) {
-        int count = 0;
-        int index = 0;
-        while ((index = source.indexOf(needle, index)) >= 0) {
-            count++;
-            index += needle.length();
-        }
-        return count;
-    }
-
-    private static List<AddChartsToPlaylistPacket.Entry> chartEntries(int count, int offset) {
-        List<AddChartsToPlaylistPacket.Entry> entries = new ArrayList<AddChartsToPlaylistPacket.Entry>();
-        for (int index = 0; index < count; index++) {
-            entries
-                .add(new AddChartsToPlaylistPacket.Entry("chart-" + (offset + index), "Chart " + (offset + index), ""));
-        }
-        return entries;
+    private static MinecraftServer testServer() {
+        return null;
     }
 
     private static EntityPlayerMP testPlayer() throws Exception {
@@ -751,305 +202,27 @@ public class PlaylistManagerTest {
         return player;
     }
 
-    private static void invokeChartRefresh(PlaylistManager manager, ChartRegion region) throws Exception {
-        Method refresh = PlaylistManager.class.getDeclaredMethod("refreshChartsIfNeeded", ChartRegion.class);
-        refresh.setAccessible(true);
-        refresh.invoke(manager, region);
+    private static File testConfigDirectory() throws IOException {
+        return Files.createTempDirectory("horizonradio-manager-config")
+            .toFile();
     }
 
-    private static void invokePlayNext(PlaylistManager manager) throws Exception {
-        Method playNext = PlaylistManager.class.getDeclaredMethod("playNext");
-        playNext.setAccessible(true);
-        playNext.invoke(manager);
+    private static java.util.List<PlaylistEntry> playlist(PlaylistManager manager) throws Exception {
+        return state(manager).snapshot();
     }
 
-    private static PlaylistState playlistState(PlaylistManager manager) throws Exception {
+    private static PlaylistEntry current(PlaylistManager manager) throws Exception {
+        PlaylistState playlist = state(manager);
+        return playlist.get(playlist.getCurrentIndex());
+    }
+
+    private static PlaylistState state(PlaylistManager manager) throws Exception {
         Field field = PlaylistManager.class.getDeclaredField("state");
         field.setAccessible(true);
         return (PlaylistState) field.get(manager);
     }
 
-    private static List<SearchResult> cachedCharts(PlaylistManager manager, String regionCode) throws Exception {
-        Field field = PlaylistManager.class.getDeclaredField("chartCache");
-        field.setAccessible(true);
-        return ((ChartCache) field.get(manager)).getResults(regionCode);
-    }
-
-    private static boolean containsVideoId(List<SearchResultsPacket.Entry> entries, String videoId) {
-        for (SearchResultsPacket.Entry entry : entries) {
-            if (videoId.equals(entry.getVideoId())) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private static List<String> entryIds(List<SearchResultsPacket.Entry> entries) {
-        List<String> ids = new ArrayList<String>();
-        for (SearchResultsPacket.Entry entry : entries) {
-            ids.add(entry.getVideoId());
-        }
-        return ids;
-    }
-
-    private static long radioLastSequence(PlaylistManager manager) throws Exception {
-        Field field = PlaylistManager.class.getDeclaredField("radioLastSequence");
-        field.setAccessible(true);
-        return field.getLong(manager);
-    }
-
-    private static String publishedStationUuid(PlaylistManager manager) {
-        try {
-            Field field = PlaylistManager.class.getDeclaredField("radioState");
-            field.setAccessible(true);
-            return ((com.horizonradio.core.server.RadioPlaybackState) field.get(manager)).getStationUuid();
-        } catch (ReflectiveOperationException exception) {
-            throw new AssertionError("Unable to inspect published radio state", exception);
-        }
-    }
-
-    private static String repeat(String value, int count) {
-        StringBuilder result = new StringBuilder(value.length() * count);
-        for (int index = 0; index < count; index++) {
-            result.append(value);
-        }
-        return result.toString();
-    }
-
-    private static final class RecordingChartActions implements PlaylistManager.ChartRequestActions {
-
-        private final List<String> events = new ArrayList<String>();
-
-        @Override
-        public void sendChartResults() {
-            events.add("results");
-        }
-
-        @Override
-        public void sendChat(EnumChatFormatting color, String message) {
-            events.add("chat:" + color.name() + ":" + message);
-        }
-
-        @Override
-        public void registerWaiter() {
-            events.add("waiter");
-        }
-
-        @Override
-        public void refresh() {
-            events.add("refresh");
-        }
-    }
-
-    private static final class RecordingChartYouTube extends YouTubeService {
-
-        private final List<String> regionCodes = new ArrayList<String>();
-        private List<SearchResult> charts = Collections.emptyList();
-
-        @Override
-        public CompletableFuture<List<SearchResult>> fetchTopCharts(ChartRegion region) {
-            regionCodes.add(region.getCode());
-            return CompletableFuture.completedFuture(charts);
-        }
-
-        private List<String> regionCodes() {
-            return regionCodes;
-        }
-    }
-
-    private static final class FakeRadioBrowser extends RadioBrowserService {
-
-        private RadioStation station;
-        private int clickCounts;
-        private boolean failNextLookup;
-
-        private FakeRadioBrowser(RadioStation station) {
-            this.station = station;
-        }
-
-        @Override
-        public CompletableFuture<RadioStation> lookup(String stationUuid) {
-            if (failNextLookup) {
-                failNextLookup = false;
-                CompletableFuture<RadioStation> failure = new CompletableFuture<RadioStation>();
-                failure.completeExceptionally(new IllegalStateException("lookup failed"));
-                return failure;
-            }
-            return CompletableFuture.completedFuture(station);
-        }
-
-        @Override
-        public CompletableFuture<Void> countClick(String stationUuid) {
-            clickCounts++;
-            return CompletableFuture.completedFuture(null);
-        }
-
-        private void failNextLookup() {
-            failNextLookup = true;
-        }
-    }
-
-    private static final class FakeRadioStream extends RadioStreamService {
-
-        private final List<Session> sessions = new ArrayList<Session>();
-        private final List<Long> stoppedGenerations = new ArrayList<Long>();
-        private final List<String> events;
-        private int promotions;
-        private int stopAllCalls;
-        private int stopGenerationCalls;
-
-        private FakeRadioStream() {
-            this(null);
-        }
-
-        private FakeRadioStream(List<String> events) {
-            this.events = events;
-        }
-
-        @Override
-        public void startCandidate(RadioStation candidate, long candidateGeneration,
-            RadioStreamListener candidateListener) {
-            sessions.add(new Session(candidate, candidateGeneration, candidateListener));
-        }
-
-        @Override
-        public void promoteCandidate(long candidateGeneration) {
-            assertEquals(sessions.get(sessions.size() - 1).generation, candidateGeneration);
-            promotions++;
-        }
-
-        @Override
-        public void stopGeneration(long candidateGeneration) {
-            stopGenerationCalls++;
-            stoppedGenerations.add(Long.valueOf(candidateGeneration));
-        }
-
-        @Override
-        public void stopAll() {
-            stopAllCalls++;
-            if (events != null) {
-                events.add("stopRadio");
-            }
-        }
-
-        @Override
-        public void shutdown() {}
-
-        private void ready() {
-            ready(sessions.size() - 1);
-        }
-
-        private void ready(int index) {
-            readyWithData(index, new byte[] { 1, 2, 3, 4 });
-        }
-
-        private void readyWithData(int index, byte[] data) {
-            Session session = sessions.get(index);
-            session.listener.onReady(session.generation, session.station, 0L, data);
-        }
-
-        private long generation(int index) {
-            return sessions.get(index).generation;
-        }
-
-        private RadioStation station(int index) {
-            return sessions.get(index).station;
-        }
-
-        private int sessionCount() {
-            return sessions.size();
-        }
-
-        private void fail(String message) {
-            fail(sessions.size() - 1, message);
-        }
-
-        private void fail(int index, String message) {
-            Session session = sessions.get(index);
-            session.listener.onFailure(session.generation, message);
-        }
-
-        private void chunk(int index, long sequence) {
-            Session session = sessions.get(index);
-            session.listener.onChunk(session.generation, sequence, new byte[] { 1, 2, 3, 4 });
-        }
-
-        private static final class Session {
-
-            private final RadioStation station;
-            private final long generation;
-            private final RadioStreamListener listener;
-
-            private Session(RadioStation station, long generation, RadioStreamListener listener) {
-                this.station = station;
-                this.generation = generation;
-                this.listener = listener;
-            }
-        }
-    }
-
-    private static final class FakeAudioDownload extends AudioDownloadService {
-
-        private final List<String> events;
-        private int downloadCalls;
-        private int durationLookupCalls;
-        private CompletableFuture<Path> lastDownload;
-        private Path lastDownloadFile;
-        private CompletableFuture<String> lastDurationLookup;
-        private List<String> lastDurationVideoIds;
-
-        private FakeAudioDownload(List<String> events) throws IOException {
-            super(Files.createTempDirectory("horizonradio-playlist-test"), false);
-            this.events = events;
-        }
-
-        @Override
-        public synchronized CompletableFuture<Path> download(String videoId) {
-            downloadCalls++;
-            events.add("download:" + videoId);
-            lastDownload = new CompletableFuture<Path>();
-            return lastDownload;
-        }
-
-        @Override
-        public CompletableFuture<String> extractVideoDurationOutput(List<String> videoIds) {
-            durationLookupCalls++;
-            lastDurationVideoIds = new ArrayList<String>(videoIds);
-            lastDurationLookup = new CompletableFuture<String>();
-            return lastDurationLookup;
-        }
-
-        private void completeLastDuration(String output) {
-            lastDurationLookup.complete(output);
-        }
-
-        private void completeLastDownload() throws IOException {
-            lastDownloadFile = Files.createTempFile("horizonradio-audio", ".wav");
-            Files.write(lastDownloadFile, new byte[] { 1 });
-            lastDownload.complete(lastDownloadFile);
-        }
-
-        @Override
-        public boolean isDependenciesAvailable() {
-            return true;
-        }
-
-        @Override
-        public CompletableFuture<String> extractVideoJson(String videoUrl) {
-            return CompletableFuture
-                .completedFuture("{\"id\":\"imported\",\"title\":\"Imported\",\"duration_string\":\"1:00\"}");
-        }
-
-        @Override
-        public CompletableFuture<String> extractPlaylistJson(String playlistUrl) {
-            return CompletableFuture.completedFuture(
-                "{\"entries\":[{\"id\":\"playlist-imported\",\"title\":\"Playlist Imported\",\"duration_string\":\"1:00\"}]}");
-        }
-
-        @Override
-        public void delete(String videoId) {}
-
-        @Override
-        public void shutdown() {}
+    private static String source(String path) throws IOException {
+        return new String(Files.readAllBytes(Paths.get(path)), Charset.forName("UTF-8"));
     }
 }

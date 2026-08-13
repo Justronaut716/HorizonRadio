@@ -70,7 +70,7 @@ public class AddChartsToPlaylistPacket implements IMessage {
         private final long durationMs;
 
         public Entry(String videoId, long durationMs) {
-            if (videoId == null || videoId.trim().isEmpty() || durationMs < 0L) {
+            if (videoId == null || videoId.trim().isEmpty() || durationMs <= 0L) {
                 throw new IllegalArgumentException("invalid chart playlist entry");
             }
             this.videoId = videoId;

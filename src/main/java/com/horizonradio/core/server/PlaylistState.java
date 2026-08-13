@@ -176,6 +176,25 @@ public final class PlaylistState {
         return selected;
     }
 
+    public boolean selectRadioAtFront(PlaylistEntry station) {
+        if (station == null || !station.isRadio()) {
+            return false;
+        }
+
+        boolean replacesFrontRadio = !playlist.isEmpty() && playlist.get(0).isRadio();
+        if (!replacesFrontRadio && playlist.size() >= maxPlaylistSize) {
+            return false;
+        }
+        if (replacesFrontRadio) {
+            playlist.set(0, station);
+        } else {
+            playlist.add(0, station);
+        }
+        markQueueMutation();
+        startRadioTrack(0, station.getSourceId());
+        return true;
+    }
+
     public boolean moveQueued(int fromIndex, int targetIndex) {
         if (fromIndex < 0 || fromIndex >= playlist.size()
             || targetIndex < 0

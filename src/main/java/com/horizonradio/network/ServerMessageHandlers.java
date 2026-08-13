@@ -10,17 +10,11 @@ import com.horizonradio.network.packets.AddToPlaylistPacket;
 import com.horizonradio.network.packets.ClearPlaylistPacket;
 import com.horizonradio.network.packets.ClockSyncRequestPacket;
 import com.horizonradio.network.packets.ClockSyncResponsePacket;
-import com.horizonradio.network.packets.ImportPlaylistPacket;
-import com.horizonradio.network.packets.ImportVideoPacket;
 import com.horizonradio.network.packets.PlayNowPacket;
 import com.horizonradio.network.packets.PlaylistResyncRequestPacket;
 import com.horizonradio.network.packets.PreviousTrackPacket;
-import com.horizonradio.network.packets.RadioSearchRequestPacket;
-import com.horizonradio.network.packets.ReadyPacket;
 import com.horizonradio.network.packets.RemoveFromPlaylistPacket;
 import com.horizonradio.network.packets.ReorderPlaylistPacket;
-import com.horizonradio.network.packets.RequestChartsPacket;
-import com.horizonradio.network.packets.SearchRequestPacket;
 import com.horizonradio.network.packets.SeekRequestPacket;
 import com.horizonradio.network.packets.SelectRadioStationPacket;
 import com.horizonradio.network.packets.SkipTrackPacket;
@@ -62,25 +56,15 @@ public final class ServerMessageHandlers {
 
     public interface ServerPacketHook {
 
-        void handleSearch(EntityPlayerMP player, String query);
+        void handleAdd(EntityPlayerMP player, String videoId, long durationMs);
 
-        void handleImportPlaylist(EntityPlayerMP player, String playlistUrl);
-
-        void handleImportVideo(EntityPlayerMP player, String videoUrl);
-
-        void handleRequestCharts(EntityPlayerMP player, String regionCode, boolean forceRefresh);
-
-        void handleAdd(EntityPlayerMP player, String videoId, String title, String duration);
-
-        void handlePlayNow(EntityPlayerMP player, String videoId, String title, String duration);
+        void handlePlayNow(EntityPlayerMP player, String videoId, long durationMs);
 
         void handleAddCharts(EntityPlayerMP player, List<AddChartsToPlaylistPacket.Entry> entries, boolean remove);
 
         void handleRemove(EntityPlayerMP player, String videoId);
 
         void handleClearPlaylist(EntityPlayerMP player);
-
-        void handleReady(EntityPlayerMP player, String videoId);
 
         void handleReorder(EntityPlayerMP player, int fromIndex, int targetIndex);
 
@@ -96,34 +80,20 @@ public final class ServerMessageHandlers {
 
         void handleToggleShuffle(EntityPlayerMP player);
 
-        void handleRadioSearch(EntityPlayerMP player, String query);
-
         void handleSelectRadio(EntityPlayerMP player, String stationUuid);
 
         void handleStopRadio(EntityPlayerMP player);
 
-        default void handlePlaylistResyncRequest(EntityPlayerMP player, long knownRevision) {}
+        void handlePlaylistResyncRequest(EntityPlayerMP player, long knownRevision);
     }
 
     private static final class NoOpServerPacketHook implements ServerPacketHook {
 
         @Override
-        public void handleSearch(EntityPlayerMP player, String query) {}
+        public void handleAdd(EntityPlayerMP player, String videoId, long durationMs) {}
 
         @Override
-        public void handleImportPlaylist(EntityPlayerMP player, String playlistUrl) {}
-
-        @Override
-        public void handleImportVideo(EntityPlayerMP player, String videoUrl) {}
-
-        @Override
-        public void handleRequestCharts(EntityPlayerMP player, String regionCode, boolean forceRefresh) {}
-
-        @Override
-        public void handleAdd(EntityPlayerMP player, String videoId, String title, String duration) {}
-
-        @Override
-        public void handlePlayNow(EntityPlayerMP player, String videoId, String title, String duration) {}
+        public void handlePlayNow(EntityPlayerMP player, String videoId, long durationMs) {}
 
         @Override
         public void handleAddCharts(EntityPlayerMP player, List<AddChartsToPlaylistPacket.Entry> entries,
@@ -134,9 +104,6 @@ public final class ServerMessageHandlers {
 
         @Override
         public void handleClearPlaylist(EntityPlayerMP player) {}
-
-        @Override
-        public void handleReady(EntityPlayerMP player, String videoId) {}
 
         @Override
         public void handleReorder(EntityPlayerMP player, int fromIndex, int targetIndex) {}
@@ -160,31 +127,13 @@ public final class ServerMessageHandlers {
         public void handleToggleShuffle(EntityPlayerMP player) {}
 
         @Override
-        public void handleRadioSearch(EntityPlayerMP player, String query) {}
-
-        @Override
         public void handleSelectRadio(EntityPlayerMP player, String stationUuid) {}
 
         @Override
         public void handleStopRadio(EntityPlayerMP player) {}
-    }
-
-    public static final class SearchRequestHandler implements IMessageHandler<SearchRequestPacket, IMessage> {
 
         @Override
-        public IMessage onMessage(final SearchRequestPacket message, final MessageContext context) {
-            final EntityPlayerMP player = player(context);
-            if (player != null) {
-                schedule(new Runnable() {
-
-                    @Override
-                    public void run() {
-                        hook.handleSearch(player, message.getQuery());
-                    }
-                });
-            }
-            return null;
-        }
+        public void handlePlaylistResyncRequest(EntityPlayerMP player, long knownRevision) {}
     }
 
     public static final class ClockSyncRequestHandler implements IMessageHandler<ClockSyncRequestPacket, IMessage> {
@@ -204,24 +153,6 @@ public final class ServerMessageHandlers {
                                 serverReceivedAtMs,
                                 System.currentTimeMillis()),
                             player);
-                    }
-                });
-            }
-            return null;
-        }
-    }
-
-    public static final class RadioSearchRequestHandler implements IMessageHandler<RadioSearchRequestPacket, IMessage> {
-
-        @Override
-        public IMessage onMessage(final RadioSearchRequestPacket message, final MessageContext context) {
-            final EntityPlayerMP player = player(context);
-            if (player != null) {
-                schedule(new Runnable() {
-
-                    @Override
-                    public void run() {
-                        hook.handleRadioSearch(player, message.getQuery());
                     }
                 });
             }
@@ -265,60 +196,6 @@ public final class ServerMessageHandlers {
         }
     }
 
-    public static final class ImportPlaylistHandler implements IMessageHandler<ImportPlaylistPacket, IMessage> {
-
-        @Override
-        public IMessage onMessage(final ImportPlaylistPacket message, final MessageContext context) {
-            final EntityPlayerMP player = player(context);
-            if (player != null) {
-                schedule(new Runnable() {
-
-                    @Override
-                    public void run() {
-                        hook.handleImportPlaylist(player, message.getPlaylistUrl());
-                    }
-                });
-            }
-            return null;
-        }
-    }
-
-    public static final class ImportVideoHandler implements IMessageHandler<ImportVideoPacket, IMessage> {
-
-        @Override
-        public IMessage onMessage(final ImportVideoPacket message, final MessageContext context) {
-            final EntityPlayerMP player = player(context);
-            if (player != null) {
-                schedule(new Runnable() {
-
-                    @Override
-                    public void run() {
-                        hook.handleImportVideo(player, message.getVideoUrl());
-                    }
-                });
-            }
-            return null;
-        }
-    }
-
-    public static final class RequestChartsHandler implements IMessageHandler<RequestChartsPacket, IMessage> {
-
-        @Override
-        public IMessage onMessage(final RequestChartsPacket message, final MessageContext context) {
-            final EntityPlayerMP player = player(context);
-            if (player != null) {
-                schedule(new Runnable() {
-
-                    @Override
-                    public void run() {
-                        hook.handleRequestCharts(player, message.getRegionCode(), message.isForceRefresh());
-                    }
-                });
-            }
-            return null;
-        }
-    }
-
     public static final class AddToPlaylistHandler implements IMessageHandler<AddToPlaylistPacket, IMessage> {
 
         @Override
@@ -329,7 +206,7 @@ public final class ServerMessageHandlers {
 
                     @Override
                     public void run() {
-                        hook.handleAdd(player, message.getVideoId(), message.getTitle(), message.getDuration());
+                        hook.handleAdd(player, message.getVideoId(), message.getDurationMs());
                     }
                 });
             }
@@ -366,7 +243,7 @@ public final class ServerMessageHandlers {
 
                     @Override
                     public void run() {
-                        hook.handlePlayNow(player, message.getVideoId(), message.getTitle(), message.getDuration());
+                        hook.handlePlayNow(player, message.getVideoId(), message.getDurationMs());
                     }
                 });
             }
@@ -422,24 +299,6 @@ public final class ServerMessageHandlers {
                     @Override
                     public void run() {
                         hook.handleClearPlaylist(player);
-                    }
-                });
-            }
-            return null;
-        }
-    }
-
-    public static final class ReadyHandler implements IMessageHandler<ReadyPacket, IMessage> {
-
-        @Override
-        public IMessage onMessage(final ReadyPacket message, final MessageContext context) {
-            final EntityPlayerMP player = player(context);
-            if (player != null) {
-                schedule(new Runnable() {
-
-                    @Override
-                    public void run() {
-                        hook.handleReady(player, message.getVideoId());
                     }
                 });
             }
