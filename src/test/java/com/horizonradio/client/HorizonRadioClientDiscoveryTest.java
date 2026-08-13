@@ -185,6 +185,7 @@ public class HorizonRadioClientDiscoveryTest {
             HorizonRadioClient.sendChartsRequest("DE", false);
 
             assertTrue(chartResults(screen).isEmpty());
+            assertEquals(1, provider.videoLookupCount);
 
             metadata.complete("{\"id\":\"missing-duration\",\"title\":\"First\",\"duration\":90}");
 
@@ -248,6 +249,7 @@ public class HorizonRadioClientDiscoveryTest {
         DeferredProvider provider = new DeferredProvider();
         CompletableFuture<List<SearchResult>> older = provider.deferCharts();
         CompletableFuture<List<SearchResult>> newer = provider.deferCharts();
+        CompletableFuture<String> olderMetadata = provider.deferVideo("old-chart");
         HorizonRadioClient.setClientMediaService(new ClientMediaService(provider));
         HorizonRadioScreen screen = new HorizonRadioScreen();
         HorizonRadioScreen.setActiveScreen(screen);
@@ -255,10 +257,14 @@ public class HorizonRadioClientDiscoveryTest {
             HorizonRadioClient.sendChartsRequest("DE", false);
             HorizonRadioClient.sendChartsRequest("DE", true);
 
+            older.complete(Collections.singletonList(
+                new SearchResult("old-chart", "Old", "", "", "")));
             newer.complete(Collections.singletonList(
                 new SearchResult("new-chart", "New", "", "2:00", "")));
-            older.complete(Collections.singletonList(
-                new SearchResult("old-chart", "Old", "", "2:00", "")));
+
+            assertEquals(Collections.singletonList("new-chart"), chartVideoIds(screen));
+
+            olderMetadata.complete("{\"id\":\"old-chart\",\"title\":\"Old\",\"duration\":90}");
 
             assertEquals(Collections.singletonList("new-chart"), chartVideoIds(screen));
         } finally {
