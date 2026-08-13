@@ -4,6 +4,7 @@ import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -12,7 +13,10 @@ import net.minecraft.util.ChatComponentText;
 import net.minecraft.util.EnumChatFormatting;
 
 import com.horizonradio.CommonProxy;
+import com.horizonradio.client.audio.AudioPlayer;
+import com.horizonradio.client.audio.ClientRadioPlayback;
 import com.horizonradio.client.media.ClientMediaService;
+import com.horizonradio.core.model.RadioStation;
 import com.horizonradio.network.packets.AudioChunkPacket;
 import com.horizonradio.network.packets.ChartAddCompletionPacket;
 import com.horizonradio.network.packets.ClockSyncResponsePacket;
@@ -30,6 +34,7 @@ import com.horizonradio.network.packets.TrackSyncPacket;
 import com.horizonradio.server.AudioDownloadService;
 import com.horizonradio.server.RadioBrowserService;
 import com.horizonradio.server.YouTubeService;
+import com.horizonradio.server.media.RadioInputSession;
 
 import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.event.FMLInitializationEvent;
@@ -84,10 +89,45 @@ public class ClientProxy extends CommonProxy {
                 "horizonradio-audio");
             AudioDownloadService audioDownloadService = new AudioDownloadService(audioDirectory.toPath());
             HorizonRadioClient.setClientAudioDownloadService(audioDownloadService);
-            HorizonRadioClient.setClientMediaService(
-                new ClientMediaService(new YouTubeService(), audioDownloadService, new RadioBrowserService()));
+            final ClientMediaService mediaService = new ClientMediaService(
+                new YouTubeService(), audioDownloadService, new RadioBrowserService());
+            HorizonRadioClient.setClientMediaService(mediaService);
+            HorizonRadioClient.setClientRadioPlayback(
+                new ClientRadioPlayback(
+                    new ClientRadioPlayback.StationResolver() {
+
+                        @Override
+                        public CompletableFuture<RadioStation> lookup(String stationUuid) {
+                            return mediaService.lookupRadio(stationUuid);
+                        }
+                    },
+                    new ClientRadioPlayback.SessionFactory() {
+
+                        @Override
+                        public RadioInputSession create(String streamUrl, RadioInputSession.RadioPcmListener listener) {
+                            return new RadioInputSession(streamUrl, listener);
+                        }
+                    },
+                    new ClientRadioPlayback.AudioSink() {
+
+                        @Override
+                        public boolean startLocalRadio(long generation) {
+                            return AudioPlayer.getInstance().startLocalRadio(generation);
+                        }
+
+                        @Override
+                        public void receiveLocalRadioPcm(long generation, byte[] pcm) {
+                            AudioPlayer.getInstance().receiveLocalRadioPcm(generation, pcm);
+                        }
+
+                        @Override
+                        public void stopLocalRadio() {
+                            AudioPlayer.getInstance().stopRadio();
+                        }
+                    }));
         } catch (IOException exception) {
             HorizonRadioClient.setClientMediaService(null);
+            HorizonRadioClient.setClientRadioPlayback(null);
             LOGGER.log(Level.WARNING, "HorizonRadio: Failed to initialise client audio cache", exception);
         }
         HorizonRadioClient.setTransport(new HorizonRadioClient.ForgeClientTransport());

@@ -504,7 +504,6 @@ public class GuiLayoutTest {
         HorizonRadioClient.sendPlayNow("abc", "Song", "3:21");
         HorizonRadioClient.sendRemove("abc");
         HorizonRadioClient.sendClearPlaylist();
-        HorizonRadioClient.sendReady("abc");
         HorizonRadioClient.sendReorder(2, 1);
         HorizonRadioClient.sendSeek(0.75f);
         HorizonRadioClient.sendTogglePlayback();
@@ -523,7 +522,6 @@ public class GuiLayoutTest {
         assertTrue(transport.addChartsRequest);
         assertEquals("abc", transport.removedVideoId);
         assertTrue(transport.clearPlaylist);
-        assertEquals("abc", transport.readyVideoId);
         assertEquals("2|1", transport.reorderRequest);
         assertEquals(0.75f, transport.seekProgress, 0.0001f);
         assertTrue(transport.togglePlayback);
@@ -531,6 +529,19 @@ public class GuiLayoutTest {
         assertTrue(transport.previousTrack);
         assertTrue(transport.toggleLoop);
         assertTrue(transport.toggleShuffle);
+    }
+
+    @Test
+    public void chartSelectionsSkipUnknownAndZeroDurationsBeforeConstructingPackets() {
+        List<HorizonRadioClient.PlaylistSelection> selections = HorizonRadioScreen.toPlaylistSelections(
+            Arrays.asList(
+                new HorizonRadioScreen.SearchResult("unknown", "Unknown", "", "", ""),
+                new HorizonRadioScreen.SearchResult("zero", "Zero", "", "0:00", ""),
+                new HorizonRadioScreen.SearchResult("valid", "Valid", "", "2:00", "")));
+
+        assertEquals(1, selections.size());
+        assertEquals("valid", selections.get(0).videoId);
+        assertEquals(120_000L, selections.get(0).durationMs);
     }
 
     @Test
@@ -1244,41 +1255,6 @@ public class GuiLayoutTest {
         private boolean stopRadio;
 
         @Override
-        public void sendSearch(String query) {
-            searchQuery = query;
-        }
-
-        @Override
-        public void sendChartsRequest(boolean forceRefresh) {
-            recordChartsRequest("GLOBAL", forceRefresh);
-        }
-
-        @Override
-        public void sendChartsRequest(String regionCode, boolean forceRefresh) {
-            recordChartsRequest(regionCode, forceRefresh);
-        }
-
-        private void recordChartsRequest(String regionCode, boolean forceRefresh) {
-            chartsRequest = true;
-            forceChartsRequest = forceRefresh;
-            chartRegionCode = regionCode;
-            chartRequestCount++;
-            if (forceRefresh) {
-                forceChartsRequestCount++;
-            }
-        }
-
-        @Override
-        public void sendImportPlaylist(String playlistUrl) {
-            importPlaylistUrl = playlistUrl;
-        }
-
-        @Override
-        public void sendImportVideo(String videoUrl) {
-            importVideoUrl = videoUrl;
-        }
-
-        @Override
         public void sendAdd(String videoId, String title, String duration) {
             addRequest = videoId + "|" + title + "|" + duration;
         }
@@ -1314,11 +1290,6 @@ public class GuiLayoutTest {
         }
 
         @Override
-        public void sendReady(String videoId) {
-            readyVideoId = videoId;
-        }
-
-        @Override
         public void sendReorder(int fromIndex, int targetIndex) {
             reorderRequest = fromIndex + "|" + targetIndex;
         }
@@ -1351,11 +1322,6 @@ public class GuiLayoutTest {
         @Override
         public void sendToggleShuffle() {
             toggleShuffle = true;
-        }
-
-        @Override
-        public void sendRadioSearch(String query) {
-            radioSearchQuery = query;
         }
 
         @Override

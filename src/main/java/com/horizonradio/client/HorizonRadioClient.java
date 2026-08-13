@@ -11,6 +11,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.function.BiConsumer;
 
 import com.horizonradio.client.audio.AudioPlayer;
+import com.horizonradio.client.audio.ClientRadioPlayback;
 import com.horizonradio.client.audio.PlaybackClock;
 import com.horizonradio.client.media.ClientMediaService;
 import com.horizonradio.client.media.ClientMetadataCache;
@@ -32,8 +33,6 @@ import com.horizonradio.network.packets.AudioChunkPacket;
 import com.horizonradio.network.packets.ClearPlaylistPacket;
 import com.horizonradio.network.packets.ClockSyncRequestPacket;
 import com.horizonradio.network.packets.ClockSyncResponsePacket;
-import com.horizonradio.network.packets.ImportPlaylistPacket;
-import com.horizonradio.network.packets.ImportVideoPacket;
 import com.horizonradio.network.packets.PlayNowPacket;
 import com.horizonradio.network.packets.PlaylistDeltaPacket;
 import com.horizonradio.network.packets.PlaylistResyncRequestPacket;
@@ -41,14 +40,10 @@ import com.horizonradio.network.packets.PlaylistSyncPacket;
 import com.horizonradio.network.packets.PreviousTrackPacket;
 import com.horizonradio.network.packets.RadioAudioChunkPacket;
 import com.horizonradio.network.packets.RadioAudioStartPacket;
-import com.horizonradio.network.packets.RadioSearchRequestPacket;
 import com.horizonradio.network.packets.RadioSearchResultsPacket;
 import com.horizonradio.network.packets.RadioStatePacket;
-import com.horizonradio.network.packets.ReadyPacket;
 import com.horizonradio.network.packets.RemoveFromPlaylistPacket;
 import com.horizonradio.network.packets.ReorderPlaylistPacket;
-import com.horizonradio.network.packets.RequestChartsPacket;
-import com.horizonradio.network.packets.SearchRequestPacket;
 import com.horizonradio.network.packets.SeekRequestPacket;
 import com.horizonradio.network.packets.SelectRadioStationPacket;
 import com.horizonradio.network.packets.SkipTrackPacket;
@@ -90,24 +85,15 @@ public final class HorizonRadioClient {
     private static long searchTabDiscoveryGeneration;
     private static long chartGeneration;
     private static long radioSearchGeneration;
+    private static MediaSourceType activeTrackSourceType;
+    private static String activeTrackSourceId;
     private static String activeTrackVideoId;
     private static long activeTrackGeneration = -1L;
+    private static ClientRadioPlayback clientRadioPlayback;
 
     private HorizonRadioClient() {}
 
     public interface ClientTransport {
-
-        void sendSearch(String query);
-
-        void sendChartsRequest(boolean forceRefresh);
-
-        default void sendChartsRequest(String regionCode, boolean forceRefresh) {
-            sendChartsRequest(forceRefresh);
-        }
-
-        void sendImportPlaylist(String playlistUrl);
-
-        void sendImportVideo(String videoUrl);
 
         /** Compatibility transport seam; new callers use the ID/duration overload. */
         void sendAdd(String videoId, String title, String duration);
@@ -150,8 +136,6 @@ public final class HorizonRadioClient {
 
         void sendClearPlaylist();
 
-        void sendReady(String videoId);
-
         void sendReorder(int fromIndex, int targetIndex);
 
         void sendSeek(float progress);
@@ -166,8 +150,6 @@ public final class HorizonRadioClient {
 
         void sendToggleShuffle();
 
-        void sendRadioSearch(String query);
-
         void sendSelectRadio(String stationUuid);
 
         void sendStopRadio();
@@ -175,33 +157,8 @@ public final class HorizonRadioClient {
         default void sendClockSync(long clientSentAtMs) {}
     }
 
-    /** Forge transport for the four client-to-server protocol messages. */
+    /** Forge transport for registered client-to-server protocol messages. */
     public static final class ForgeClientTransport implements ClientTransport {
-
-        @Override
-        public void sendSearch(String query) {
-            HorizonRadioNetwork.CHANNEL.sendToServer(new SearchRequestPacket(query));
-        }
-
-        @Override
-        public void sendChartsRequest(boolean forceRefresh) {
-            sendChartsRequest(ChartRegionCatalog.GLOBAL_CODE, forceRefresh);
-        }
-
-        @Override
-        public void sendChartsRequest(String regionCode, boolean forceRefresh) {
-            HorizonRadioNetwork.CHANNEL.sendToServer(new RequestChartsPacket(regionCode, forceRefresh));
-        }
-
-        @Override
-        public void sendImportPlaylist(String playlistUrl) {
-            HorizonRadioNetwork.CHANNEL.sendToServer(new ImportPlaylistPacket(playlistUrl));
-        }
-
-        @Override
-        public void sendImportVideo(String videoUrl) {
-            HorizonRadioNetwork.CHANNEL.sendToServer(new ImportVideoPacket(videoUrl));
-        }
 
         @Override
         public void sendAdd(String videoId, String title, String duration) {
@@ -266,11 +223,6 @@ public final class HorizonRadioClient {
         }
 
         @Override
-        public void sendReady(String videoId) {
-            HorizonRadioNetwork.CHANNEL.sendToServer(new ReadyPacket(videoId));
-        }
-
-        @Override
         public void sendReorder(int fromIndex, int targetIndex) {
             HorizonRadioNetwork.CHANNEL.sendToServer(new ReorderPlaylistPacket(fromIndex, targetIndex));
         }
@@ -306,11 +258,6 @@ public final class HorizonRadioClient {
         }
 
         @Override
-        public void sendRadioSearch(String query) {
-            HorizonRadioNetwork.CHANNEL.sendToServer(new RadioSearchRequestPacket(query));
-        }
-
-        @Override
         public void sendSelectRadio(String stationUuid) {
             HorizonRadioNetwork.CHANNEL.sendToServer(new SelectRadioStationPacket(stationUuid));
         }
@@ -330,18 +277,6 @@ public final class HorizonRadioClient {
     public static final class NoopClientTransport implements ClientTransport {
 
         @Override
-        public void sendSearch(String query) {}
-
-        @Override
-        public void sendChartsRequest(boolean forceRefresh) {}
-
-        @Override
-        public void sendImportPlaylist(String playlistUrl) {}
-
-        @Override
-        public void sendImportVideo(String videoUrl) {}
-
-        @Override
         public void sendAdd(String videoId, String title, String duration) {}
 
         @Override
@@ -355,9 +290,6 @@ public final class HorizonRadioClient {
 
         @Override
         public void sendClearPlaylist() {}
-
-        @Override
-        public void sendReady(String videoId) {}
 
         @Override
         public void sendReorder(int fromIndex, int targetIndex) {}
@@ -381,9 +313,6 @@ public final class HorizonRadioClient {
         public void sendToggleShuffle() {}
 
         @Override
-        public void sendRadioSearch(String query) {}
-
-        @Override
         public void sendSelectRadio(String stationUuid) {}
 
         @Override
@@ -399,6 +328,8 @@ public final class HorizonRadioClient {
             clientAudioDownloadService.shutdown();
         }
         clientAudioDownloadService = service;
+        activeTrackSourceType = null;
+        activeTrackSourceId = null;
         activeTrackVideoId = null;
         activeTrackGeneration = -1L;
     }
@@ -408,6 +339,13 @@ public final class HorizonRadioClient {
         clientMetadataCache = service == null ? null : new ClientMetadataCache(service);
         requestedVideoMetadata.clear();
         requestedStationMetadata.clear();
+    }
+
+    static synchronized void setClientRadioPlayback(ClientRadioPlayback playback) {
+        if (clientRadioPlayback != null && clientRadioPlayback != playback) {
+            clientRadioPlayback.stop();
+        }
+        clientRadioPlayback = playback;
     }
 
     public static synchronized void sendSearch(String query) {
@@ -599,10 +537,6 @@ public final class HorizonRadioClient {
 
     public static synchronized void sendClearPlaylist() {
         transport.sendClearPlaylist();
-    }
-
-    public static synchronized void sendReady(String videoId) {
-        transport.sendReady(videoId);
     }
 
     public static synchronized void sendReorder(int fromIndex, int targetIndex) {
@@ -904,17 +838,56 @@ public final class HorizonRadioClient {
     }
 
     public static synchronized void handleTrackSync(final TrackSyncPacket packet) {
-        if (!shouldAcceptTrackSync(activeTrackGeneration, activeTrackVideoId, packet)) {
+        if (!shouldAcceptTrackSync(activeTrackGeneration, activeTrackSourceType, activeTrackSourceId, packet)) {
             debugChat("Veraltete Track-Synchronisation ignoriert.");
             return;
         }
 
         activeTrackGeneration = packet.getGeneration();
+        MediaSourceType previousSourceType = activeTrackSourceType;
+        activeTrackSourceType = packet.getSourceType();
+        activeTrackSourceId = packet.getSourceId();
         String previousVideoId = activeTrackVideoId;
         activeTrackVideoId = packet.getVideoId();
-        if (clientAudioDownloadService != null && previousVideoId != null
-            && !previousVideoId.equals(activeTrackVideoId)) {
+        if (clientAudioDownloadService != null && previousSourceType == MediaSourceType.YOUTUBE && previousVideoId != null
+            && (packet.getSourceType() != MediaSourceType.YOUTUBE || !previousVideoId.equals(activeTrackVideoId))) {
             clientAudioDownloadService.cancelDownload(previousVideoId);
+        }
+
+        if (packet.getSourceType() == MediaSourceType.RADIO) {
+            clearCachedMusicState();
+            cachedRadioActive = true;
+            cachedRadioState = new RadioStatePacket(
+                true,
+                packet.getGeneration(),
+                packet.getSourceId(),
+                packet.getSourceId(),
+                "LIVE");
+            AudioPlayer.getInstance().stop();
+            HorizonRadioScreen radioScreen = getOpenScreen();
+            if (radioScreen != null) {
+                radioScreen.updateRadioState(cachedRadioState);
+            }
+            if (clientRadioPlayback != null) {
+                clientRadioPlayback.start(packet.getGeneration(), packet.getSourceId());
+                debugChat("Radio " + packet.getSourceId() + " lokal angefordert.");
+            } else {
+                debugChat("Kein lokaler Radio-Player verfügbar.");
+            }
+            return;
+        }
+
+        if (clientRadioPlayback != null) {
+            clientRadioPlayback.stop();
+        }
+        AudioPlayer.getInstance().stopRadio();
+        if (cachedRadioActive) {
+            cachedRadioActive = false;
+            cachedRadioState = null;
+            HorizonRadioScreen radioScreen = getOpenScreen();
+            if (radioScreen != null) {
+                radioScreen.updateRadioState(null);
+            }
         }
 
         AudioPlayer.getInstance()
@@ -960,7 +933,8 @@ public final class HorizonRadioClient {
                     @Override
                     public void run() {
                         synchronized (HorizonRadioClient.class) {
-                            if (generation != activeTrackGeneration || !videoId.equals(activeTrackVideoId)) {
+                            if (generation != activeTrackGeneration || activeTrackSourceType != MediaSourceType.YOUTUBE
+                                || !videoId.equals(activeTrackVideoId)) {
                                 return;
                             }
                             if (failure != null || filePath == null || !Files.isRegularFile(filePath)) {
@@ -982,17 +956,20 @@ public final class HorizonRadioClient {
     }
 
     static boolean shouldAcceptTrackSync(long currentGeneration, String currentVideoId, TrackSyncPacket packet) {
-        if (packet == null || packet.getVideoId() == null
-            || packet.getVideoId()
-                .trim()
-                .length() == 0) {
+        return shouldAcceptTrackSync(currentGeneration, MediaSourceType.YOUTUBE, currentVideoId, packet);
+    }
+
+    static boolean shouldAcceptTrackSync(long currentGeneration, MediaSourceType currentSourceType,
+        String currentSourceId, TrackSyncPacket packet) {
+        if (packet == null || packet.getSourceType() == null || packet.getSourceId() == null
+            || packet.getSourceId().trim().length() == 0) {
             return false;
         }
         if (packet.getGeneration() > currentGeneration) {
             return true;
         }
-        return packet.getGeneration() == currentGeneration && !packet.getVideoId()
-            .equals(currentVideoId);
+        return packet.getGeneration() == currentGeneration
+            && (packet.getSourceType() != currentSourceType || !packet.getSourceId().equals(currentSourceId));
     }
 
     public static synchronized void handlePause(long positionMs) {
@@ -1033,6 +1010,9 @@ public final class HorizonRadioClient {
     }
 
     public static synchronized void clearCache() {
+        if (clientRadioPlayback != null) {
+            clientRadioPlayback.stop();
+        }
         cancelActiveTrackDownload();
         CACHED_PLAYLIST.clear();
         CACHED_CHARTS.clear();
@@ -1063,9 +1043,12 @@ public final class HorizonRadioClient {
     }
 
     private static void cancelActiveTrackDownload() {
-        if (clientAudioDownloadService != null && activeTrackVideoId != null) {
+        if (clientAudioDownloadService != null && activeTrackSourceType == MediaSourceType.YOUTUBE
+            && activeTrackVideoId != null) {
             clientAudioDownloadService.cancelDownload(activeTrackVideoId);
         }
+        activeTrackSourceType = null;
+        activeTrackSourceId = null;
         activeTrackVideoId = null;
         activeTrackGeneration = -1L;
     }

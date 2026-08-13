@@ -1780,7 +1780,7 @@ public class HorizonRadioScreen extends GuiScreen {
             return;
         }
         long durationMs = DurationParser.parseMillisStrict(result.duration);
-        if (durationMs < 0L) {
+        if (durationMs <= 0L) {
             return;
         }
         if (charts) {
@@ -1800,7 +1800,7 @@ public class HorizonRadioScreen extends GuiScreen {
         }
     }
 
-    private static List<HorizonRadioClient.PlaylistSelection> toPlaylistSelections(List<SearchResult> results) {
+    static List<HorizonRadioClient.PlaylistSelection> toPlaylistSelections(List<SearchResult> results) {
         List<HorizonRadioClient.PlaylistSelection> selections = new ArrayList<HorizonRadioClient.PlaylistSelection>();
         if (results == null) {
             return selections;
@@ -1810,7 +1810,7 @@ public class HorizonRadioScreen extends GuiScreen {
                 continue;
             }
             long durationMs = DurationParser.parseMillisStrict(result.duration);
-            if (durationMs >= 0L) {
+            if (durationMs > 0L) {
                 selections.add(new HorizonRadioClient.PlaylistSelection(result.videoId, durationMs));
             }
         }

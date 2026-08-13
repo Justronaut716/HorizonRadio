@@ -26,7 +26,6 @@ import javax.sound.sampled.LineEvent;
 import javax.sound.sampled.LineListener;
 import javax.sound.sampled.SourceDataLine;
 
-import com.horizonradio.client.HorizonRadioClient;
 import com.horizonradio.core.audio.AudioChunkAssembler;
 import com.horizonradio.core.audio.RadioStreamBuffer;
 import com.horizonradio.network.packets.AudioChunkPacket;
@@ -93,6 +92,8 @@ public final class AudioPlayer {
     private volatile long serverClockOffsetMs;
     private volatile boolean serverClockSynchronized;
     private volatile float volume = 1.0f;
+    private volatile long localRadioGeneration = -1L;
+    private long localRadioSequence;
     private ScheduledFuture<?> pendingResumeStart;
 
     private AudioPlayer() {
@@ -332,6 +333,8 @@ public final class AudioPlayer {
             return false;
         }
 
+        localRadioGeneration = -1L;
+        localRadioSequence = 0L;
         final long requestEpoch = radioEpoch.incrementAndGet();
         clearRadioHandoff();
         abortCurrentRadioLine();
@@ -366,6 +369,24 @@ public final class AudioPlayer {
             }
         });
         return true;
+    }
+
+    /** Starts a direct client-side radio stream using the normalized live PCM format. */
+    public boolean startLocalRadio(long generation) {
+        boolean started = startRadio(new RadioAudioStartPacket(generation, 0L, 44100, 2, 16, false));
+        if (started) {
+            localRadioGeneration = generation;
+            localRadioSequence = 0L;
+        }
+        return started;
+    }
+
+    /** Accepts normalized PCM from a client-local radio input session. */
+    public void receiveLocalRadioPcm(long generation, byte[] pcm) {
+        if (generation != localRadioGeneration || pcm == null || pcm.length == 0) {
+            return;
+        }
+        receiveRadioChunk(new RadioAudioChunkPacket(generation, localRadioSequence++, pcm));
     }
 
     /** Buffers ordered live PCM and schedules line writes after startup readiness. */
@@ -405,6 +426,8 @@ public final class AudioPlayer {
 
     /** Stops the live source without altering finite music state or volume. */
     public void stopRadio() {
+        localRadioGeneration = -1L;
+        localRadioSequence = 0L;
         radioEpoch.incrementAndGet();
         radioBuffer.clear();
         clearRadioHandoff();
@@ -414,6 +437,8 @@ public final class AudioPlayer {
 
     /** Stops radio and forgets generation history after the server connection ends. */
     public void resetRadio() {
+        localRadioGeneration = -1L;
+        localRadioSequence = 0L;
         radioEpoch.incrementAndGet();
         radioBuffer.reset();
         clearRadioHandoff();
@@ -737,12 +762,6 @@ public final class AudioPlayer {
                     Level.WARNING,
                     "HorizonRadio audio playback is unavailable for " + track.getTitle(),
                     exception);
-            }
-        } finally {
-            if (lateJoin && isCurrent(requestGeneration)) {
-                // Signal readiness even when Java Sound is unavailable; the
-                // server's timeout must not leave every other client paused.
-                HorizonRadioClient.sendReady(track.getVideoId());
             }
         }
     }

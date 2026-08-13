@@ -465,6 +465,12 @@ public class PacketRoundTripTest {
         assertTrue(source.contains("CHANNEL.sendToServer(new AddToPlaylistPacket(videoId, durationMs))"));
         assertTrue(source.contains("CHANNEL.sendToServer(new PlayNowPacket(videoId, durationMs))"));
         assertTrue(source.contains("CHANNEL.sendToServer(new RemoveFromPlaylistPacket(videoId))"));
+        assertFalse(source.contains("CHANNEL.sendToServer(new SearchRequestPacket(query))"));
+        assertFalse(source.contains("CHANNEL.sendToServer(new RequestChartsPacket(regionCode, forceRefresh))"));
+        assertFalse(source.contains("CHANNEL.sendToServer(new ImportPlaylistPacket(playlistUrl))"));
+        assertFalse(source.contains("CHANNEL.sendToServer(new ImportVideoPacket(videoUrl))"));
+        assertFalse(source.contains("CHANNEL.sendToServer(new ReadyPacket(videoId))"));
+        assertFalse(source.contains("CHANNEL.sendToServer(new RadioSearchRequestPacket(query))"));
     }
 
     @Test

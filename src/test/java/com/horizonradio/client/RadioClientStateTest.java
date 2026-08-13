@@ -539,18 +539,6 @@ public class RadioClientStateTest {
         private boolean stopRadio;
 
         @Override
-        public void sendSearch(String query) {}
-
-        @Override
-        public void sendChartsRequest(boolean forceRefresh) {}
-
-        @Override
-        public void sendImportPlaylist(String playlistUrl) {}
-
-        @Override
-        public void sendImportVideo(String videoUrl) {}
-
-        @Override
         public void sendAdd(String videoId, String title, String duration) {}
 
         @Override
@@ -564,9 +552,6 @@ public class RadioClientStateTest {
 
         @Override
         public void sendClearPlaylist() {}
-
-        @Override
-        public void sendReady(String videoId) {}
 
         @Override
         public void sendReorder(int fromIndex, int targetIndex) {}
@@ -588,11 +573,6 @@ public class RadioClientStateTest {
 
         @Override
         public void sendToggleShuffle() {}
-
-        @Override
-        public void sendRadioSearch(String query) {
-            radioSearchQuery = query;
-        }
 
         @Override
         public void sendSelectRadio(String stationUuid) {
