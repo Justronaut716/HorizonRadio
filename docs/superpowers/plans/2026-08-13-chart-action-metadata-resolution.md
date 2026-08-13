@@ -28,27 +28,27 @@
 - Consumes: `HorizonRadioClient.sendAddChartsToPlaylist`, a new raw-result direct-play entry point, `ClientMediaService`, and the existing transport seam.
 - Produces: Regression coverage proving missing-duration chart actions resolve metadata, preserve bulk order, and clear pending state on failure.
 
-- [ ] **Step 1: Add a deferred metadata provider and direct client scheduler to the discovery test fixture.**
+- [x] **Step 1: Add a deferred metadata provider and direct client scheduler to the discovery test fixture.**
 
   Extend the test provider with `resolveVideo(String)` support through `ClientMediaService`'s production constructor or a test `AudioDownloadService` fixture, and make the provider return controllable futures for chart video IDs. Keep the scheduler synchronous so completion callbacks can be asserted deterministically.
 
-- [ ] **Step 2: Write a failing test for a chart add with an empty duration.**
+- [x] **Step 2: Write a failing test for a chart add with an empty duration.**
 
   Set an active `HorizonRadioScreen`, configure a metadata provider that resolves `chart-1` to a `SearchResult` with duration `2:03`, call `HorizonRadioClient.sendAddChartsToPlaylist(Collections.singletonList(new HorizonRadioScreen.SearchResult("chart-1", "Chart", "", "", "")))`, complete the future, and assert the recording transport receives one chart selection for `chart-1` with `123000L`.
 
-- [ ] **Step 3: Write a failing test for bulk order and a failed resolution.**
+- [x] **Step 3: Write a failing test for bulk order and a failed resolution.**
 
   Submit `[chart-a, chart-b, chart-c]` with missing durations, resolve `chart-a` and `chart-c`, fail `chart-b`, and assert the transport receives only `chart-a` then `chart-c`. Assert the screen no longer reports `chart-b` as pending.
 
-- [ ] **Step 4: Write a failing test for direct playback with an empty duration.**
+- [x] **Step 4: Write a failing test for direct playback with an empty duration.**
 
   Configure metadata for `chart-play` as `4:00`, invoke the new chart-result play method, complete the future, and assert the transport receives `chart-play|240000` through the long-duration overload.
 
-- [ ] **Step 5: Write a failing test for the already-resolved fast path.**
+- [x] **Step 5: Write a failing test for the already-resolved fast path.**
 
   Submit a chart result with duration `1:30`, assert the transport is called immediately, and assert the metadata provider was not queried.
 
-- [ ] **Step 6: Run only the new tests and confirm they fail for the missing action-resolution behavior.**
+- [x] **Step 6: Run only the new tests and confirm they fail for the missing action-resolution behavior.**
 
   Run:
 
@@ -68,27 +68,27 @@
 - Consumes: raw `HorizonRadioScreen.SearchResult` values, cached client metadata, and existing `ClientTransport` long-duration overloads.
 - Produces: `sendAddChartsToPlaylist(List<?>)` that resolves missing durations asynchronously, `sendPlayNow(HorizonRadioScreen.SearchResult)` for chart direct play, and screen methods to update resolved chart durations and clear failed pending IDs.
 
-- [ ] **Step 1: Add the minimal resolution result type and duration validation helpers.**
+- [x] **Step 1: Add the minimal resolution result type and duration validation helpers.**
 
   Add private Java 8-compatible helper types/methods in `HorizonRadioClient` that retain the original chart ID, either a valid `PlaylistSelection` or a failure message, and validate `0 < durationMs < maxTrackDurationMs()` before creating a selection.
 
-- [ ] **Step 2: Implement one-item metadata resolution through `clientMetadataCache.video(videoId)`.**
+- [x] **Step 2: Implement one-item metadata resolution through `clientMetadataCache.video(videoId)`.**
 
   If the chart result already has a valid duration, return a completed resolution without touching the cache. Otherwise, use the existing cache, extract `metadata.getDuration()`, and return a failure resolution when the metadata is null, malformed, or over the configured server limit. Do not block on the future.
 
-- [ ] **Step 3: Replace the add path's immediate mapping with ordered asynchronous resolution.**
+- [x] **Step 3: Replace the add path's immediate mapping with ordered asynchronous resolution.**
 
   For non-remove chart additions, resolve every raw chart result concurrently, collect the already-normalized results in input order, send one `sendAddChartSelections` call when all futures complete, update cached/screen durations for successful metadata, clear pending IDs for both successful and failed results, and emit client debug messages for resolution start/failure/success. Keep the existing immediate path for `PlaylistSelection` values and empty compatibility calls.
 
-- [ ] **Step 4: Add the raw chart direct-play method.**
+- [x] **Step 4: Add the raw chart direct-play method.**
 
   Add `sendPlayNow(HorizonRadioScreen.SearchResult result)`. It must dispatch immediately for a valid duration; otherwise resolve metadata using the same helper and call the existing `sendPlayNow(String,long)` only after success. Emit a client debug message when resolution starts or fails.
 
-- [ ] **Step 5: Update the GUI to pass raw chart results and expose resolved durations.**
+- [x] **Step 5: Update the GUI to pass raw chart results and expose resolved durations.**
 
   Change chart add calls at the bulk and individual click sites to pass `request` directly instead of first filtering through `toPlaylistSelections`. Change `playResultNow` to call the raw-result client method. Add a screen helper that replaces a chart row's duration by video ID without resetting the whole chart loading state, and add a client-cache helper that updates the matching cached chart row.
 
-- [ ] **Step 6: Clear pending entries on all failed asynchronous paths.**
+- [x] **Step 6: Clear pending entries on all failed asynchronous paths.**
 
   Ensure a null media service, thrown lookup, null metadata result, invalid duration, or failed future removes the original video ID from `pendingChartAdds`; successful entries remain compatible with the existing playlist update cleanup.
 
@@ -101,38 +101,38 @@
 - Consumes: completed client resolution implementation and regression tests.
 - Produces: formatted, tested code ready for the existing `clientside-loading` PR.
 
-- [ ] **Step 1: Run focused client tests.**
+- [x] **Step 1: Run focused client tests.**
 
   ```bash
   ./gradlew test --no-daemon --tests com.horizonradio.client.HorizonRadioClientDiscoveryTest --tests com.horizonradio.client.GuiLayoutTest
   ```
 
-- [ ] **Step 2: Run the complete test suite.**
+- [x] **Step 2: Run the complete test suite.**
 
   ```bash
   ./gradlew test --no-daemon
   ```
 
-- [ ] **Step 3: Run formatting verification.**
+- [x] **Step 3: Run formatting verification.**
 
   ```bash
   ./gradlew spotlessCheck --no-daemon
   ```
 
-- [ ] **Step 4: Run the build/package verification used by this project.**
+- [x] **Step 4: Run the build/package verification used by this project.**
 
   ```bash
   ./gradlew build --no-daemon
   ```
 
-- [ ] **Step 5: Inspect the final diff and confirm only the intended tracked files changed.**
+- [x] **Step 5: Inspect the final diff and confirm only the intended tracked files changed.**
 
   ```bash
   git diff --check
   git status --short
   ```
 
-- [ ] **Step 6: Commit the implementation and tests to the existing feature branch.**
+- [x] **Step 6: Commit the implementation and tests to the existing feature branch.**
 
   ```bash
   git add src/main/java/com/horizonradio/client/HorizonRadioClient.java src/main/java/com/horizonradio/client/HorizonRadioScreen.java src/test/java/com/horizonradio/client/HorizonRadioClientDiscoveryTest.java src/test/java/com/horizonradio/client/GuiLayoutTest.java
