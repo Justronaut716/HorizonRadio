@@ -171,8 +171,158 @@ public class HorizonRadioClientDiscoveryTest {
         assertEquals(0, provider.videoLookupCount);
     }
 
+    @Test
+    public void chartsPublishOnlyAfterMissingDurationsAreResolved() {
+        DeferredProvider provider = new DeferredProvider();
+        provider.chartResults = Arrays.asList(
+            new SearchResult("missing-duration", "First", "", "", ""),
+            new SearchResult("known-duration", "Second", "", "2:00", ""));
+        CompletableFuture<String> metadata = provider.deferVideo("missing-duration");
+        HorizonRadioClient.setClientMediaService(new ClientMediaService(provider));
+        HorizonRadioScreen screen = new HorizonRadioScreen();
+        HorizonRadioScreen.setActiveScreen(screen);
+        try {
+            HorizonRadioClient.sendChartsRequest("DE", false);
+
+            assertTrue(chartResults(screen).isEmpty());
+
+            metadata.complete("{\"id\":\"missing-duration\",\"title\":\"First\",\"duration\":90}");
+
+            assertEquals(Arrays.asList("missing-duration", "known-duration"), chartVideoIds(screen));
+            assertEquals("1:30", chartResults(screen).get(0).duration);
+            assertEquals("2:00", chartResults(screen).get(1).duration);
+        } finally {
+            HorizonRadioScreen.clearActiveScreen(screen);
+        }
+    }
+
+    @Test
+    public void failedChartMetadataLeavesPlaceholderAndOtherChartsPresent() {
+        DeferredProvider provider = new DeferredProvider();
+        provider.chartResults = Arrays.asList(
+            new SearchResult("failed-duration", "Failed", "", "", ""),
+            new SearchResult("known-duration", "Known", "", "2:00", ""));
+        CompletableFuture<String> metadata = provider.deferVideo("failed-duration");
+        HorizonRadioClient.setClientMediaService(new ClientMediaService(provider));
+        HorizonRadioScreen screen = new HorizonRadioScreen();
+        HorizonRadioScreen.setActiveScreen(screen);
+        try {
+            HorizonRadioClient.sendChartsRequest("DE", false);
+            metadata.completeExceptionally(new IllegalStateException("metadata unavailable"));
+
+            assertEquals(Arrays.asList("failed-duration", "known-duration"), chartVideoIds(screen));
+            assertEquals("--:--", chartResults(screen).get(0).duration);
+            assertEquals("2:00", chartResults(screen).get(1).duration);
+        } finally {
+            HorizonRadioScreen.clearActiveScreen(screen);
+        }
+    }
+
+    @Test
+    public void chartDurationPrefetchIsReusedWhenAddingPublishedResult() {
+        DeferredProvider provider = new DeferredProvider();
+        provider.chartResults = Collections.singletonList(
+            new SearchResult("cached-duration", "Cached", "", "", ""));
+        CompletableFuture<String> metadata = provider.deferVideo("cached-duration");
+        HorizonRadioClient.setClientMediaService(new ClientMediaService(provider));
+        HorizonRadioScreen screen = new HorizonRadioScreen();
+        HorizonRadioScreen.setActiveScreen(screen);
+        try {
+            HorizonRadioClient.sendChartsRequest("DE", false);
+            metadata.complete("{\"id\":\"cached-duration\",\"title\":\"Cached\",\"duration\":90}");
+
+            assertEquals("1:30", chartResults(screen).get(0).duration);
+            assertEquals(1, provider.videoLookupCount);
+
+            HorizonRadioClient.sendAddChartsToPlaylist(chartResults(screen));
+
+            assertEquals(Collections.singletonList("cached-duration|90000"), transport.chartSelections);
+            assertEquals(1, provider.videoLookupCount);
+        } finally {
+            HorizonRadioScreen.clearActiveScreen(screen);
+        }
+    }
+
+    @Test
+    public void staleChartCompletionCannotReplaceNewerGeneration() {
+        DeferredProvider provider = new DeferredProvider();
+        CompletableFuture<List<SearchResult>> older = provider.deferCharts();
+        CompletableFuture<List<SearchResult>> newer = provider.deferCharts();
+        HorizonRadioClient.setClientMediaService(new ClientMediaService(provider));
+        HorizonRadioScreen screen = new HorizonRadioScreen();
+        HorizonRadioScreen.setActiveScreen(screen);
+        try {
+            HorizonRadioClient.sendChartsRequest("DE", false);
+            HorizonRadioClient.sendChartsRequest("DE", true);
+
+            newer.complete(Collections.singletonList(
+                new SearchResult("new-chart", "New", "", "2:00", "")));
+            older.complete(Collections.singletonList(
+                new SearchResult("old-chart", "Old", "", "2:00", "")));
+
+            assertEquals(Collections.singletonList("new-chart"), chartVideoIds(screen));
+        } finally {
+            HorizonRadioScreen.clearActiveScreen(screen);
+        }
+    }
+
+    @Test
+    public void chartAddRemainsPendingUntilAuthoritativePlaylistUpdate() {
+        HorizonRadioScreen screen = new HorizonRadioScreen();
+        HorizonRadioScreen.setActiveScreen(screen);
+        try {
+            HorizonRadioScreen.SearchResult result = chartWithDuration("pending-chart", "2:00");
+            assertEquals(Collections.singletonList(result), screen.beginChartAdd(Collections.singletonList(result)));
+
+            HorizonRadioClient.sendAddChartsToPlaylist(Collections.singletonList(result));
+
+            assertTrue(screen.isChartAddPending("pending-chart"));
+            assertTrue(
+                screen.beginChartAdd(Collections.singletonList(result))
+                    .isEmpty());
+            assertEquals(Collections.singletonList("pending-chart|120000"), transport.chartSelections);
+
+            screen.updatePlaylist(
+                Collections.singletonList(
+                    new HorizonRadioScreen.PlaylistEntry("pending-chart", "pending-chart", "2:00", "tester")));
+            assertFalse(screen.isChartAddPending("pending-chart"));
+        } finally {
+            HorizonRadioScreen.clearActiveScreen(screen);
+        }
+    }
+
+    @Test
+    public void bulkChartAddDoesNotResendEntriesWhileTheyAwaitQueueUpdate() {
+        HorizonRadioScreen screen = new HorizonRadioScreen();
+        HorizonRadioScreen.setActiveScreen(screen);
+        try {
+            List<HorizonRadioScreen.SearchResult> results = new ArrayList<HorizonRadioScreen.SearchResult>();
+            for (int index = 1; index <= 50; index++) {
+                results.add(chartWithDuration("bulk-chart-" + index, "2:00"));
+            }
+
+            assertEquals(
+                50,
+                screen.beginChartAdd(results)
+                    .size());
+            HorizonRadioClient.sendAddChartsToPlaylist(results);
+
+            assertEquals(50, transport.chartSelections.size());
+            assertTrue(
+                screen.beginChartAdd(results)
+                    .isEmpty());
+            assertEquals(50, transport.chartSelections.size());
+        } finally {
+            HorizonRadioScreen.clearActiveScreen(screen);
+        }
+    }
+
     private static HorizonRadioScreen.SearchResult chart(String videoId) {
         return new HorizonRadioScreen.SearchResult(videoId, videoId, "", "", "");
+    }
+
+    private static HorizonRadioScreen.SearchResult chartWithDuration(String videoId, String duration) {
+        return new HorizonRadioScreen.SearchResult(videoId, videoId, "", duration, "");
     }
 
     private static List<HorizonRadioScreen.SearchResult> searchResults(HorizonRadioScreen screen) {
@@ -184,6 +334,25 @@ public class HorizonRadioClientDiscoveryTest {
         } catch (ReflectiveOperationException exception) {
             throw new AssertionError("search results were not available", exception);
         }
+    }
+
+    private static List<HorizonRadioScreen.SearchResult> chartResults(HorizonRadioScreen screen) {
+        try {
+            java.lang.reflect.Field field = HorizonRadioScreen.class.getDeclaredField("chartResults");
+            field.setAccessible(true);
+            return new ArrayList<HorizonRadioScreen.SearchResult>(
+                (List<HorizonRadioScreen.SearchResult>) field.get(screen));
+        } catch (ReflectiveOperationException exception) {
+            throw new AssertionError("chart results were not available", exception);
+        }
+    }
+
+    private static List<String> chartVideoIds(HorizonRadioScreen screen) {
+        List<String> videoIds = new ArrayList<String>();
+        for (HorizonRadioScreen.SearchResult result : chartResults(screen)) {
+            videoIds.add(result.videoId);
+        }
+        return videoIds;
     }
 
     private static SearchResult result(String videoId, String title) {
@@ -212,11 +381,20 @@ public class HorizonRadioClientDiscoveryTest {
         private final CompletableFuture<List<SearchResult>> search = new CompletableFuture<List<SearchResult>>();
         private final CompletableFuture<String> importPlaylist = new CompletableFuture<String>();
         private final Map<String, CompletableFuture<String>> videoMetadata = new HashMap<String, CompletableFuture<String>>();
+        private final List<CompletableFuture<List<SearchResult>>> chartRequests
+            = new ArrayList<CompletableFuture<List<SearchResult>>>();
+        private List<SearchResult> chartResults = Collections.emptyList();
         private int videoLookupCount;
 
         private CompletableFuture<String> deferVideo(String videoId) {
             CompletableFuture<String> future = new CompletableFuture<String>();
             videoMetadata.put(videoId, future);
+            return future;
+        }
+
+        private CompletableFuture<List<SearchResult>> deferCharts() {
+            CompletableFuture<List<SearchResult>> future = new CompletableFuture<List<SearchResult>>();
+            chartRequests.add(future);
             return future;
         }
 
@@ -227,7 +405,10 @@ public class HorizonRadioClientDiscoveryTest {
 
         @Override
         public CompletableFuture<List<SearchResult>> fetchCharts(ChartRegion region) {
-            return CompletableFuture.completedFuture(Collections.<SearchResult>emptyList());
+            if (!chartRequests.isEmpty()) {
+                return chartRequests.remove(0);
+            }
+            return CompletableFuture.completedFuture(chartResults);
         }
 
         @Override
