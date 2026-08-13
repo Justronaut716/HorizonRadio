@@ -29,6 +29,7 @@ import com.horizonradio.network.packets.LoopStatePacket;
 import com.horizonradio.network.packets.NowPlayingPacket;
 import com.horizonradio.network.packets.PausePacket;
 import com.horizonradio.network.packets.PlayNowPacket;
+import com.horizonradio.network.packets.PlaylistDeltaPacket;
 import com.horizonradio.network.packets.PlaylistResyncRequestPacket;
 import com.horizonradio.network.packets.PlaylistSyncPacket;
 import com.horizonradio.network.packets.PreviousTrackPacket;
@@ -52,6 +53,7 @@ import com.horizonradio.network.packets.StopRadioPacket;
 import com.horizonradio.network.packets.ToggleLoopPacket;
 import com.horizonradio.network.packets.TogglePlaybackPacket;
 import com.horizonradio.network.packets.ToggleShufflePacket;
+import com.horizonradio.network.packets.TrackSyncPacket;
 
 import cpw.mods.fml.common.network.ByteBufUtils;
 import io.netty.buffer.ByteBuf;
@@ -60,7 +62,7 @@ import io.netty.buffer.Unpooled;
 public class PacketRoundTripTest {
 
     @Test
-    public void roundTripsRadioPacketsAndPreservesWireFields() {
+    public void roundTripsProductionRadioSelectionPackets() {
         RadioSearchRequestPacket search = roundTrip(
             new RadioSearchRequestPacket("ambient caf\u00e9"),
             new RadioSearchRequestPacket());
@@ -71,6 +73,10 @@ public class PacketRoundTripTest {
             new SelectRadioStationPacket());
         assertEquals("station-uuid", select.getStationUuid());
         roundTrip(new StopRadioPacket(), new StopRadioPacket());
+    }
+
+    @Test
+    public void roundTripsCompatibilityOnlyRadioResultAndRelaySerializers() {
 
         List<RadioSearchResultsPacket.Entry> radioEntries = Arrays.asList(
             new RadioSearchResultsPacket.Entry("station-1", "Station One"),
@@ -113,6 +119,58 @@ public class PacketRoundTripTest {
         assertEquals(7L, chunk.getGeneration());
         assertEquals(43L, chunk.getSequence());
         assertArrayEquals(audio, chunk.getData());
+    }
+
+    @Test
+    public void roundTripsIdOnlySnapshotsDeltasAndSourceAwareSync() {
+        List<PlaylistSyncPacket.Entry> entries = Arrays.asList(
+            new PlaylistSyncPacket.Entry(MediaSourceType.YOUTUBE, "video-id", "Alice"),
+            new PlaylistSyncPacket.Entry(MediaSourceType.RADIO, "station-id", "Bob"));
+        PlaylistSyncPacket snapshot = roundTrip(
+            new PlaylistSyncPacket(12L, true, false, entries),
+            new PlaylistSyncPacket());
+        assertEquals(12L, snapshot.getQueueRevision());
+        assertEquals(entries, snapshot.getEntries());
+        assertEquals("station-id", snapshot.getEntries().get(1).getSourceId());
+        ByteBuf snapshotBytes = Unpooled.buffer();
+        new PlaylistSyncPacket(12L, true, false, entries).toBytes(snapshotBytes);
+        assertEquals(43, snapshotBytes.readableBytes());
+
+        PlaylistDeltaPacket.Entry entry = new PlaylistDeltaPacket.Entry(
+            MediaSourceType.YOUTUBE,
+            "next-video",
+            "Carol");
+        PlaylistDeltaPacket add = roundTrip(PlaylistDeltaPacket.add(13L, entry, 2), new PlaylistDeltaPacket());
+        assertEquals(PlaylistDeltaPacket.Operation.ADD, add.getOperation());
+        assertEquals(entry, add.getEntry());
+        assertEquals(2, add.getIndex());
+        assertEquals(
+            3,
+            roundTrip(PlaylistDeltaPacket.remove(14L, 3), new PlaylistDeltaPacket()).getIndex());
+        PlaylistDeltaPacket move = roundTrip(PlaylistDeltaPacket.move(15L, 1, 4), new PlaylistDeltaPacket());
+        assertEquals(1, move.getIndex());
+        assertEquals(4, move.getTargetIndex());
+        assertEquals(
+            PlaylistDeltaPacket.Operation.CLEAR,
+            roundTrip(PlaylistDeltaPacket.clear(16L), new PlaylistDeltaPacket()).getOperation());
+        assertEquals(
+            entries.size(),
+            roundTrip(PlaylistDeltaPacket.replace(17L, Arrays.asList(
+                new PlaylistDeltaPacket.Entry(MediaSourceType.YOUTUBE, "video-id", "Alice"),
+                new PlaylistDeltaPacket.Entry(MediaSourceType.RADIO, "station-id", "Bob"))), new PlaylistDeltaPacket())
+                .getEntries()
+                .size());
+
+        TrackSyncPacket radio = roundTrip(TrackSyncPacket.radio(18L, "station-id"), new TrackSyncPacket());
+        assertEquals(MediaSourceType.RADIO, radio.getSourceType());
+        assertEquals("station-id", radio.getSourceId());
+        assertEquals(18L, radio.getGeneration());
+        assertEquals(0L, radio.getPositionMs());
+        assertEquals(0L, radio.getStartAtMs());
+        assertFalse(radio.isPaused());
+        ByteBuf radioBytes = Unpooled.buffer();
+        TrackSyncPacket.radio(18L, "station-id").toBytes(radioBytes);
+        assertEquals(20, radioBytes.readableBytes());
     }
 
     @Test
@@ -208,26 +266,6 @@ public class PacketRoundTripTest {
             new SearchResultsPacket());
         assertTrue(regionalChartResults.isCharts());
         assertEquals("GLOBAL", regionalChartResults.getChartRegionCode());
-
-        List<PlaylistSyncPacket.Entry> entries = Arrays.asList(
-            new PlaylistSyncPacket.Entry(MediaSourceType.YOUTUBE, "id-1", "Alice"),
-            new PlaylistSyncPacket.Entry(MediaSourceType.RADIO, "station-id", "Bob"));
-        PlaylistSyncPacket playlist = roundTrip(new PlaylistSyncPacket(12L, true, false, entries), new PlaylistSyncPacket());
-        assertEquals(12L, playlist.getQueueRevision());
-        assertTrue(playlist.isShuffling());
-        assertFalse(playlist.isLooping());
-        assertEquals(entries, playlist.getEntries());
-        assertEquals("station-id", playlist.getEntries().get(1).getTitle());
-        assertEquals("", playlist.getEntries().get(1).getDuration());
-
-        ByteBuf snapshotBytes = Unpooled.buffer();
-        new PlaylistSyncPacket(
-            12L,
-            true,
-            false,
-            Arrays.asList(new PlaylistSyncPacket.Entry(MediaSourceType.RADIO, "station-id", "Alice")))
-                .toBytes(snapshotBytes);
-        assertEquals(29, snapshotBytes.readableBytes());
 
         PlaylistResyncRequestPacket resync = roundTrip(
             new PlaylistResyncRequestPacket(12L),
@@ -434,6 +472,13 @@ public class PacketRoundTripTest {
         assertFalse(source.contains("RadioStateHandler.class"));
         assertFalse(source.contains("RadioAudioStartHandler.class"));
         assertFalse(source.contains("RadioAudioChunkHandler.class"));
+        assertFalse(source.contains("AudioChunkPacket.class"));
+        assertFalse(source.contains("NowPlayingPacket.class"));
+        assertFalse(source.contains("RadioSearchResultsPacket.class"));
+        assertFalse(source.contains("RadioStatePacket.class"));
+        assertFalse(source.contains("RadioAudioStartPacket.class"));
+        assertFalse(source.contains("RadioAudioChunkPacket.class"));
+        assertEquals(24, countOccurrences(source, "registerMessage("));
         assertEquals(1, countOccurrences(source, "registerMessages()"));
     }
 
