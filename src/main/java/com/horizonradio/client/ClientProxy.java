@@ -121,6 +121,30 @@ public class ClientProxy extends CommonProxy {
                         public void stopLocalRadioPcm() {
                             AudioPlayer.getInstance().stopRadio();
                         }
+                    },
+                    new ClientRadioPlayback.StatusListener() {
+
+                        @Override
+                        public void onStarted(final long generation, final String stationUuid, final String stationName) {
+                            scheduleOnClientThread(new Runnable() {
+
+                                @Override
+                                public void run() {
+                                    HorizonRadioClient.handleLocalRadioStarted(generation, stationUuid, stationName);
+                                }
+                            });
+                        }
+
+                        @Override
+                        public void onFailure(final long generation, final String stationUuid, final String message) {
+                            scheduleOnClientThread(new Runnable() {
+
+                                @Override
+                                public void run() {
+                                    HorizonRadioClient.handleLocalRadioFailure(generation, stationUuid, message);
+                                }
+                            });
+                        }
                     }));
         } catch (IOException exception) {
             HorizonRadioClient.setClientMediaService(null);
@@ -361,6 +385,7 @@ public class ClientProxy extends CommonProxy {
         public void onClientTick(TickEvent.ClientTickEvent event) {
             if (event.phase == TickEvent.Phase.END) {
                 HorizonRadioKeybinds.onClientTick();
+                HorizonRadioClient.onClientTick();
             }
         }
 

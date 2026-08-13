@@ -1,6 +1,8 @@
 package com.horizonradio.client.audio;
 
 import java.util.concurrent.CompletableFuture;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 import java.util.function.BiConsumer;
 
 import com.horizonradio.core.model.RadioStation;
@@ -9,20 +11,29 @@ import com.horizonradio.server.media.RadioInputSession;
 /** Resolves a selected station locally and streams its normalized PCM to the local audio player. */
 public final class ClientRadioPlayback {
 
+    private static final Logger LOGGER = Logger.getLogger(ClientRadioPlayback.class.getName());
+
     private final StationResolver stationResolver;
     private final SessionFactory sessionFactory;
     private final AudioSink audioSink;
+    private final StatusListener statusListener;
     private long activeGeneration = -1L;
     private String activeStationUuid = "";
     private RadioInputSession activeSession;
 
     public ClientRadioPlayback(StationResolver stationResolver, SessionFactory sessionFactory, AudioSink audioSink) {
-        if (stationResolver == null || sessionFactory == null || audioSink == null) {
+        this(stationResolver, sessionFactory, audioSink, new NoopStatusListener());
+    }
+
+    public ClientRadioPlayback(StationResolver stationResolver, SessionFactory sessionFactory, AudioSink audioSink,
+        StatusListener statusListener) {
+        if (stationResolver == null || sessionFactory == null || audioSink == null || statusListener == null) {
             throw new IllegalArgumentException("client radio playback dependencies are required");
         }
         this.stationResolver = stationResolver;
         this.sessionFactory = sessionFactory;
         this.audioSink = audioSink;
+        this.statusListener = statusListener;
     }
 
     public synchronized void start(final long generation, final String stationUuid) {
@@ -36,11 +47,11 @@ public final class ClientRadioPlayback {
         try {
             lookup = stationResolver.lookup(stationUuid);
         } catch (RuntimeException exception) {
-            stopActiveLocked();
+            failActiveLocked(generation, stationUuid, "Station lookup failed", exception);
             return;
         }
         if (lookup == null) {
-            stopActiveLocked();
+            failActiveLocked(generation, stationUuid, "Station is unavailable", null);
             return;
         }
         lookup.whenComplete(new BiConsumer<RadioStation, Throwable>() {
@@ -67,7 +78,7 @@ public final class ClientRadioPlayback {
                 return;
             }
             if (failure != null || !isUsableStation(station, stationUuid)) {
-                stopActiveLocked();
+                failActiveLocked(generation, stationUuid, "Station is unavailable", failure);
                 return;
             }
             final RadioInputSession session;
@@ -81,23 +92,27 @@ public final class ClientRadioPlayback {
 
                     @Override
                     public void onFailure(String message) {
-                        stopFailedSession(generation, stationUuid);
+                        stopFailedSession(generation, stationUuid, message);
                     }
                 });
             } catch (RuntimeException exception) {
-                stopActiveLocked();
+                failActiveLocked(generation, stationUuid, "Radio stream could not be opened", exception);
                 return;
             }
             if (session == null || !audioSink.beginLocalRadioPcm(generation)) {
                 closeQuietly(session);
-                stopActiveLocked();
+                failActiveLocked(generation, stationUuid, "Radio audio is unavailable", null);
                 return;
             }
             activeSession = session;
             try {
                 session.start();
             } catch (RuntimeException exception) {
-                stopActiveLocked();
+                failActiveLocked(generation, stationUuid, "Radio stream could not be started", exception);
+                return;
+            }
+            if (isActive(generation, stationUuid)) {
+                statusListener.onStarted(generation, stationUuid, station.getName());
             }
         }
     }
@@ -108,9 +123,13 @@ public final class ClientRadioPlayback {
         }
     }
 
-    private synchronized void stopFailedSession(long generation, String stationUuid) {
+    private synchronized void stopFailedSession(long generation, String stationUuid, String message) {
         if (isActive(generation, stationUuid)) {
-            stopActiveLocked();
+            failActiveLocked(
+                generation,
+                stationUuid,
+                message == null || message.trim().isEmpty() ? "Radio stream failed" : message,
+                null);
         }
     }
 
@@ -119,7 +138,8 @@ public final class ClientRadioPlayback {
     }
 
     private static boolean isUsableStation(RadioStation station, String stationUuid) {
-        return station != null && stationUuid.equals(station.getStationUuid()) && station.getStreamUrl() != null
+        return station != null && stationUuid.equals(station.getStationUuid()) && station.isLastCheckOk()
+            && station.getStreamUrl() != null
             && !station.getStreamUrl().trim().isEmpty();
     }
 
@@ -130,6 +150,19 @@ public final class ClientRadioPlayback {
         activeStationUuid = "";
         closeQuietly(previous);
         audioSink.stopLocalRadioPcm();
+    }
+
+    private void failActiveLocked(long generation, String stationUuid, String message, Throwable failure) {
+        if (!isActive(generation, stationUuid)) {
+            return;
+        }
+        if (failure == null) {
+            LOGGER.warning("HorizonRadio local radio failure for " + stationUuid + ": " + message);
+        } else {
+            LOGGER.log(Level.WARNING, "HorizonRadio local radio failure for " + stationUuid + ": " + message, failure);
+        }
+        stopActiveLocked();
+        statusListener.onFailure(generation, stationUuid, message);
     }
 
     private static void closeQuietly(RadioInputSession session) {
@@ -155,5 +188,21 @@ public final class ClientRadioPlayback {
         void bufferLocalRadioPcm(long generation, byte[] pcm);
 
         void stopLocalRadioPcm();
+    }
+
+    public interface StatusListener {
+
+        void onStarted(long generation, String stationUuid, String stationName);
+
+        void onFailure(long generation, String stationUuid, String message);
+    }
+
+    private static final class NoopStatusListener implements StatusListener {
+
+        @Override
+        public void onStarted(long generation, String stationUuid, String stationName) {}
+
+        @Override
+        public void onFailure(long generation, String stationUuid, String message) {}
     }
 }

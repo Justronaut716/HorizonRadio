@@ -51,6 +51,21 @@ public class ClientRadioPlaybackTest {
     }
 
     @Test
+    public void unavailableStationIsRejectedBeforeOpeningALocalStream() {
+        FakeStationResolver resolver = new FakeStationResolver();
+        FakeRadioSessionFactory sessions = new FakeRadioSessionFactory();
+        RecordingStatusListener status = new RecordingStatusListener();
+        ClientRadioPlayback playback = new ClientRadioPlayback(resolver, sessions, new RecordingAudioSink(), status);
+
+        playback.start(21L, "station-id");
+        resolver.complete("station-id", new RadioStation("station-id", "Station", "https://radio.example/live", false, false));
+
+        assertTrue(sessions.openedUrls.isEmpty());
+        assertEquals("Station is unavailable", status.failureMessage);
+        assertEquals(-1L, playback.getActiveGeneration());
+    }
+
+    @Test
     public void activeSessionForwardsPcmOnlyWhileItsGenerationIsCurrent() {
         FakeStationResolver resolver = new FakeStationResolver();
         FakeRadioSessionFactory sessions = new FakeRadioSessionFactory();
@@ -68,6 +83,32 @@ public class ClientRadioPlaybackTest {
         assertEquals(1, audio.receivedPcm.size());
         assertEquals(21L, audio.receivedGenerations.get(0).longValue());
         assertArrayEquals(new byte[] { 1, 2, 3, 4 }, audio.receivedPcm.get(0));
+    }
+
+    @Test
+    public void activeSessionFailureIsReportedOnlyForTheCurrentGeneration() {
+        FakeStationResolver resolver = new FakeStationResolver();
+        FakeRadioSessionFactory sessions = new FakeRadioSessionFactory();
+        RecordingStatusListener status = new RecordingStatusListener();
+        ClientRadioPlayback playback = new ClientRadioPlayback(resolver, sessions, new RecordingAudioSink(), status);
+
+        playback.start(21L, "station-id");
+        resolver.complete("station-id", station("station-id", "https://radio.example/live"));
+        FakeSession staleSession = sessions.lastSession;
+        playback.start(22L, "station-new");
+        resolver.complete("station-new", station("station-new", "https://radio.example/new"));
+        staleSession.emitFailure("Stale failure");
+
+        assertEquals(22L, status.startedGeneration);
+        assertEquals("Station", status.startedName);
+        assertEquals(-1L, status.failedGeneration);
+
+        sessions.lastSession.emitFailure("Connection lost");
+
+        assertEquals(22L, status.failedGeneration);
+        assertEquals("station-new", status.failedStationUuid);
+        assertEquals("Connection lost", status.failureMessage);
+        assertEquals(-1L, playback.getActiveGeneration());
     }
 
     private static RadioStation station(String uuid, String streamUrl) {
@@ -123,6 +164,10 @@ public class ClientRadioPlaybackTest {
         private void emitPcm(byte[] pcm) {
             listener.onPcm(pcm);
         }
+
+        private void emitFailure(String message) {
+            listener.onFailure(message);
+        }
     }
 
     private static final class RecordingAudioSink implements ClientRadioPlayback.AudioSink {
@@ -145,5 +190,27 @@ public class ClientRadioPlaybackTest {
 
         @Override
         public void stopLocalRadioPcm() {}
+    }
+
+    private static final class RecordingStatusListener implements ClientRadioPlayback.StatusListener {
+
+        private long startedGeneration = -1L;
+        private String startedName;
+        private long failedGeneration = -1L;
+        private String failedStationUuid;
+        private String failureMessage;
+
+        @Override
+        public void onStarted(long generation, String stationUuid, String stationName) {
+            startedGeneration = generation;
+            startedName = stationName;
+        }
+
+        @Override
+        public void onFailure(long generation, String stationUuid, String message) {
+            failedGeneration = generation;
+            failedStationUuid = stationUuid;
+            failureMessage = message;
+        }
     }
 }

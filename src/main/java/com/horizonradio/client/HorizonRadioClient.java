@@ -86,6 +86,10 @@ public final class HorizonRadioClient {
     private static String activeTrackSourceId;
     private static String activeTrackVideoId;
     private static long activeTrackGeneration = -1L;
+    private static long activeTrackPositionMs;
+    private static long activeTrackStartAtMs;
+    private static long activeTrackDurationMs;
+    private static long serverClockOffsetMs;
     private static ClientRadioPlayback clientRadioPlayback;
 
     private HorizonRadioClient() {}
@@ -329,6 +333,9 @@ public final class HorizonRadioClient {
         activeTrackSourceId = null;
         activeTrackVideoId = null;
         activeTrackGeneration = -1L;
+        activeTrackPositionMs = 0L;
+        activeTrackStartAtMs = 0L;
+        activeTrackDurationMs = 0L;
     }
 
     static synchronized void setClientMediaService(ClientMediaService service) {
@@ -541,10 +548,16 @@ public final class HorizonRadioClient {
     }
 
     public static synchronized void sendSeek(float progress) {
+        if (activeTrackSourceType == MediaSourceType.RADIO) {
+            return;
+        }
         transport.sendSeek(progress);
     }
 
     public static synchronized void sendTogglePlayback() {
+        if (activeTrackSourceType == MediaSourceType.RADIO) {
+            return;
+        }
         transport.sendTogglePlayback();
     }
 
@@ -844,7 +857,7 @@ public final class HorizonRadioClient {
         if (packet.getSourceType() == MediaSourceType.RADIO) {
             clearCachedMusicState();
             AudioPlayer.getInstance().stop();
-            updateRadioPresentation(ClientRadioPresentation.live(packet.getGeneration(), packet.getSourceId()));
+            setLocalRadioPresentation(ClientRadioPresentation.live(packet.getGeneration(), packet.getSourceId()));
             if (clientRadioPlayback != null) {
                 clientRadioPlayback.start(packet.getGeneration(), packet.getSourceId());
                 debugChat("Radio " + packet.getSourceId() + " lokal angefordert.");
@@ -864,6 +877,9 @@ public final class HorizonRadioClient {
 
         AudioPlayer.getInstance()
             .beginLocalTrack(packet.getVideoId(), packet.getPositionMs(), packet.getStartAtMs(), packet.isPaused());
+        activeTrackPositionMs = packet.getPositionMs();
+        activeTrackStartAtMs = packet.isPaused() ? 0L : packet.getStartAtMs();
+        activeTrackDurationMs = 0L;
         cachedPaused = packet.isPaused();
         HorizonRadioScreen screen = getOpenScreen();
         if (screen != null) {
@@ -876,6 +892,8 @@ public final class HorizonRadioClient {
                 + " lokal angefordert; "
                 + (packet.isPaused() ? "pausiert bei " + packet.getPositionMs() + " ms."
                     : "Startziel in " + Math.max(0L, delayMs) + " ms."));
+
+        requestActiveVideoMetadata(packet.getGeneration(), packet.getVideoId());
 
         if (clientAudioDownloadService == null) {
             debugChat("Kein lokaler Audio-Downloader verfügbar.");
@@ -951,7 +969,12 @@ public final class HorizonRadioClient {
     }
 
     public static synchronized void handlePause(long positionMs) {
+        if (activeTrackSourceType == MediaSourceType.RADIO) {
+            return;
+        }
         cachedPaused = true;
+        activeTrackPositionMs = Math.max(0L, positionMs);
+        activeTrackStartAtMs = 0L;
         AudioPlayer.getInstance()
             .pause(positionMs);
         HorizonRadioScreen screen = getOpenScreen();
@@ -965,7 +988,12 @@ public final class HorizonRadioClient {
     }
 
     public static synchronized void handleResume(long positionMs, long startAtMs) {
+        if (activeTrackSourceType == MediaSourceType.RADIO) {
+            return;
+        }
         cachedPaused = false;
+        activeTrackPositionMs = Math.max(0L, positionMs);
+        activeTrackStartAtMs = Math.max(0L, startAtMs);
         AudioPlayer.getInstance()
             .resume(positionMs, startAtMs);
         HorizonRadioScreen screen = getOpenScreen();
@@ -983,6 +1011,7 @@ public final class HorizonRadioClient {
             packet.getServerReceivedAtMs(),
             packet.getServerSentAtMs(),
             clientReceivedAtMs);
+        HorizonRadioClient.serverClockOffsetMs = serverClockOffsetMs;
         AudioPlayer.getInstance()
             .updateServerClockOffset(serverClockOffsetMs);
     }
@@ -1012,6 +1041,7 @@ public final class HorizonRadioClient {
         searchTabDiscoveryGeneration++;
         chartGeneration++;
         radioSearchGeneration++;
+        serverClockOffsetMs = 0L;
         AudioPlayer.getInstance()
             .stop();
         AudioPlayer.getInstance()
@@ -1029,6 +1059,9 @@ public final class HorizonRadioClient {
         activeTrackSourceId = null;
         activeTrackVideoId = null;
         activeTrackGeneration = -1L;
+        activeTrackPositionMs = 0L;
+        activeTrackStartAtMs = 0L;
+        activeTrackDurationMs = 0L;
     }
 
     private static void stopLocalPlayback(long generation) {
@@ -1051,6 +1084,9 @@ public final class HorizonRadioClient {
         activeTrackSourceId = null;
         activeTrackVideoId = null;
         activeTrackGeneration = generation;
+        activeTrackPositionMs = 0L;
+        activeTrackStartAtMs = 0L;
+        activeTrackDurationMs = 0L;
     }
 
     private static void stopLocalRadioWhenAbsentFromQueue() {
@@ -1066,6 +1102,78 @@ public final class HorizonRadioClient {
             clientRadioPlayback.stop();
         }
         updateRadioPresentation(null);
+    }
+
+    /** Applies local stream status only while the matching radio source is active. */
+    public static synchronized void handleLocalRadioStarted(long generation, String stationUuid, String stationName) {
+        if (!isActiveRadio(generation, stationUuid)) {
+            return;
+        }
+        setLocalRadioPresentation(ClientRadioPresentation.active(generation, stationUuid, stationName, "LIVE"));
+    }
+
+    /** Keeps local radio failures on the client and ignores stale stream callbacks. */
+    public static synchronized void handleLocalRadioFailure(long generation, String stationUuid, String message) {
+        if (!isActiveRadio(generation, stationUuid)) {
+            return;
+        }
+        cachedRadioActive = false;
+        cachedRadioPresentation = ClientRadioPresentation.stopped(generation, message);
+        clearCachedMusicState();
+        AudioPlayer.getInstance().stopRadio();
+        HorizonRadioScreen screen = getOpenScreen();
+        if (screen != null) {
+            screen.updateRadioPresentation(cachedRadioPresentation);
+        }
+    }
+
+    /** Refreshes finite client presentation without generating a progress packet. */
+    public static synchronized void onClientTick() {
+        refreshLocalFinitePresentation(System.currentTimeMillis());
+    }
+
+    static synchronized void refreshLocalFinitePresentation(long clientNowMs) {
+        if (activeTrackSourceType != MediaSourceType.YOUTUBE || activeTrackVideoId == null) {
+            return;
+        }
+        SearchResult metadata = clientMetadataCache == null ? null : clientMetadataCache.getVideo(activeTrackVideoId);
+        if (metadata != null) {
+            if (metadata.getTitle() != null && metadata.getTitle().trim().length() > 0) {
+                cachedNowPlaying = metadata.getTitle();
+            }
+            activeTrackDurationMs = DurationParser.parseMillisStrict(metadata.getDuration());
+        }
+        if (cachedNowPlaying == null || cachedNowPlaying.length() == 0) {
+            cachedNowPlaying = activeTrackVideoId;
+        }
+        long positionMs = cachedPaused ? activeTrackPositionMs
+            : PlaybackClock.finiteTrackPositionMs(
+                activeTrackPositionMs,
+                activeTrackStartAtMs,
+                serverClockOffsetMs,
+                clientNowMs);
+        cachedProgress = activeTrackDurationMs <= 0L ? 0.0f
+            : Math.max(0.0f, Math.min(1.0f, (float) positionMs / (float) activeTrackDurationMs));
+        HorizonRadioScreen screen = getOpenScreen();
+        if (screen != null) {
+            screen.updateNowPlaying(cachedNowPlaying, cachedProgress);
+            screen.updatePlaybackPaused(cachedPaused);
+        }
+    }
+
+    private static boolean isActiveRadio(long generation, String stationUuid) {
+        return activeTrackSourceType == MediaSourceType.RADIO && activeTrackGeneration == generation
+            && stationUuid != null && stationUuid.equals(activeTrackSourceId);
+    }
+
+    private static void setLocalRadioPresentation(ClientRadioPresentation presentation) {
+        cachedRadioPresentation = presentation;
+        cachedRadioActive = presentation != null && presentation.isActive();
+        clearCachedMusicState();
+        HorizonRadioScreen screen = getOpenScreen();
+        if (screen != null) {
+            screen.updateRadioPresentation(presentation);
+        }
     }
 
     private static void debugChat(String message) {
@@ -1188,6 +1296,31 @@ public final class HorizonRadioClient {
                         public void run() {
                             synchronized (HorizonRadioClient.class) {
                                 refreshCachedPlaylistFromQueue();
+                            }
+                        }
+                    });
+                }
+            });
+    }
+
+    private static void requestActiveVideoMetadata(final long generation, final String videoId) {
+        if (clientMetadataCache == null) {
+            return;
+        }
+        clientMetadataCache.video(videoId)
+            .whenComplete(new BiConsumer<SearchResult, Throwable>() {
+
+                @Override
+                public void accept(SearchResult ignored, Throwable failure) {
+                    ClientProxy.scheduleOnClientThread(new Runnable() {
+
+                        @Override
+                        public void run() {
+                            synchronized (HorizonRadioClient.class) {
+                                if (generation == activeTrackGeneration && activeTrackSourceType == MediaSourceType.YOUTUBE
+                                    && videoId.equals(activeTrackVideoId)) {
+                                    refreshLocalFinitePresentation(System.currentTimeMillis());
+                                }
                             }
                         }
                     });
