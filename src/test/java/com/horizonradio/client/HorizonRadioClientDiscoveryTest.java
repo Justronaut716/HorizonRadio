@@ -222,8 +222,7 @@ public class HorizonRadioClientDiscoveryTest {
     @Test
     public void chartDurationPrefetchIsReusedWhenAddingPublishedResult() {
         DeferredProvider provider = new DeferredProvider();
-        provider.chartResults = Collections.singletonList(
-            new SearchResult("CaDurPref04", "Cached", "", "", ""));
+        provider.chartResults = Collections.singletonList(new SearchResult("CaDurPref04", "Cached", "", "", ""));
         CompletableFuture<String> metadata = provider.deferVideo("CaDurPref04");
         HorizonRadioClient.setClientMediaService(new ClientMediaService(provider));
         HorizonRadioScreen screen = new HorizonRadioScreen();
@@ -257,10 +256,8 @@ public class HorizonRadioClientDiscoveryTest {
             HorizonRadioClient.sendChartsRequest("DE", false);
             HorizonRadioClient.sendChartsRequest("DE", true);
 
-            older.complete(Collections.singletonList(
-                new SearchResult("OlChartP005", "Old", "", "", "")));
-            newer.complete(Collections.singletonList(
-                new SearchResult("NeChartP006", "New", "", "2:00", "")));
+            older.complete(Collections.singletonList(new SearchResult("OlChartP005", "Old", "", "", "")));
+            newer.complete(Collections.singletonList(new SearchResult("NeChartP006", "New", "", "2:00", "")));
 
             assertEquals(Collections.singletonList("NeChartP006"), chartVideoIds(screen));
 
@@ -387,8 +384,7 @@ public class HorizonRadioClientDiscoveryTest {
         private final CompletableFuture<List<SearchResult>> search = new CompletableFuture<List<SearchResult>>();
         private final CompletableFuture<String> importPlaylist = new CompletableFuture<String>();
         private final Map<String, CompletableFuture<String>> videoMetadata = new HashMap<String, CompletableFuture<String>>();
-        private final List<CompletableFuture<List<SearchResult>>> chartRequests
-            = new ArrayList<CompletableFuture<List<SearchResult>>>();
+        private final List<CompletableFuture<List<SearchResult>>> chartRequests = new ArrayList<CompletableFuture<List<SearchResult>>>();
         private List<SearchResult> chartResults = Collections.emptyList();
         private int videoLookupCount;
 

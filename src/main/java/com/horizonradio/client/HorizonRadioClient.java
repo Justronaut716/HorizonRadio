@@ -425,29 +425,28 @@ public final class HorizonRadioClient {
                         });
                         return;
                     }
-                    resolveChartDurations(results)
-                        .whenComplete(new BiConsumer<List<SearchResult>, Throwable>() {
+                    resolveChartDurations(results).whenComplete(new BiConsumer<List<SearchResult>, Throwable>() {
 
-                            @Override
-                            public void accept(final List<SearchResult> resolved, Throwable resolutionFailure) {
-                                ClientProxy.scheduleOnClientThread(new Runnable() {
+                        @Override
+                        public void accept(final List<SearchResult> resolved, Throwable resolutionFailure) {
+                            ClientProxy.scheduleOnClientThread(new Runnable() {
 
-                                    @Override
-                                    public void run() {
-                                        synchronized (HorizonRadioClient.class) {
-                                            if (generation != chartGeneration) {
-                                                return;
-                                            }
-                                            if (resolutionFailure != null) {
-                                                showChartError();
-                                                return;
-                                            }
-                                            updateChartResults(toScreenResults(resolved), canonicalRegionCode);
+                                @Override
+                                public void run() {
+                                    synchronized (HorizonRadioClient.class) {
+                                        if (generation != chartGeneration) {
+                                            return;
                                         }
+                                        if (resolutionFailure != null) {
+                                            showChartError();
+                                            return;
+                                        }
+                                        updateChartResults(toScreenResults(resolved), canonicalRegionCode);
                                     }
-                                });
-                            }
-                        });
+                                }
+                            });
+                        }
+                    });
                 }
             });
     }
