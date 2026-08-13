@@ -1,6 +1,7 @@
 package com.horizonradio.client.audio;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
@@ -49,6 +50,26 @@ public class ClientRadioPlaybackTest {
         assertFalse(sessions.openedUrls.contains("https://radio.example/old"));
     }
 
+    @Test
+    public void activeSessionForwardsPcmOnlyWhileItsGenerationIsCurrent() {
+        FakeStationResolver resolver = new FakeStationResolver();
+        FakeRadioSessionFactory sessions = new FakeRadioSessionFactory();
+        RecordingAudioSink audio = new RecordingAudioSink();
+        ClientRadioPlayback playback = new ClientRadioPlayback(resolver, sessions, audio);
+
+        playback.start(21L, "station-old");
+        resolver.complete("station-old", station("station-old", "https://radio.example/old"));
+        FakeSession oldSession = sessions.lastSession;
+        oldSession.emitPcm(new byte[] { 1, 2, 3, 4 });
+
+        playback.start(22L, "station-new");
+        oldSession.emitPcm(new byte[] { 5, 6, 7, 8 });
+
+        assertEquals(1, audio.receivedPcm.size());
+        assertEquals(21L, audio.receivedGenerations.get(0).longValue());
+        assertArrayEquals(new byte[] { 1, 2, 3, 4 }, audio.receivedPcm.get(0));
+    }
+
     private static RadioStation station(String uuid, String streamUrl) {
         return new RadioStation(uuid, "Station", streamUrl, true, false);
     }
@@ -87,31 +108,42 @@ public class ClientRadioPlaybackTest {
     private static final class FakeSession extends RadioInputSession {
 
         private boolean started;
+        private final RadioPcmListener listener;
 
         private FakeSession(RadioPcmListener listener) {
             super("https://radio.example/fake", listener);
+            this.listener = listener;
         }
 
         @Override
         public void start() {
             started = true;
         }
+
+        private void emitPcm(byte[] pcm) {
+            listener.onPcm(pcm);
+        }
     }
 
     private static final class RecordingAudioSink implements ClientRadioPlayback.AudioSink {
 
         private long startedGeneration = -1L;
+        private final List<Long> receivedGenerations = new ArrayList<Long>();
+        private final List<byte[]> receivedPcm = new ArrayList<byte[]>();
 
         @Override
-        public boolean startLocalRadio(long generation) {
+        public boolean beginLocalRadioPcm(long generation) {
             startedGeneration = generation;
             return true;
         }
 
         @Override
-        public void receiveLocalRadioPcm(long generation, byte[] pcm) {}
+        public void bufferLocalRadioPcm(long generation, byte[] pcm) {
+            receivedGenerations.add(generation);
+            receivedPcm.add(pcm);
+        }
 
         @Override
-        public void stopLocalRadio() {}
+        public void stopLocalRadioPcm() {}
     }
 }

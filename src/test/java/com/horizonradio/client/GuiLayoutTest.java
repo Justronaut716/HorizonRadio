@@ -28,7 +28,6 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
-import com.horizonradio.network.packets.RadioStatePacket;
 
 public class GuiLayoutTest {
 
@@ -606,7 +605,7 @@ public class GuiLayoutTest {
 
     @Test
     public void directChartClickPlaysNowAndSwitchesToPlaylist() {
-        HorizonRadioClient.updateRadioState(new RadioStatePacket(true, 1L, "radio-uuid", "Station", "LIVE"));
+        HorizonRadioClient.updateRadioPresentation(ClientRadioPresentation.active(1L, "radio-uuid", "Station", "LIVE"));
         TestScreen screen = resultScreen();
 
         screen.click(50, 77);
@@ -620,7 +619,7 @@ public class GuiLayoutTest {
 
     @Test
     public void directSearchClickPlaysNowAndSwitchesToPlaylist() {
-        HorizonRadioClient.updateRadioState(new RadioStatePacket(true, 1L, "radio-uuid", "Station", "LIVE"));
+        HorizonRadioClient.updateRadioPresentation(ClientRadioPresentation.active(1L, "radio-uuid", "Station", "LIVE"));
         TestScreen screen = new TestScreen();
         screen.setScreenSize(300, 285);
         screen.selectSearchTab();
@@ -635,7 +634,7 @@ public class GuiLayoutTest {
 
     @Test
     public void queueRowClickSendsPlayNowOnlyOnRelease() {
-        HorizonRadioClient.updateRadioState(new RadioStatePacket(true, 1L, "radio-uuid", "Station", "LIVE"));
+        HorizonRadioClient.updateRadioPresentation(ClientRadioPresentation.active(1L, "radio-uuid", "Station", "LIVE"));
         TestScreen screen = new TestScreen();
         screen.setScreenSize(300, 285);
         screen.selectPlaylistTab();
@@ -735,7 +734,7 @@ public class GuiLayoutTest {
 
     @Test
     public void radioActiveStationUsesRadioStateForRowAndNowPlaying() {
-        HorizonRadioClient.updateRadioState(new RadioStatePacket(true, 1L, "radio-uuid", "Station", "LIVE"));
+        HorizonRadioClient.updateRadioPresentation(ClientRadioPresentation.active(1L, "radio-uuid", "Station", "LIVE"));
         TestScreen screen = new TestScreen();
         screen.setScreenSize(300, 285);
         screen.initialize();
@@ -767,9 +766,10 @@ public class GuiLayoutTest {
     @Test
     public void inactiveRadioFailureIsShownWithoutResurrectingStoppedMusic() {
         HorizonRadioClient.updateNowPlaying("Old song", 0.5f);
-        HorizonRadioClient.updateRadioState(new RadioStatePacket(true, 1L, "radio-uuid", "Station", "Playing Station"));
         HorizonRadioClient
-            .updateRadioState(new RadioStatePacket(false, 1L, "", "", "Radio stream stopped producing PCM data"));
+            .updateRadioPresentation(ClientRadioPresentation.active(1L, "radio-uuid", "Station", "Playing Station"));
+        HorizonRadioClient
+            .updateRadioPresentation(ClientRadioPresentation.stopped(1L, "Radio stream stopped producing PCM data"));
         TestScreen screen = new TestScreen();
         screen.setScreenSize(300, 285);
 
@@ -816,7 +816,7 @@ public class GuiLayoutTest {
 
     @Test
     public void radioUsesMusicControlCenterAndMiddleButtonStopsRadio() {
-        HorizonRadioClient.updateRadioState(new RadioStatePacket(true, 1L, "radio-uuid", "Station", "LIVE"));
+        HorizonRadioClient.updateRadioPresentation(ClientRadioPresentation.active(1L, "radio-uuid", "Station", "LIVE"));
         TestScreen screen = new TestScreen();
         screen.setScreenSize(300, 285);
         screen.initialize();
@@ -842,12 +842,13 @@ public class GuiLayoutTest {
 
     @Test
     public void radioPlayButtonResumesTheLastStationAfterStopping() {
-        HorizonRadioClient.updateRadioState(new RadioStatePacket(false, 1L, "radio-uuid", "Station", ""));
+        HorizonRadioClient
+            .updateRadioPresentation(ClientRadioPresentation.inactive(1L, "radio-uuid", "Station", "", false));
         TestScreen screen = new TestScreen();
         screen.setScreenSize(300, 285);
         screen.initialize();
         screen.selectRadioTab();
-        screen.updateRadioState(new RadioStatePacket(false, 1L, "radio-uuid", "Station", ""));
+        screen.updateRadioPresentation(ClientRadioPresentation.inactive(1L, "radio-uuid", "Station", "", false));
 
         assertFalse(screen.controlButton(4).enabled);
         assertFalse(screen.controlButton(5).enabled);
@@ -866,7 +867,8 @@ public class GuiLayoutTest {
     @Test
     public void pausedRadioDoesNotReplaceCurrentlyPlayingMusic() {
         HorizonRadioClient.updateNowPlaying("Song", 0.5f);
-        HorizonRadioClient.updateRadioState(new RadioStatePacket(false, 1L, "radio-uuid", "Station", ""));
+        HorizonRadioClient
+            .updateRadioPresentation(ClientRadioPresentation.inactive(1L, "radio-uuid", "Station", "", false));
         TestScreen screen = new TestScreen();
         screen.setScreenSize(300, 285);
 
@@ -877,7 +879,8 @@ public class GuiLayoutTest {
 
     @Test
     public void musicModeDoesNotDisplayTheRememberedRadioStation() {
-        HorizonRadioClient.updateRadioState(new RadioStatePacket(false, 1L, "radio-uuid", "Station", "", true));
+        HorizonRadioClient
+            .updateRadioPresentation(ClientRadioPresentation.inactive(1L, "radio-uuid", "Station", "", true));
         TestScreen screen = new TestScreen();
         screen.setScreenSize(300, 285);
 

@@ -2,13 +2,18 @@ package com.horizonradio.client;
 
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
+
+import java.util.Arrays;
 
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
 import com.horizonradio.core.model.MediaSourceType;
+import com.horizonradio.network.packets.PlaylistDeltaPacket;
+import com.horizonradio.network.packets.PlaylistSyncPacket;
 import com.horizonradio.network.packets.TrackSyncPacket;
 
 public class HorizonRadioClientTrackSyncTest {
@@ -55,8 +60,24 @@ public class HorizonRadioClientTrackSyncTest {
         HorizonRadioClient.handleTrackSync(TrackSyncPacket.radio(5L, "station-id"));
 
         assertTrue(HorizonRadioClient.isRadioActive());
-        assertEquals(5L, HorizonRadioClient.getCachedRadioState().getGeneration());
-        assertEquals("station-id", HorizonRadioClient.getCachedRadioState().getStationUuid());
+        assertEquals(5L, HorizonRadioClient.getCachedRadioPresentation().getGeneration());
+        assertEquals("station-id", HorizonRadioClient.getCachedRadioPresentation().getStationUuid());
         assertFalse(HorizonRadioClient.isPaused());
+    }
+
+    @Test
+    public void removingActiveRadioFromAuthoritativeQueueStopsLocalRadio() {
+        HorizonRadioClient.handlePlaylistSnapshot(
+            new PlaylistSyncPacket(
+                0L,
+                false,
+                false,
+                Arrays.asList(new PlaylistSyncPacket.Entry(MediaSourceType.RADIO, "station-id", "Alice"))));
+        HorizonRadioClient.handleTrackSync(TrackSyncPacket.radio(5L, "station-id"));
+
+        HorizonRadioClient.handlePlaylistDelta(PlaylistDeltaPacket.remove(1L, 0));
+
+        assertFalse(HorizonRadioClient.isRadioActive());
+        assertNull(HorizonRadioClient.getCachedRadioPresentation());
     }
 }

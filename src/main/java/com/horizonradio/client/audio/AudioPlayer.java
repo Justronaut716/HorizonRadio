@@ -322,30 +322,45 @@ public final class AudioPlayer {
 
     /** Starts a bounded live PCM generation and invalidates finite playback. */
     public boolean startRadio(RadioAudioStartPacket packet) {
-        if (packet == null || shuttingDown
-            || !radioBuffer.begin(
-                packet.getGeneration(),
-                packet.getFirstSequence(),
-                packet.getSampleRate(),
-                packet.getChannels(),
-                packet.getSampleSizeInBits(),
-                packet.isBigEndian())) {
+        if (packet == null) {
             return false;
         }
 
-        localRadioGeneration = -1L;
+        return beginRadioPcm(
+            packet.getGeneration(),
+            packet.getFirstSequence(),
+            packet.getSampleRate(),
+            packet.getChannels(),
+            packet.getSampleSizeInBits(),
+            packet.isBigEndian(),
+            false);
+    }
+
+    /** Starts a direct client-local live PCM stream using the normalized radio format. */
+    public boolean beginLocalRadioPcm(long generation) {
+        return beginRadioPcm(generation, 0L, 44100, 2, 16, false, true);
+    }
+
+    private boolean beginRadioPcm(long radioGeneration, long firstSequence, int sampleRate, int channels,
+        int sampleSizeInBits, boolean bigEndian, boolean local) {
+        if (shuttingDown
+            || !radioBuffer.begin(radioGeneration, firstSequence, sampleRate, channels, sampleSizeInBits, bigEndian)) {
+            return false;
+        }
+
+        localRadioGeneration = local ? radioGeneration : -1L;
         localRadioSequence = 0L;
         final long requestEpoch = radioEpoch.incrementAndGet();
         clearRadioHandoff();
         abortCurrentRadioLine();
         currentRadioFormat = new AudioFormat(
             AudioFormat.Encoding.PCM_SIGNED,
-            packet.getSampleRate(),
-            packet.getSampleSizeInBits(),
-            packet.getChannels(),
-            packet.getChannels() * (packet.getSampleSizeInBits() / 8),
-            packet.getSampleRate(),
-            packet.isBigEndian());
+            sampleRate,
+            sampleSizeInBits,
+            channels,
+            channels * (sampleSizeInBits / 8),
+            sampleRate,
+            bigEndian);
         synchronized (stateLock) {
             generation.incrementAndGet();
             cancelPendingResumeStart();
@@ -371,29 +386,24 @@ public final class AudioPlayer {
         return true;
     }
 
-    /** Starts a direct client-side radio stream using the normalized live PCM format. */
-    public boolean startLocalRadio(long generation) {
-        boolean started = startRadio(new RadioAudioStartPacket(generation, 0L, 44100, 2, 16, false));
-        if (started) {
-            localRadioGeneration = generation;
-            localRadioSequence = 0L;
-        }
-        return started;
-    }
-
     /** Accepts normalized PCM from a client-local radio input session. */
-    public void receiveLocalRadioPcm(long generation, byte[] pcm) {
+    public void bufferLocalRadioPcm(long generation, byte[] pcm) {
         if (generation != localRadioGeneration || pcm == null || pcm.length == 0) {
             return;
         }
-        receiveRadioChunk(new RadioAudioChunkPacket(generation, localRadioSequence++, pcm));
+        acceptRadioPcm(generation, localRadioSequence++, pcm);
     }
 
     /** Buffers ordered live PCM and schedules line writes after startup readiness. */
     public void receiveRadioChunk(RadioAudioChunkPacket packet) {
-        if (packet == null || shuttingDown
-            || !radioBuffer.accept(packet.getGeneration(), packet.getSequence(), packet.getData())
-            || !radioBuffer.isReady()) {
+        if (packet == null) {
+            return;
+        }
+        acceptRadioPcm(packet.getGeneration(), packet.getSequence(), packet.getData());
+    }
+
+    private void acceptRadioPcm(long radioGeneration, long sequence, byte[] pcm) {
+        if (shuttingDown || !radioBuffer.accept(radioGeneration, sequence, pcm) || !radioBuffer.isReady()) {
             return;
         }
         handoffReadyRadioPackets();

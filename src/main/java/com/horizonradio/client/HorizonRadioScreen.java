@@ -23,7 +23,6 @@ import com.horizonradio.core.model.MediaSourceType;
 import com.horizonradio.core.server.ChartRegion;
 import com.horizonradio.core.server.ChartRegionCatalog;
 import com.horizonradio.network.packets.RadioSearchResultsPacket;
-import com.horizonradio.network.packets.RadioStatePacket;
 
 /** Forge 1.7.10 port of the active HorizonRadio search and playlist screen. */
 public class HorizonRadioScreen extends GuiScreen {
@@ -145,7 +144,7 @@ public class HorizonRadioScreen extends GuiScreen {
     private boolean radioResultsRevealPending;
     private long radioResultsRevealAt;
     private boolean radioPopularRequested;
-    private RadioStatePacket radioState;
+    private ClientRadioPresentation radioState;
     private boolean seeking;
     private float seekProgress;
     private ControlButton playbackButton;
@@ -180,7 +179,7 @@ public class HorizonRadioScreen extends GuiScreen {
         nowPlaying = HorizonRadioClient.getCachedNowPlaying();
         playbackProgress = HorizonRadioClient.getCachedProgress();
         refreshCurrentDuration();
-        updateRadioState(HorizonRadioClient.getCachedRadioState());
+        updateRadioPresentation(HorizonRadioClient.getCachedRadioPresentation());
 
         searchField = new GuiTextField(
             fontRendererObj,
@@ -1079,16 +1078,16 @@ public class HorizonRadioScreen extends GuiScreen {
         updateRadioResults(results);
     }
 
-    void updateRadioState(RadioStatePacket packet) {
-        radioState = packet;
+    void updateRadioPresentation(ClientRadioPresentation presentation) {
+        radioState = presentation;
         if (isRadioActive()) {
-            nowPlaying = packet.getStationName();
+            nowPlaying = presentation.getStationName();
             currentDuration = "";
         } else {
             String cachedNowPlaying = HorizonRadioClient.getCachedNowPlaying();
             if (!isMusicMode() && hasResumableRadioStation()
                 && (cachedNowPlaying == null || cachedNowPlaying.length() == 0)) {
-                nowPlaying = packet.getStationName();
+                nowPlaying = presentation == null ? "" : presentation.getStationName();
                 currentDuration = "";
             } else {
                 nowPlaying = cachedNowPlaying;

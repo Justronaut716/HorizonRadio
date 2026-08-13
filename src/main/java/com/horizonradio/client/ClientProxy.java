@@ -24,10 +24,7 @@ import com.horizonradio.network.packets.NowPlayingPacket;
 import com.horizonradio.network.packets.PausePacket;
 import com.horizonradio.network.packets.PlaylistDeltaPacket;
 import com.horizonradio.network.packets.PlaylistSyncPacket;
-import com.horizonradio.network.packets.RadioAudioChunkPacket;
-import com.horizonradio.network.packets.RadioAudioStartPacket;
 import com.horizonradio.network.packets.RadioSearchResultsPacket;
-import com.horizonradio.network.packets.RadioStatePacket;
 import com.horizonradio.network.packets.ResumePacket;
 import com.horizonradio.network.packets.SearchResultsPacket;
 import com.horizonradio.network.packets.TrackSyncPacket;
@@ -111,17 +108,17 @@ public class ClientProxy extends CommonProxy {
                     new ClientRadioPlayback.AudioSink() {
 
                         @Override
-                        public boolean startLocalRadio(long generation) {
-                            return AudioPlayer.getInstance().startLocalRadio(generation);
+                        public boolean beginLocalRadioPcm(long generation) {
+                            return AudioPlayer.getInstance().beginLocalRadioPcm(generation);
                         }
 
                         @Override
-                        public void receiveLocalRadioPcm(long generation, byte[] pcm) {
-                            AudioPlayer.getInstance().receiveLocalRadioPcm(generation, pcm);
+                        public void bufferLocalRadioPcm(long generation, byte[] pcm) {
+                            AudioPlayer.getInstance().bufferLocalRadioPcm(generation, pcm);
                         }
 
                         @Override
-                        public void stopLocalRadio() {
+                        public void stopLocalRadioPcm() {
                             AudioPlayer.getInstance().stopRadio();
                         }
                     }));
@@ -318,39 +315,6 @@ public class ClientProxy extends CommonProxy {
             @Override
             public void run() {
                 HorizonRadioClient.updateRadioSearchResults(packet);
-            }
-        });
-    }
-
-    @Override
-    public void handleRadioState(final RadioStatePacket packet) {
-        schedule(new Runnable() {
-
-            @Override
-            public void run() {
-                HorizonRadioClient.updateRadioState(packet);
-            }
-        });
-    }
-
-    @Override
-    public void handleRadioAudioStart(final RadioAudioStartPacket packet) {
-        schedule(new Runnable() {
-
-            @Override
-            public void run() {
-                HorizonRadioClient.handleRadioAudioStart(packet);
-            }
-        });
-    }
-
-    @Override
-    public void handleRadioAudioChunk(final RadioAudioChunkPacket packet) {
-        schedule(new Runnable() {
-
-            @Override
-            public void run() {
-                HorizonRadioClient.handleRadioAudioChunk(packet);
             }
         });
     }

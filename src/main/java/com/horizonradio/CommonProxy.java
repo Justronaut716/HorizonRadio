@@ -16,10 +16,7 @@ import com.horizonradio.network.packets.NowPlayingPacket;
 import com.horizonradio.network.packets.PausePacket;
 import com.horizonradio.network.packets.PlaylistDeltaPacket;
 import com.horizonradio.network.packets.PlaylistSyncPacket;
-import com.horizonradio.network.packets.RadioAudioChunkPacket;
-import com.horizonradio.network.packets.RadioAudioStartPacket;
 import com.horizonradio.network.packets.RadioSearchResultsPacket;
-import com.horizonradio.network.packets.RadioStatePacket;
 import com.horizonradio.network.packets.ResumePacket;
 import com.horizonradio.network.packets.SearchResultsPacket;
 import com.horizonradio.network.packets.TrackSyncPacket;
@@ -181,9 +178,4 @@ public class CommonProxy {
 
     public void handleRadioSearchResults(RadioSearchResultsPacket packet) {}
 
-    public void handleRadioState(RadioStatePacket packet) {}
-
-    public void handleRadioAudioStart(RadioAudioStartPacket packet) {}
-
-    public void handleRadioAudioChunk(RadioAudioChunkPacket packet) {}
 }

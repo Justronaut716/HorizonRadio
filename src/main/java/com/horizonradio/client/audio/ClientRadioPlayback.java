@@ -88,7 +88,7 @@ public final class ClientRadioPlayback {
                 stopActiveLocked();
                 return;
             }
-            if (session == null || !audioSink.startLocalRadio(generation)) {
+            if (session == null || !audioSink.beginLocalRadioPcm(generation)) {
                 closeQuietly(session);
                 stopActiveLocked();
                 return;
@@ -104,7 +104,7 @@ public final class ClientRadioPlayback {
 
     private synchronized void forwardPcm(long generation, String stationUuid, byte[] pcm) {
         if (isActive(generation, stationUuid) && pcm != null && pcm.length > 0) {
-            audioSink.receiveLocalRadioPcm(generation, pcm);
+            audioSink.bufferLocalRadioPcm(generation, pcm);
         }
     }
 
@@ -129,7 +129,7 @@ public final class ClientRadioPlayback {
         activeGeneration = -1L;
         activeStationUuid = "";
         closeQuietly(previous);
-        audioSink.stopLocalRadio();
+        audioSink.stopLocalRadioPcm();
     }
 
     private static void closeQuietly(RadioInputSession session) {
@@ -150,10 +150,10 @@ public final class ClientRadioPlayback {
 
     public interface AudioSink {
 
-        boolean startLocalRadio(long generation);
+        boolean beginLocalRadioPcm(long generation);
 
-        void receiveLocalRadioPcm(long generation, byte[] pcm);
+        void bufferLocalRadioPcm(long generation, byte[] pcm);
 
-        void stopLocalRadio();
+        void stopLocalRadioPcm();
     }
 }

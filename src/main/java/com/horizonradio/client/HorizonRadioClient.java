@@ -38,10 +38,7 @@ import com.horizonradio.network.packets.PlaylistDeltaPacket;
 import com.horizonradio.network.packets.PlaylistResyncRequestPacket;
 import com.horizonradio.network.packets.PlaylistSyncPacket;
 import com.horizonradio.network.packets.PreviousTrackPacket;
-import com.horizonradio.network.packets.RadioAudioChunkPacket;
-import com.horizonradio.network.packets.RadioAudioStartPacket;
 import com.horizonradio.network.packets.RadioSearchResultsPacket;
-import com.horizonradio.network.packets.RadioStatePacket;
 import com.horizonradio.network.packets.RemoveFromPlaylistPacket;
 import com.horizonradio.network.packets.ReorderPlaylistPacket;
 import com.horizonradio.network.packets.SeekRequestPacket;
@@ -67,7 +64,7 @@ public final class HorizonRadioClient {
     private static boolean cachedLooping;
     private static boolean cachedShuffling;
     private static boolean cachedRadioActive;
-    private static RadioStatePacket cachedRadioState;
+    private static ClientRadioPresentation cachedRadioPresentation;
     private static long cachedChartsAt;
     private static boolean chartRequestPending;
     private static String cachedChartRegionCode = "";
@@ -634,8 +631,8 @@ public final class HorizonRadioClient {
         return new ArrayList<RadioSearchResultsPacket.Entry>(CACHED_RADIO_RESULTS);
     }
 
-    public static synchronized RadioStatePacket getCachedRadioState() {
-        return cachedRadioState;
+    public static synchronized ClientRadioPresentation getCachedRadioPresentation() {
+        return cachedRadioPresentation;
     }
 
     public static synchronized boolean hasFreshCachedCharts() {
@@ -737,6 +734,7 @@ public final class HorizonRadioClient {
         playlistResyncRequested = false;
         cachedShuffling = CLIENT_QUEUE.isShuffling();
         cachedLooping = CLIENT_QUEUE.isLooping();
+        stopLocalRadioWhenAbsentFromQueue();
         refreshCachedPlaylistFromQueue();
         updateShuffling(cachedShuffling);
         updateLooping(cachedLooping);
@@ -744,6 +742,7 @@ public final class HorizonRadioClient {
 
     public static synchronized void handlePlaylistDelta(PlaylistDeltaPacket packet) {
         if (CLIENT_QUEUE.applyDelta(packet)) {
+            stopLocalRadioWhenAbsentFromQueue();
             refreshCachedPlaylistFromQueue();
             return;
         }
@@ -776,11 +775,11 @@ public final class HorizonRadioClient {
         }
     }
 
-    public static synchronized void updateRadioState(RadioStatePacket packet) {
+    public static synchronized void updateRadioPresentation(ClientRadioPresentation presentation) {
         boolean wasRadioActive = cachedRadioActive;
-        cachedRadioState = packet;
-        cachedRadioActive = packet != null && packet.isActive();
-        if (cachedRadioActive || wasRadioActive || hasRadioStatus(packet)) {
+        cachedRadioPresentation = presentation;
+        cachedRadioActive = presentation != null && presentation.isActive();
+        if (cachedRadioActive || wasRadioActive || hasRadioStatus(presentation)) {
             clearCachedMusicState();
             cancelActiveTrackDownload();
         }
@@ -793,25 +792,8 @@ public final class HorizonRadioClient {
         }
         HorizonRadioScreen screen = getOpenScreen();
         if (screen != null) {
-            screen.updateRadioState(packet);
+            screen.updateRadioPresentation(presentation);
         }
-    }
-
-    public static synchronized boolean handleRadioAudioStart(RadioAudioStartPacket packet) {
-        if (!shouldAcceptRadioAudioStart(cachedRadioState, packet)) {
-            return false;
-        }
-        return AudioPlayer.getInstance()
-            .startRadio(packet);
-    }
-
-    static boolean shouldAcceptRadioAudioStart(RadioStatePacket state, RadioAudioStartPacket packet) {
-        return state != null && state.isActive() && packet != null && state.getGeneration() == packet.getGeneration();
-    }
-
-    public static synchronized void handleRadioAudioChunk(RadioAudioChunkPacket packet) {
-        AudioPlayer.getInstance()
-            .receiveRadioChunk(packet);
     }
 
     public static synchronized void updateNowPlaying(String title, float progress) {
@@ -856,18 +838,8 @@ public final class HorizonRadioClient {
 
         if (packet.getSourceType() == MediaSourceType.RADIO) {
             clearCachedMusicState();
-            cachedRadioActive = true;
-            cachedRadioState = new RadioStatePacket(
-                true,
-                packet.getGeneration(),
-                packet.getSourceId(),
-                packet.getSourceId(),
-                "LIVE");
             AudioPlayer.getInstance().stop();
-            HorizonRadioScreen radioScreen = getOpenScreen();
-            if (radioScreen != null) {
-                radioScreen.updateRadioState(cachedRadioState);
-            }
+            updateRadioPresentation(ClientRadioPresentation.live(packet.getGeneration(), packet.getSourceId()));
             if (clientRadioPlayback != null) {
                 clientRadioPlayback.start(packet.getGeneration(), packet.getSourceId());
                 debugChat("Radio " + packet.getSourceId() + " lokal angefordert.");
@@ -882,12 +854,7 @@ public final class HorizonRadioClient {
         }
         AudioPlayer.getInstance().stopRadio();
         if (cachedRadioActive) {
-            cachedRadioActive = false;
-            cachedRadioState = null;
-            HorizonRadioScreen radioScreen = getOpenScreen();
-            if (radioScreen != null) {
-                radioScreen.updateRadioState(null);
-            }
+            updateRadioPresentation(null);
         }
 
         AudioPlayer.getInstance()
@@ -1028,7 +995,7 @@ public final class HorizonRadioClient {
         cachedLooping = false;
         cachedShuffling = false;
         cachedRadioActive = false;
-        cachedRadioState = null;
+        cachedRadioPresentation = null;
         CLIENT_QUEUE.applySnapshot(0L, false, false, new ArrayList<PlaylistEntry>());
         playlistResyncRequested = false;
         searchTabDiscoveryGeneration++;
@@ -1051,6 +1018,21 @@ public final class HorizonRadioClient {
         activeTrackSourceId = null;
         activeTrackVideoId = null;
         activeTrackGeneration = -1L;
+    }
+
+    private static void stopLocalRadioWhenAbsentFromQueue() {
+        if (!cachedRadioActive || cachedRadioPresentation == null) {
+            return;
+        }
+        for (PlaylistEntry entry : CLIENT_QUEUE.snapshot()) {
+            if (entry.isRadio() && cachedRadioPresentation.getStationUuid().equals(entry.getSourceId())) {
+                return;
+            }
+        }
+        if (clientRadioPlayback != null) {
+            clientRadioPlayback.stop();
+        }
+        updateRadioPresentation(null);
     }
 
     private static void debugChat(String message) {
@@ -1085,9 +1067,9 @@ public final class HorizonRadioClient {
         return HorizonRadioScreen.getActiveScreen();
     }
 
-    private static boolean hasRadioStatus(RadioStatePacket packet) {
-        return packet != null && packet.getStatus() != null
-            && packet.getStatus()
+    private static boolean hasRadioStatus(ClientRadioPresentation presentation) {
+        return presentation != null && presentation.getStatus() != null
+            && presentation.getStatus()
                 .length() > 0;
     }
 
