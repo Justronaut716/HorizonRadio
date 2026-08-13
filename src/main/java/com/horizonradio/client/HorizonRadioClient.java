@@ -9,6 +9,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.BiConsumer;
+import java.util.function.BiFunction;
 
 import com.horizonradio.HorizonRadio;
 import com.horizonradio.client.audio.AudioPlayer;
@@ -510,6 +511,37 @@ public final class HorizonRadioClient {
         }
     }
 
+    public static synchronized void sendPlayNow(final HorizonRadioScreen.SearchResult result) {
+        if (result == null) {
+            return;
+        }
+        resolveChartSelection(result).whenComplete(new BiConsumer<ChartActionResolution, Throwable>() {
+
+            @Override
+            public void accept(final ChartActionResolution resolution, Throwable failure) {
+                ClientProxy.scheduleOnClientThread(new Runnable() {
+
+                    @Override
+                    public void run() {
+                        synchronized (HorizonRadioClient.class) {
+                            if (failure != null || resolution == null || resolution.selection == null) {
+                                debugChat(
+                                    "Direktes Abspielen fehlgeschlagen: " + result.videoId
+                                        + " ("
+                                        + failureMessage(failure, resolution)
+                                        + ")");
+                                return;
+                            }
+                            updateCachedChartDuration(result.videoId, resolution.metadata);
+                            debugChat("Spiele Chart lokal vor: " + result.videoId);
+                            sendPlayNowSelection(resolution.selection);
+                        }
+                    }
+                });
+            }
+        });
+    }
+
     /** Compatibility overload retained for older GUI and transport tests. */
     @Deprecated
     public static synchronized void sendPlayNow(String videoId, String title, String duration) {
@@ -529,11 +561,15 @@ public final class HorizonRadioClient {
     }
 
     public static synchronized void sendAddChartsToPlaylist(List<?> selections, boolean remove) {
-        List<PlaylistSelection> mapped = toPlaylistSelections(selections);
-        transport.sendAddChartSelections(mapped, remove);
-        if (!remove) {
-            completeChartAddsLocally(mapped);
+        if (remove || selections == null || selections.isEmpty() || !containsSearchResult(selections)) {
+            List<PlaylistSelection> mapped = toPlaylistSelections(selections);
+            transport.sendAddChartSelections(mapped, remove);
+            if (!remove) {
+                completeChartAddsLocally(mapped);
+            }
+            return;
         }
+        resolveAndSendChartAdds(selections);
     }
 
     public static synchronized void sendRemove(String videoId) {
@@ -725,6 +761,34 @@ public final class HorizonRadioClient {
         }
     }
 
+    private static void updateCachedChartDuration(String videoId, SearchResult metadata) {
+        if (videoId == null || metadata == null
+            || metadata.getDuration() == null
+            || metadata.getDuration()
+                .trim()
+                .isEmpty()) {
+            return;
+        }
+        String duration = metadata.getDuration();
+        for (int index = 0; index < CACHED_CHARTS.size(); index++) {
+            HorizonRadioScreen.SearchResult chart = CACHED_CHARTS.get(index);
+            if (chart != null && videoId.equals(chart.videoId)) {
+                CACHED_CHARTS.set(
+                    index,
+                    new HorizonRadioScreen.SearchResult(
+                        chart.videoId,
+                        chart.title,
+                        chart.channel,
+                        duration,
+                        chart.thumbnail));
+            }
+        }
+        HorizonRadioScreen screen = getOpenScreen();
+        if (screen != null) {
+            screen.updateChartDuration(videoId, duration);
+        }
+    }
+
     public static synchronized void updatePlaylist(List<HorizonRadioScreen.PlaylistEntry> entries) {
         CACHED_PLAYLIST.clear();
         if (entries != null) {
@@ -783,6 +847,13 @@ public final class HorizonRadioClient {
             }
         }
         screen.completeChartAdds(videoIds);
+    }
+
+    private static void clearPendingChartAdds(List<String> videoIds) {
+        HorizonRadioScreen screen = getOpenScreen();
+        if (screen != null && videoIds != null && !videoIds.isEmpty()) {
+            screen.completeChartAdds(videoIds);
+        }
     }
 
     public static synchronized void updateRadioPresentation(ClientRadioPresentation presentation) {
@@ -1414,6 +1485,156 @@ public final class HorizonRadioClient {
         }
     }
 
+    private static boolean containsSearchResult(List<?> selections) {
+        for (Object selection : selections) {
+            if (selection instanceof HorizonRadioScreen.SearchResult) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static void resolveAndSendChartAdds(final List<?> selections) {
+        final List<CompletableFuture<ChartActionResolution>> resolutions = new ArrayList<CompletableFuture<ChartActionResolution>>();
+        for (Object selection : selections) {
+            resolutions.add(resolveChartSelection(selection));
+        }
+        CompletableFuture<?>[] futureArray = resolutions.toArray(new CompletableFuture<?>[resolutions.size()]);
+        CompletableFuture.allOf(futureArray)
+            .whenComplete(new BiConsumer<Void, Throwable>() {
+
+                @Override
+                public void accept(final Void ignored, final Throwable failure) {
+                    ClientProxy.scheduleOnClientThread(new Runnable() {
+
+                        @Override
+                        public void run() {
+                            synchronized (HorizonRadioClient.class) {
+                                List<PlaylistSelection> mapped = new ArrayList<PlaylistSelection>();
+                                List<String> failedIds = new ArrayList<String>();
+                                if (failure != null) {
+                                    for (Object selection : selections) {
+                                        String videoId = chartSelectionVideoId(selection);
+                                        if (videoId != null) {
+                                            failedIds.add(videoId);
+                                        }
+                                    }
+                                    clearPendingChartAdds(failedIds);
+                                    debugChat("Chart-Hinzufügen fehlgeschlagen: " + failureMessage(failure, null));
+                                    return;
+                                }
+                                for (CompletableFuture<ChartActionResolution> future : resolutions) {
+                                    ChartActionResolution resolution = future.getNow(null);
+                                    if (resolution != null && resolution.selection != null) {
+                                        mapped.add(resolution.selection);
+                                        updateCachedChartDuration(resolution.videoId, resolution.metadata);
+                                    } else if (resolution != null && resolution.videoId != null) {
+                                        failedIds.add(resolution.videoId);
+                                        debugChat(
+                                            "Chart konnte nicht hinzugefügt werden: " + resolution.videoId
+                                                + " ("
+                                                + failureMessage(null, resolution)
+                                                + ")");
+                                    }
+                                }
+                                clearPendingChartAdds(failedIds);
+                                if (!mapped.isEmpty()) {
+                                    transport.sendAddChartSelections(mapped, false);
+                                    completeChartAddsLocally(mapped);
+                                    debugChat("Chart-Auswahl lokal aufgelöst: " + mapped.size() + " Titel.");
+                                }
+                            }
+                        }
+                    });
+                }
+            });
+    }
+
+    private static CompletableFuture<ChartActionResolution> resolveChartSelection(Object selection) {
+        if (selection instanceof PlaylistSelection) {
+            PlaylistSelection item = (PlaylistSelection) selection;
+            return CompletableFuture.completedFuture(
+                isValidChartDuration(item.videoId, item.durationMs)
+                    ? ChartActionResolution.success(item.videoId, item, null)
+                    : ChartActionResolution.failure(item.videoId, "ungültige oder zu lange Dauer"));
+        }
+        if (!(selection instanceof HorizonRadioScreen.SearchResult)) {
+            return CompletableFuture.completedFuture(ChartActionResolution.failure(null, "ungültiger Chart-Eintrag"));
+        }
+        final HorizonRadioScreen.SearchResult result = (HorizonRadioScreen.SearchResult) selection;
+        if (!isValidSelection(result.videoId, 1L)) {
+            return CompletableFuture
+                .completedFuture(ChartActionResolution.failure(result.videoId, "ungültige Video-ID"));
+        }
+        long advertisedDurationMs = durationMillis(result.duration);
+        if (advertisedDurationMs > 0L) {
+            return CompletableFuture.completedFuture(
+                isValidChartDuration(result.videoId, advertisedDurationMs)
+                    ? ChartActionResolution
+                        .success(result.videoId, new PlaylistSelection(result.videoId, advertisedDurationMs), null)
+                    : ChartActionResolution.failure(result.videoId, "Dauer überschreitet das konfigurierte Limit"));
+        }
+        if (clientMetadataCache == null) {
+            return CompletableFuture.completedFuture(
+                ChartActionResolution.failure(result.videoId, "lokaler Metadaten-Dienst ist nicht verfügbar"));
+        }
+        debugChat("Lade Chart-Dauer lokal: " + result.videoId);
+        try {
+            CompletableFuture<SearchResult> lookup = clientMetadataCache.video(result.videoId);
+            if (lookup == null) {
+                return CompletableFuture
+                    .completedFuture(ChartActionResolution.failure(result.videoId, "keine Metadaten verfügbar"));
+            }
+            return lookup.handle(new BiFunction<SearchResult, Throwable, ChartActionResolution>() {
+
+                @Override
+                public ChartActionResolution apply(SearchResult metadata, Throwable failure) {
+                    if (failure != null) {
+                        return ChartActionResolution.failure(result.videoId, failureMessage(failure, null));
+                    }
+                    if (metadata == null) {
+                        return ChartActionResolution.failure(result.videoId, "keine Metadaten verfügbar");
+                    }
+                    long durationMs = durationMillis(metadata.getDuration());
+                    if (!isValidChartDuration(result.videoId, durationMs)) {
+                        return ChartActionResolution.failure(result.videoId, "keine gültige endliche Dauer");
+                    }
+                    return ChartActionResolution
+                        .success(result.videoId, new PlaylistSelection(result.videoId, durationMs), metadata);
+                }
+            });
+        } catch (RuntimeException exception) {
+            return CompletableFuture
+                .completedFuture(ChartActionResolution.failure(result.videoId, failureMessage(exception, null)));
+        }
+    }
+
+    private static boolean isValidChartDuration(String videoId, long durationMs) {
+        return isValidSelection(videoId, durationMs) && durationMs < maxTrackDurationMs();
+    }
+
+    private static String chartSelectionVideoId(Object selection) {
+        if (selection instanceof PlaylistSelection) {
+            return ((PlaylistSelection) selection).videoId;
+        }
+        if (selection instanceof HorizonRadioScreen.SearchResult) {
+            return ((HorizonRadioScreen.SearchResult) selection).videoId;
+        }
+        return null;
+    }
+
+    private static String failureMessage(Throwable failure, ChartActionResolution resolution) {
+        if (resolution != null && resolution.failureMessage != null && resolution.failureMessage.length() > 0) {
+            return resolution.failureMessage;
+        }
+        if (failure != null && failure.getMessage() != null
+            && failure.getMessage()
+                .length() > 0) {
+            return failure.getMessage();
+        }
+        return "Dauer konnte nicht ermittelt werden";
+    }
+
     private static List<PlaylistSelection> toPlaylistSelections(List<?> selections) {
         List<PlaylistSelection> mapped = new ArrayList<PlaylistSelection>();
         if (selections == null) {
@@ -1466,6 +1687,31 @@ public final class HorizonRadioClient {
         }
         long seconds = durationMs / 1000L;
         return seconds / 60L + ":" + (seconds % 60L < 10L ? "0" : "") + seconds % 60L;
+    }
+
+    private static final class ChartActionResolution {
+
+        private final String videoId;
+        private final PlaylistSelection selection;
+        private final SearchResult metadata;
+        private final String failureMessage;
+
+        private ChartActionResolution(String videoId, PlaylistSelection selection, SearchResult metadata,
+            String failureMessage) {
+            this.videoId = videoId;
+            this.selection = selection;
+            this.metadata = metadata;
+            this.failureMessage = failureMessage;
+        }
+
+        private static ChartActionResolution success(String videoId, PlaylistSelection selection,
+            SearchResult metadata) {
+            return new ChartActionResolution(videoId, selection, metadata, null);
+        }
+
+        private static ChartActionResolution failure(String videoId, String message) {
+            return new ChartActionResolution(videoId, null, null, message);
+        }
     }
 
     static final class PlaylistSelection {

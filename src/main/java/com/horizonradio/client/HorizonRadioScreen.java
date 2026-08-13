@@ -711,7 +711,7 @@ public class HorizonRadioScreen extends GuiScreen {
                 } else {
                     List<SearchResult> request = beginChartAdd(chartResults);
                     if (!request.isEmpty()) {
-                        HorizonRadioClient.sendAddChartsToPlaylist(toPlaylistSelections(request));
+                        HorizonRadioClient.sendAddChartsToPlaylist(request);
                     }
                 }
                 return;
@@ -746,7 +746,7 @@ public class HorizonRadioScreen extends GuiScreen {
                         if (charts) {
                             List<SearchResult> request = beginChartAdd(Collections.singletonList(result));
                             if (!request.isEmpty()) {
-                                HorizonRadioClient.sendAddChartsToPlaylist(toPlaylistSelections(request));
+                                HorizonRadioClient.sendAddChartsToPlaylist(request);
                             }
                         } else {
                             sendResultToQueue(result, false);
@@ -1021,6 +1021,20 @@ public class HorizonRadioScreen extends GuiScreen {
         chartProgress = 1.0f;
         scheduleChartResultsReveal(requestWasLoading);
         updateChartRefreshButtonState();
+    }
+
+    void updateChartDuration(String videoId, String duration) {
+        if (videoId == null || duration == null) {
+            return;
+        }
+        for (int index = 0; index < chartResults.size(); index++) {
+            SearchResult result = chartResults.get(index);
+            if (result != null && videoId.equals(result.videoId) && !duration.equals(result.duration)) {
+                chartResults.set(
+                    index,
+                    new SearchResult(result.videoId, result.title, result.channel, duration, result.thumbnail));
+            }
+        }
     }
 
     public void updateRadioResults(List<RadioStationResult> results) {
@@ -1795,10 +1809,7 @@ public class HorizonRadioScreen extends GuiScreen {
         if (result == null) {
             return;
         }
-        long durationMs = DurationParser.parseMillisStrict(result.duration);
-        if (durationMs >= 0L) {
-            HorizonRadioClient.sendPlayNow(result.videoId, durationMs);
-        }
+        HorizonRadioClient.sendPlayNow(result);
     }
 
     static List<HorizonRadioClient.PlaylistSelection> toPlaylistSelections(List<SearchResult> results) {

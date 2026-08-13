@@ -1,6 +1,7 @@
 package com.horizonradio.client;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import java.lang.reflect.InvocationHandler;
@@ -10,8 +11,11 @@ import java.nio.charset.Charset;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
 import org.junit.After;
@@ -32,6 +36,7 @@ public class HorizonRadioClientDiscoveryTest {
         HorizonRadioClient.clearCache();
         HorizonRadioClient.setClientMediaService(null);
         HorizonRadioClient.setTransport(transport.asTransport());
+        new ClientProxy(new DirectScheduler());
     }
 
     @After
@@ -79,8 +84,6 @@ public class HorizonRadioClientDiscoveryTest {
 
     @Test
     public void staleSearchCompletionCannotReplaceANewerImport() throws Exception {
-        DirectScheduler scheduler = new DirectScheduler();
-        new ClientProxy(scheduler);
         DeferredProvider provider = new DeferredProvider();
         HorizonRadioClient.setClientMediaService(new ClientMediaService(provider));
         HorizonRadioScreen screen = new HorizonRadioScreen();
@@ -97,6 +100,79 @@ public class HorizonRadioClientDiscoveryTest {
         } finally {
             HorizonRadioScreen.clearActiveScreen(screen);
         }
+    }
+
+    @Test
+    public void chartAddResolvesMissingDurationBeforeSendingCompactSelection() {
+        DeferredProvider provider = new DeferredProvider();
+        HorizonRadioClient.setClientMediaService(new ClientMediaService(provider));
+        CompletableFuture<String> metadata = provider.deferVideo("dQw4w9WgXcQ");
+
+        HorizonRadioClient.sendAddChartsToPlaylist(
+            Collections.singletonList(new HorizonRadioScreen.SearchResult("dQw4w9WgXcQ", "Chart", "", "", "")));
+
+        assertTrue(transport.chartSelections.isEmpty());
+        metadata.complete("{\"id\":\"dQw4w9WgXcQ\",\"title\":\"Chart\",\"duration\":123}");
+
+        assertEquals(1, transport.chartSelections.size());
+        assertEquals("dQw4w9WgXcQ|123000", transport.chartSelections.get(0));
+    }
+
+    @Test
+    public void chartBulkAddPreservesOrderAndClearsFailedPendingEntry() {
+        DeferredProvider provider = new DeferredProvider();
+        HorizonRadioClient.setClientMediaService(new ClientMediaService(provider));
+        HorizonRadioScreen screen = new HorizonRadioScreen();
+        HorizonRadioScreen.setActiveScreen(screen);
+        try {
+            List<HorizonRadioScreen.SearchResult> results = Arrays
+                .asList(chart("aQw4w9WgXcQ"), chart("bQw4w9WgXcQ"), chart("cQw4w9WgXcQ"));
+            screen.beginChartAdd(results);
+            CompletableFuture<String> first = provider.deferVideo("aQw4w9WgXcQ");
+            CompletableFuture<String> second = provider.deferVideo("bQw4w9WgXcQ");
+            CompletableFuture<String> third = provider.deferVideo("cQw4w9WgXcQ");
+
+            HorizonRadioClient.sendAddChartsToPlaylist(results);
+
+            first.complete("{\"id\":\"aQw4w9WgXcQ\",\"title\":\"A\",\"duration\":60}");
+            third.complete("{\"id\":\"cQw4w9WgXcQ\",\"title\":\"C\",\"duration\":62}");
+            second.completeExceptionally(new IllegalStateException("metadata unavailable"));
+
+            assertEquals(Arrays.asList("aQw4w9WgXcQ|60000", "cQw4w9WgXcQ|62000"), transport.chartSelections);
+            assertFalse(screen.isChartAddPending("bQw4w9WgXcQ"));
+        } finally {
+            HorizonRadioScreen.clearActiveScreen(screen);
+        }
+    }
+
+    @Test
+    public void chartDirectPlayResolvesMissingDurationBeforeSending() {
+        DeferredProvider provider = new DeferredProvider();
+        HorizonRadioClient.setClientMediaService(new ClientMediaService(provider));
+        CompletableFuture<String> metadata = provider.deferVideo("pQw4w9WgXcQ");
+
+        HorizonRadioClient.sendPlayNow(new HorizonRadioScreen.SearchResult("pQw4w9WgXcQ", "Chart", "", "", ""));
+
+        assertEquals(0, transport.playNowRequests.size());
+        metadata.complete("{\"id\":\"pQw4w9WgXcQ\",\"title\":\"Chart\",\"duration\":240}");
+
+        assertEquals(Collections.singletonList("pQw4w9WgXcQ|240000"), transport.playNowRequests);
+    }
+
+    @Test
+    public void chartActionWithKnownDurationDoesNotResolveMetadata() {
+        DeferredProvider provider = new DeferredProvider();
+        HorizonRadioClient.setClientMediaService(new ClientMediaService(provider));
+
+        HorizonRadioClient.sendAddChartsToPlaylist(
+            Collections.singletonList(new HorizonRadioScreen.SearchResult("kQw4w9WgXcQ", "Known", "", "1:30", "")));
+
+        assertEquals(Collections.singletonList("kQw4w9WgXcQ|90000"), transport.chartSelections);
+        assertEquals(0, provider.videoLookupCount);
+    }
+
+    private static HorizonRadioScreen.SearchResult chart(String videoId) {
+        return new HorizonRadioScreen.SearchResult(videoId, videoId, "", "", "");
     }
 
     private static List<HorizonRadioScreen.SearchResult> searchResults(HorizonRadioScreen screen) {
@@ -135,6 +211,14 @@ public class HorizonRadioClientDiscoveryTest {
 
         private final CompletableFuture<List<SearchResult>> search = new CompletableFuture<List<SearchResult>>();
         private final CompletableFuture<String> importPlaylist = new CompletableFuture<String>();
+        private final Map<String, CompletableFuture<String>> videoMetadata = new HashMap<String, CompletableFuture<String>>();
+        private int videoLookupCount;
+
+        private CompletableFuture<String> deferVideo(String videoId) {
+            CompletableFuture<String> future = new CompletableFuture<String>();
+            videoMetadata.put(videoId, future);
+            return future;
+        }
 
         @Override
         public CompletableFuture<List<SearchResult>> search(String query, long maxDurationMs) {
@@ -153,7 +237,10 @@ public class HorizonRadioClientDiscoveryTest {
 
         @Override
         public CompletableFuture<String> extractVideoJson(String videoUrl) {
-            return CompletableFuture.completedFuture("{}");
+            String videoId = videoUrl.substring(videoUrl.indexOf("v=") + 2);
+            videoLookupCount++;
+            CompletableFuture<String> future = videoMetadata.get(videoId);
+            return future == null ? CompletableFuture.completedFuture("{}") : future;
         }
 
         @Override
@@ -170,6 +257,8 @@ public class HorizonRadioClientDiscoveryTest {
     private static final class RecordingTransport implements InvocationHandler {
 
         private int discoveryCallCount;
+        private final List<String> chartSelections = new ArrayList<String>();
+        private final List<String> playNowRequests = new ArrayList<String>();
 
         private HorizonRadioClient.ClientTransport asTransport() {
             return (HorizonRadioClient.ClientTransport) Proxy.newProxyInstance(
@@ -186,6 +275,28 @@ public class HorizonRadioClientDiscoveryTest {
                 || "sendImportVideo".equals(name)
                 || "sendRadioSearch".equals(name)) {
                 discoveryCallCount++;
+            }
+            if ("sendAddChartSelections".equals(name) && arguments != null
+                && arguments.length > 0
+                && arguments[0] instanceof List<?>) {
+                for (Object selection : (List<?>) arguments[0]) {
+                    try {
+                        java.lang.reflect.Field videoId = selection.getClass()
+                            .getDeclaredField("videoId");
+                        java.lang.reflect.Field durationMs = selection.getClass()
+                            .getDeclaredField("durationMs");
+                        videoId.setAccessible(true);
+                        durationMs.setAccessible(true);
+                        chartSelections.add(videoId.get(selection) + "|" + durationMs.get(selection));
+                    } catch (ReflectiveOperationException exception) {
+                        throw new AssertionError("chart selection was not recorded", exception);
+                    }
+                }
+            }
+            if ("sendPlayNow".equals(name) && arguments != null
+                && arguments.length == 2
+                && arguments[1] instanceof Long) {
+                playNowRequests.add(arguments[0] + "|" + arguments[1]);
             }
             return null;
         }
