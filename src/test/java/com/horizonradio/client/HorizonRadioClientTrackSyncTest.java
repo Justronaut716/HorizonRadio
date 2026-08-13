@@ -80,4 +80,20 @@ public class HorizonRadioClientTrackSyncTest {
         assertFalse(HorizonRadioClient.isRadioActive());
         assertNull(HorizonRadioClient.getCachedRadioPresentation());
     }
+
+    @Test
+    public void stopTrackSyncStopsFinitePlaybackAndRejectsTheStaleGeneration() {
+        HorizonRadioClient.handleTrackSync(TrackSyncPacket.youtube(5L, "video-id", 12_000L, 0L, true));
+
+        HorizonRadioClient.handleTrackSync(TrackSyncPacket.stop(6L));
+
+        assertFalse(HorizonRadioClient.isPaused());
+        assertFalse(
+            HorizonRadioClient.shouldAcceptTrackSync(
+                6L,
+                null,
+                null,
+                TrackSyncPacket.youtube(5L, "video-id", 0L, 3_000L, false)));
+        assertFalse(HorizonRadioClient.shouldAcceptTrackSync(6L, null, null, TrackSyncPacket.stop(6L)));
+    }
 }

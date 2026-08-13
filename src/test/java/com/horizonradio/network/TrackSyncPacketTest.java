@@ -2,6 +2,7 @@ package com.horizonradio.network;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import org.junit.Test;
@@ -53,6 +54,25 @@ public class TrackSyncPacketTest {
         assertEquals(MediaSourceType.RADIO, decoded.getSourceType());
         assertEquals("station-id", decoded.getSourceId());
         assertEquals(4L, decoded.getGeneration());
+        assertEquals(0L, decoded.getPositionMs());
+        assertEquals(0L, decoded.getStartAtMs());
+        assertFalse(decoded.isPaused());
+    }
+
+    @Test
+    public void stopTrackSyncCarriesOnlyTheNewPlaybackGeneration() {
+        TrackSyncPacket packet = TrackSyncPacket.stop(19L);
+        ByteBuf buffer = Unpooled.buffer();
+        packet.toBytes(buffer);
+
+        assertEquals(9, buffer.readableBytes());
+        TrackSyncPacket decoded = new TrackSyncPacket();
+        decoded.fromBytes(buffer);
+
+        assertTrue(decoded.isStop());
+        assertEquals(19L, decoded.getGeneration());
+        assertNull(decoded.getSourceType());
+        assertNull(decoded.getSourceId());
         assertEquals(0L, decoded.getPositionMs());
         assertEquals(0L, decoded.getStartAtMs());
         assertFalse(decoded.isPaused());

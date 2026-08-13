@@ -177,14 +177,11 @@ public final class PlaylistState {
     }
 
     public boolean selectRadioAtFront(PlaylistEntry station) {
-        if (station == null || !station.isRadio()) {
+        if (!canSelectRadioAtFront(station)) {
             return false;
         }
 
         boolean replacesFrontRadio = !playlist.isEmpty() && playlist.get(0).isRadio();
-        if (!replacesFrontRadio && playlist.size() >= maxPlaylistSize) {
-            return false;
-        }
         if (replacesFrontRadio) {
             playlist.set(0, station);
         } else {
@@ -193,6 +190,13 @@ public final class PlaylistState {
         markQueueMutation();
         startRadioTrack(0, station.getSourceId());
         return true;
+    }
+
+    public boolean canSelectRadioAtFront(PlaylistEntry station) {
+        if (station == null || !station.isRadio()) {
+            return false;
+        }
+        return (!playlist.isEmpty() && playlist.get(0).isRadio()) || playlist.size() < maxPlaylistSize;
     }
 
     public boolean moveQueued(int fromIndex, int targetIndex) {

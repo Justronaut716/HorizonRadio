@@ -42,18 +42,39 @@ public final class PlaylistManager {
 
     private static final long CLIENT_TRACK_START_DELAY_MS = 3000L;
 
+    interface PacketBroadcaster {
+
+        void broadcast(IMessage packet, List<EntityPlayerMP> recipients);
+    }
+
+    private static final PacketBroadcaster NETWORK_BROADCASTER = new PacketBroadcaster() {
+
+        @Override
+        public void broadcast(IMessage packet, List<EntityPlayerMP> recipients) {
+            for (EntityPlayerMP player : recipients) {
+                HorizonRadioNetwork.CHANNEL.sendTo(packet, player);
+            }
+        }
+    };
+
     private final MinecraftServer server;
     private final PlaylistState state;
     private final int maxPlaylistSize;
     private final long maxTrackDurationMs;
     private final ScheduledExecutorService scheduler;
+    private final PacketBroadcaster packetBroadcaster;
 
     private ScheduledFuture<?> advanceFuture;
     private long playbackGeneration;
     private boolean shuttingDown;
 
     public PlaylistManager(MinecraftServer server, File configDirectory) {
+        this(server, configDirectory, NETWORK_BROADCASTER);
+    }
+
+    PlaylistManager(MinecraftServer server, File configDirectory, PacketBroadcaster packetBroadcaster) {
         this.server = server;
+        this.packetBroadcaster = packetBroadcaster == null ? NETWORK_BROADCASTER : packetBroadcaster;
         HorizonRadioConfig config = HorizonRadio.getConfig();
         if (config == null) {
             config = HorizonRadioConfig.load(configDirectory);
@@ -137,10 +158,13 @@ public final class PlaylistManager {
             return;
         }
 
-        cancelAdvancement();
         PlaylistEntry station = PlaylistEntry.radio(stationUuid, playerName(player));
-        if (!state.selectRadioAtFront(station)) {
+        if (!state.canSelectRadioAtFront(station)) {
             sendChat(player, EnumChatFormatting.YELLOW, "The queue is full.");
+            return;
+        }
+        cancelAdvancement();
+        if (!state.selectRadioAtFront(station)) {
             return;
         }
         long generation = nextPlaybackGeneration();
@@ -176,8 +200,9 @@ public final class PlaylistManager {
         boolean wasShuffling = state.isShuffling();
         cancelAdvancement();
         state.clear();
-        nextPlaybackGeneration();
+        long generation = nextPlaybackGeneration();
         broadcastDelta(PlaylistDeltaPacket.clear(state.getQueueRevision()));
+        broadcastTrackSync(TrackSyncPacket.stop(generation));
         if (wasLooping) {
             broadcast(new LoopStatePacket(false));
         }
@@ -316,6 +341,7 @@ public final class PlaylistManager {
 
         int currentIndex = state.getCurrentIndex();
         if (!state.isPlaying() || currentIndex < 0 || currentIndex >= state.size()) {
+            sendTo(TrackSyncPacket.stop(playbackGeneration), player);
             return;
         }
         PlaylistEntry current = state.get(currentIndex);
@@ -431,12 +457,12 @@ public final class PlaylistManager {
     private void startNextFinite() {
         int nextIndex = state.getCurrentIndex() + 1;
         if (nextIndex < 0 || nextIndex >= state.size()) {
-            state.resetPlayback();
+            stopPlayback();
             return;
         }
         PlaylistEntry next = state.get(nextIndex);
         if (!next.isFinite() || next.getDurationMs() <= 0L) {
-            state.resetPlayback();
+            stopPlayback();
             return;
         }
         startFiniteTrack(nextIndex, next);
@@ -450,6 +476,11 @@ public final class PlaylistManager {
         broadcastTrackSync(
             TrackSyncPacket.youtube(generation, entry.getSourceId(), 0L, startAtMs, false));
         scheduleAdvancement(generation, 0L, entry.getDurationMs(), startAtMs);
+    }
+
+    private void stopPlayback() {
+        state.resetPlayback();
+        broadcastTrackSync(TrackSyncPacket.stop(nextPlaybackGeneration()));
     }
 
     private void scheduleAdvancement(final long generation, long positionMs, long durationMs, long startAtMs) {
@@ -512,9 +543,7 @@ public final class PlaylistManager {
     }
 
     private void broadcast(IMessage packet) {
-        for (EntityPlayerMP player : onlinePlayersSnapshot()) {
-            HorizonRadioNetwork.CHANNEL.sendTo(packet, player);
-        }
+        packetBroadcaster.broadcast(packet, onlinePlayersSnapshot());
     }
 
     private void sendTo(IMessage packet, EntityPlayerMP player) {

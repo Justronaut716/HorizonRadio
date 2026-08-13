@@ -17,6 +17,7 @@ public class TrackSyncPacket implements IMessage {
     private long positionMs;
     private long startAtMs;
     private boolean paused;
+    private boolean stopped;
 
     public TrackSyncPacket() {
         sourceType = MediaSourceType.YOUTUBE;
@@ -48,6 +49,20 @@ public class TrackSyncPacket implements IMessage {
         return new TrackSyncPacket(MediaSourceType.RADIO, stationUuid, generation, 0L, 0L, false);
     }
 
+    /** Marks the current source as stopped and invalidates earlier playback generations. */
+    public static TrackSyncPacket stop(long generation) {
+        TrackSyncPacket packet = new TrackSyncPacket();
+        packet.sourceType = null;
+        packet.sourceId = null;
+        packet.generation = generation;
+        packet.positionMs = 0L;
+        packet.startAtMs = 0L;
+        packet.paused = false;
+        packet.stopped = true;
+        packet.validate();
+        return packet;
+    }
+
     public MediaSourceType getSourceType() {
         return sourceType;
     }
@@ -58,6 +73,10 @@ public class TrackSyncPacket implements IMessage {
 
     public long getGeneration() {
         return generation;
+    }
+
+    public boolean isStop() {
+        return stopped;
     }
 
     @Deprecated
@@ -80,6 +99,11 @@ public class TrackSyncPacket implements IMessage {
     @Override
     public void toBytes(ByteBuf buf) {
         validate();
+        if (stopped) {
+            buf.writeByte(0);
+            buf.writeLong(generation);
+            return;
+        }
         buf.writeByte(sourceType.getWireValue());
         PacketBufferUtil.writeString(buf, sourceId, MAX_SOURCE_ID_BYTES);
         buf.writeLong(generation);
@@ -92,7 +116,19 @@ public class TrackSyncPacket implements IMessage {
 
     @Override
     public void fromBytes(ByteBuf buf) {
-        sourceType = MediaSourceType.fromWireValue(buf.readByte());
+        byte sourceWireValue = buf.readByte();
+        stopped = sourceWireValue == 0;
+        if (stopped) {
+            sourceType = null;
+            sourceId = null;
+            generation = buf.readLong();
+            positionMs = 0L;
+            startAtMs = 0L;
+            paused = false;
+            validate();
+            return;
+        }
+        sourceType = MediaSourceType.fromWireValue(sourceWireValue);
         sourceId = PacketBufferUtil.readString(buf, MAX_SOURCE_ID_BYTES);
         generation = buf.readLong();
         if (sourceType == MediaSourceType.YOUTUBE) {
@@ -108,7 +144,16 @@ public class TrackSyncPacket implements IMessage {
     }
 
     private void validate() {
-        if (sourceType == null || generation < 0L || sourceId == null || sourceId.trim().isEmpty()
+        if (generation < 0L) {
+            throw new IllegalArgumentException("invalid track synchronization packet");
+        }
+        if (stopped) {
+            if (sourceType != null || sourceId != null || positionMs != 0L || startAtMs != 0L || paused) {
+                throw new IllegalArgumentException("stopped track synchronization cannot carry source state");
+            }
+            return;
+        }
+        if (sourceType == null || sourceId == null || sourceId.trim().isEmpty()
             || sourceId.getBytes(java.nio.charset.StandardCharsets.UTF_8).length > MAX_SOURCE_ID_BYTES) {
             throw new IllegalArgumentException("invalid track synchronization packet");
         }

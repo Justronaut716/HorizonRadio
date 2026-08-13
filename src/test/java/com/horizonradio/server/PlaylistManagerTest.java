@@ -2,6 +2,9 @@ package com.horizonradio.server;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
 import java.io.File;
@@ -10,6 +13,9 @@ import java.lang.reflect.Field;
 import java.nio.charset.Charset;
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.ScheduledFuture;
 
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.entity.player.EntityPlayerMP;
@@ -20,8 +26,10 @@ import org.junit.Test;
 import com.horizonradio.core.model.MediaSourceType;
 import com.horizonradio.core.model.PlaylistEntry;
 import com.horizonradio.core.server.PlaylistState;
+import com.horizonradio.network.packets.TrackSyncPacket;
 import com.mojang.authlib.GameProfile;
 
+import cpw.mods.fml.common.network.simpleimpl.IMessage;
 import sun.misc.Unsafe;
 
 public class PlaylistManagerTest {
@@ -155,6 +163,77 @@ public class PlaylistManagerTest {
     }
 
     @Test
+    public void removingTheFinalFiniteTrackBroadcastsAStopTransition() throws Exception {
+        RecordingPacketBroadcaster broadcaster = new RecordingPacketBroadcaster();
+        PlaylistManager manager = manager(broadcaster);
+        try {
+            manager.handleAddToPlaylist(testPlayer(), VIDEO_ID, 60_000L);
+            long playingGeneration = playbackGeneration(manager);
+
+            manager.handleRemoveFromPlaylist(testPlayer(), VIDEO_ID);
+
+            assertStoppedAtNewGeneration(manager, broadcaster, playingGeneration + 1L);
+        } finally {
+            manager.shutdown();
+        }
+    }
+
+    @Test
+    public void clearingTheFinalFiniteTrackBroadcastsAStopTransition() throws Exception {
+        RecordingPacketBroadcaster broadcaster = new RecordingPacketBroadcaster();
+        PlaylistManager manager = manager(broadcaster);
+        try {
+            manager.handleAddToPlaylist(testPlayer(), VIDEO_ID, 60_000L);
+            long playingGeneration = playbackGeneration(manager);
+
+            manager.handleClearPlaylist(testPlayer());
+
+            assertStoppedAtNewGeneration(manager, broadcaster, playingGeneration + 1L);
+        } finally {
+            manager.shutdown();
+        }
+    }
+
+    @Test
+    public void skippingTheFinalFiniteTrackBroadcastsAStopTransition() throws Exception {
+        RecordingPacketBroadcaster broadcaster = new RecordingPacketBroadcaster();
+        PlaylistManager manager = manager(broadcaster);
+        try {
+            manager.handleAddToPlaylist(testPlayer(), VIDEO_ID, 60_000L);
+            long playingGeneration = playbackGeneration(manager);
+
+            manager.handleSkipTrack(testPlayer());
+
+            assertStoppedAtNewGeneration(manager, broadcaster, playingGeneration + 1L);
+        } finally {
+            manager.shutdown();
+        }
+    }
+
+    @Test
+    public void rejectingRadioAtFullQueuePreservesFiniteTrackAdvancement() throws Exception {
+        PlaylistManager manager = manager();
+        try {
+            EntityPlayerMP player = testPlayer();
+            manager.handleAddToPlaylist(player, VIDEO_ID, 60_000L);
+            ScheduledFuture<?> scheduledAdvance = advanceFuture(manager);
+            assertNotNull(scheduledAdvance);
+            for (int index = 1; index < 50; index++) {
+                manager.handleAddToPlaylist(player, String.format("%011d", index), 60_000L);
+            }
+
+            manager.handleSelectRadio(player, "station-id");
+
+            assertEquals(MediaSourceType.YOUTUBE, state(manager).getCurrentSourceType());
+            assertEquals(VIDEO_ID, state(manager).getCurrentSourceId());
+            assertSame(scheduledAdvance, advanceFuture(manager));
+            assertFalse(scheduledAdvance.isCancelled());
+        } finally {
+            manager.shutdown();
+        }
+    }
+
+    @Test
     public void productionServerManagerHasNoMediaServicesOrLegacyRelayPaths() throws IOException {
         String managerSource = source("src/main/java/com/horizonradio/server/PlaylistManager.java");
         String proxySource = source("src/main/java/com/horizonradio/CommonProxy.java");
@@ -185,6 +264,50 @@ public class PlaylistManagerTest {
 
     private static PlaylistManager manager() throws IOException {
         return new PlaylistManager(testServer(), testConfigDirectory());
+    }
+
+    private static PlaylistManager manager(RecordingPacketBroadcaster broadcaster) throws IOException {
+        return new PlaylistManager(testServer(), testConfigDirectory(), broadcaster);
+    }
+
+    private static void assertStoppedAtNewGeneration(PlaylistManager manager, RecordingPacketBroadcaster broadcaster,
+        long expectedGeneration) throws Exception {
+        assertFalse(state(manager).isPlaying());
+        assertEquals(expectedGeneration, playbackGeneration(manager));
+        assertNull(advanceFuture(manager));
+        assertTrue(broadcaster.lastTrackSync().isStop());
+        assertEquals(expectedGeneration, broadcaster.lastTrackSync().getGeneration());
+    }
+
+    private static long playbackGeneration(PlaylistManager manager) throws Exception {
+        Field field = PlaylistManager.class.getDeclaredField("playbackGeneration");
+        field.setAccessible(true);
+        return field.getLong(manager);
+    }
+
+    private static ScheduledFuture<?> advanceFuture(PlaylistManager manager) throws Exception {
+        Field field = PlaylistManager.class.getDeclaredField("advanceFuture");
+        field.setAccessible(true);
+        return (ScheduledFuture<?>) field.get(manager);
+    }
+
+    private static final class RecordingPacketBroadcaster implements PlaylistManager.PacketBroadcaster {
+
+        private final List<IMessage> packets = new ArrayList<IMessage>();
+
+        @Override
+        public void broadcast(IMessage packet, List<EntityPlayerMP> recipients) {
+            packets.add(packet);
+        }
+
+        private TrackSyncPacket lastTrackSync() {
+            for (int index = packets.size() - 1; index >= 0; index--) {
+                if (packets.get(index) instanceof TrackSyncPacket) {
+                    return (TrackSyncPacket) packets.get(index);
+                }
+            }
+            throw new AssertionError("expected a TrackSyncPacket broadcast");
+        }
     }
 
     private static MinecraftServer testServer() {

@@ -825,6 +825,11 @@ public final class HorizonRadioClient {
             return;
         }
 
+        if (packet.isStop()) {
+            stopLocalPlayback(packet.getGeneration());
+            return;
+        }
+
         activeTrackGeneration = packet.getGeneration();
         MediaSourceType previousSourceType = activeTrackSourceType;
         activeTrackSourceType = packet.getSourceType();
@@ -928,7 +933,13 @@ public final class HorizonRadioClient {
 
     static boolean shouldAcceptTrackSync(long currentGeneration, MediaSourceType currentSourceType,
         String currentSourceId, TrackSyncPacket packet) {
-        if (packet == null || packet.getSourceType() == null || packet.getSourceId() == null
+        if (packet == null) {
+            return false;
+        }
+        if (packet.isStop()) {
+            return packet.getGeneration() > currentGeneration;
+        }
+        if (packet.getSourceType() == null || packet.getSourceId() == null
             || packet.getSourceId().trim().length() == 0) {
             return false;
         }
@@ -1018,6 +1029,28 @@ public final class HorizonRadioClient {
         activeTrackSourceId = null;
         activeTrackVideoId = null;
         activeTrackGeneration = -1L;
+    }
+
+    private static void stopLocalPlayback(long generation) {
+        cancelActiveTrackDownload();
+        if (clientRadioPlayback != null) {
+            clientRadioPlayback.stop();
+        }
+        AudioPlayer.getInstance().stop();
+        AudioPlayer.getInstance().stopRadio();
+        if (cachedRadioActive) {
+            updateRadioPresentation(null);
+        }
+        clearCachedMusicState();
+        HorizonRadioScreen screen = getOpenScreen();
+        if (screen != null) {
+            screen.updateNowPlaying(null, 0.0f);
+            screen.updatePlaybackPaused(false);
+        }
+        activeTrackSourceType = null;
+        activeTrackSourceId = null;
+        activeTrackVideoId = null;
+        activeTrackGeneration = generation;
     }
 
     private static void stopLocalRadioWhenAbsentFromQueue() {
