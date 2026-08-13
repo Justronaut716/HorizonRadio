@@ -9,7 +9,6 @@ import net.minecraft.server.MinecraftServer;
 import com.horizonradio.core.config.HorizonRadioConfig;
 import com.horizonradio.network.ServerMessageHandlers;
 import com.horizonradio.network.packets.AddChartsToPlaylistPacket;
-import com.horizonradio.network.packets.ChartAddCompletionPacket;
 import com.horizonradio.network.packets.ClockSyncResponsePacket;
 import com.horizonradio.network.packets.PausePacket;
 import com.horizonradio.network.packets.PlaylistDeltaPacket;
@@ -149,8 +148,6 @@ public class CommonProxy {
     public void handlePlaylistSync(PlaylistSyncPacket packet) {}
 
     public void handlePlaylistDelta(PlaylistDeltaPacket packet) {}
-
-    public void handleChartAddCompletion(ChartAddCompletionPacket packet) {}
 
     public void handleClockSync(ClockSyncResponsePacket packet) {}
 

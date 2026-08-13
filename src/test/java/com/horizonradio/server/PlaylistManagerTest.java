@@ -249,6 +249,7 @@ public class PlaylistManagerTest {
         assertFalse(managerSource.contains("RadioAudioStartPacket"));
         assertFalse(managerSource.contains("RadioAudioChunkPacket"));
         assertFalse(managerSource.contains("RadioStatePacket"));
+        assertFalse(managerSource.contains("ChartAddCompletionPacket"));
         assertTrue(managerSource.contains("Logger.getLogger(PlaylistManager.class.getName())"));
         assertTrue(managerSource.contains("config.isServerDebugChat()"));
         assertFalse(proxySource.contains("new YouTubeService"));
@@ -259,6 +260,7 @@ public class PlaylistManagerTest {
         assertFalse(proxySource.contains("AudioChunkPacket"));
         assertFalse(proxySource.contains("NowPlayingPacket"));
         assertFalse(proxySource.contains("RadioSearchResultsPacket"));
+        assertFalse(proxySource.contains("ChartAddCompletionPacket"));
         assertFalse(networkSource.contains("SearchRequestHandler.class"));
         assertFalse(networkSource.contains("SearchRequestPacket.class"));
         assertFalse(networkSource.contains("SearchResultsPacket.class"));
@@ -279,6 +281,7 @@ public class PlaylistManagerTest {
         assertFalse(networkSource.contains("RadioAudioChunkPacket.class"));
         assertFalse(networkSource.contains("RadioStatePacket.class"));
         assertFalse(networkSource.contains("ReadyPacket.class"));
+        assertFalse(networkSource.contains("ChartAddCompletionPacket.class"));
     }
 
     private static PlaylistManager manager() throws IOException {

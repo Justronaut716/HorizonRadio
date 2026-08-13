@@ -3,7 +3,6 @@ package com.horizonradio.network;
 import com.horizonradio.core.protocol.HorizonRadioProtocol;
 import com.horizonradio.network.packets.AddChartsToPlaylistPacket;
 import com.horizonradio.network.packets.AddToPlaylistPacket;
-import com.horizonradio.network.packets.ChartAddCompletionPacket;
 import com.horizonradio.network.packets.ClearPlaylistPacket;
 import com.horizonradio.network.packets.ClockSyncRequestPacket;
 import com.horizonradio.network.packets.ClockSyncResponsePacket;
@@ -121,11 +120,6 @@ public final class HorizonRadioNetwork {
             .registerMessage(ClientboundMessageHandlers.TrackSyncHandler.class, TrackSyncPacket.class, 35, Side.CLIENT);
         CHANNEL.registerMessage(ClientboundMessageHandlers.PauseHandler.class, PausePacket.class, 8, Side.CLIENT);
         CHANNEL.registerMessage(ClientboundMessageHandlers.ResumeHandler.class, ResumePacket.class, 9, Side.CLIENT);
-        CHANNEL.registerMessage(
-            ClientboundMessageHandlers.ChartAddCompletionHandler.class,
-            ChartAddCompletionPacket.class,
-            32,
-            Side.CLIENT);
         CHANNEL.registerMessage(
             ServerMessageHandlers.ClockSyncRequestHandler.class,
             ClockSyncRequestPacket.class,

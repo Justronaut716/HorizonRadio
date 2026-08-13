@@ -461,8 +461,11 @@ public class PacketRoundTripTest {
         assertFalse(serverHandlers.contains("javax.sound"));
         assertFalse(serverHandlers.contains("ClientProxy"));
         assertFalse(client.contains("AudioChunkPacket"));
+        assertFalse(client.contains("ChartAddCompletionPacket"));
         assertFalse(client.contains("RadioSearchResultsPacket"));
         assertFalse(proxy.contains("AudioChunkPacket"));
+        assertFalse(proxy.contains("ChartAddCompletionPacket"));
+        assertFalse(proxy.contains("handleChartAddCompletion"));
         assertFalse(proxy.contains("NowPlayingPacket"));
         assertFalse(proxy.contains("RadioSearchResultsPacket"));
         assertFalse(proxy.contains("SearchResultsPacket"));
@@ -495,11 +498,10 @@ public class PacketRoundTripTest {
     }
 
     @Test
-    public void registersChartAddCompletionAsClientboundMessage() throws IOException {
+    public void doesNotRegisterChartAddCompletionAsClientboundMessage() throws IOException {
         String source = normalizeSource(readSource("src/main/java/com/horizonradio/network/HorizonRadioNetwork.java"));
-        assertTrue(source.contains("ClientboundMessageHandlers.ChartAddCompletionHandler.class"));
-        assertTrue(source.contains("ChartAddCompletionPacket.class"));
-        assertTrue(source.contains("ChartAddCompletionPacket.class, 32, Side.CLIENT"));
+        assertFalse(source.contains("ClientboundMessageHandlers.ChartAddCompletionHandler.class"));
+        assertFalse(source.contains("ChartAddCompletionPacket.class"));
         assertTrue(source.contains("ClockSyncRequestPacket.class, 33, Side.SERVER"));
         assertTrue(source.contains("ClockSyncResponsePacket.class, 34, Side.CLIENT"));
         assertTrue(source.contains("PlaylistDeltaPacket.class, 36, Side.CLIENT"));

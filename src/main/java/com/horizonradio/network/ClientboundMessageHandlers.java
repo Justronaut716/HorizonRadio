@@ -1,7 +1,6 @@
 package com.horizonradio.network;
 
 import com.horizonradio.HorizonRadio;
-import com.horizonradio.network.packets.ChartAddCompletionPacket;
 import com.horizonradio.network.packets.ClockSyncResponsePacket;
 import com.horizonradio.network.packets.LoopStatePacket;
 import com.horizonradio.network.packets.PausePacket;
@@ -33,15 +32,6 @@ public final class ClientboundMessageHandlers {
         @Override
         public IMessage onMessage(PlaylistDeltaPacket message, MessageContext context) {
             HorizonRadio.proxy.handlePlaylistDelta(message);
-            return null;
-        }
-    }
-
-    public static final class ChartAddCompletionHandler implements IMessageHandler<ChartAddCompletionPacket, IMessage> {
-
-        @Override
-        public IMessage onMessage(ChartAddCompletionPacket message, MessageContext context) {
-            HorizonRadio.proxy.handleChartAddCompletion(message);
             return null;
         }
     }

@@ -12,6 +12,8 @@ import java.nio.file.Files;
 
 import org.junit.Test;
 
+import com.google.gson.Gson;
+import com.google.gson.JsonObject;
 import com.horizonradio.core.config.HorizonRadioConfig;
 
 public class HorizonRadioConfigTest {
@@ -53,8 +55,34 @@ public class HorizonRadioConfigTest {
             assertEquals("", config.getYoutubeCookiesFromBrowser());
             assertEquals("", config.getYoutubeCookiesFile());
             assertFalse(config.isServerDebugChat());
+
+            JsonObject generated = new Gson().fromJson(readConfig(configDirectory), JsonObject.class);
+            assertTrue(generated.has("serverDebugChat"));
+            assertFalse(generated.get("serverDebugChat").getAsBoolean());
         } finally {
             deleteRecursively(configDirectory);
+        }
+    }
+
+    @Test
+    public void savesAndReloadsBothServerDebugChatValues() throws IOException {
+        File sourceDirectory = Files.createTempDirectory("horizonradio-config-debug-chat-source")
+            .toFile();
+        File savedDirectory = Files.createTempDirectory("horizonradio-config-debug-chat-saved")
+            .toFile();
+        try {
+            writeConfig(sourceDirectory, "{\"serverDebugChat\":true}");
+            HorizonRadioConfig.load(sourceDirectory).save(savedDirectory);
+            assertTrue(HorizonRadioConfig.load(savedDirectory).isServerDebugChat());
+            assertTrue(readConfig(savedDirectory).contains("\"serverDebugChat\":true"));
+
+            writeConfig(sourceDirectory, "{\"serverDebugChat\":false}");
+            HorizonRadioConfig.load(sourceDirectory).save(savedDirectory);
+            assertFalse(HorizonRadioConfig.load(savedDirectory).isServerDebugChat());
+            assertTrue(readConfig(savedDirectory).contains("\"serverDebugChat\":false"));
+        } finally {
+            deleteRecursively(sourceDirectory);
+            deleteRecursively(savedDirectory);
         }
     }
 
@@ -66,6 +94,11 @@ public class HorizonRadioConfigTest {
         } finally {
             output.close();
         }
+    }
+
+    private static String readConfig(File configDirectory) throws IOException {
+        File configFile = new File(configDirectory, "horizonradio.json");
+        return new String(Files.readAllBytes(configFile.toPath()), Charset.forName("UTF-8"));
     }
 
     private static void deleteRecursively(File file) {

@@ -3,6 +3,7 @@ package com.horizonradio.core.config;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.Charset;
@@ -58,13 +59,19 @@ public final class HorizonRadioConfig {
 
         File configFile = new File(configDirectory, "horizonradio.json");
         if (!configFile.isFile()) {
-            return new HorizonRadioConfig(
+            HorizonRadioConfig defaults = new HorizonRadioConfig(
                 maxPlaylistSize,
                 maxTrackDurationMinutes,
                 downloadDir,
                 youtubeCookiesFromBrowser,
                 youtubeCookiesFile,
                 serverDebugChat);
+            try {
+                defaults.save(configDirectory);
+            } catch (IOException ignored) {
+                // Keep the documented defaults when the optional file cannot be written.
+            }
+            return defaults;
         }
 
         BufferedReader reader = null;
@@ -130,6 +137,30 @@ public final class HorizonRadioConfig {
             youtubeCookiesFromBrowser,
             youtubeCookiesFile,
             serverDebugChat);
+    }
+
+    public void save(File configDirectory) throws IOException {
+        if (configDirectory == null) {
+            return;
+        }
+        if (!configDirectory.isDirectory() && !configDirectory.mkdirs()) {
+            throw new IOException("Could not create HorizonRadio config directory: " + configDirectory);
+        }
+
+        JsonObject object = new JsonObject();
+        object.addProperty("maxPlaylistSize", maxPlaylistSize);
+        object.addProperty("maxTrackDurationMinutes", maxTrackDurationMinutes);
+        object.addProperty("downloadDir", downloadDir);
+        object.addProperty("youtubeCookiesFromBrowser", youtubeCookiesFromBrowser);
+        object.addProperty("youtubeCookiesFile", youtubeCookiesFile);
+        object.addProperty("serverDebugChat", serverDebugChat);
+
+        FileOutputStream output = new FileOutputStream(new File(configDirectory, "horizonradio.json"));
+        try {
+            output.write(new Gson().toJson(object).getBytes(Charset.forName("UTF-8")));
+        } finally {
+            output.close();
+        }
     }
 
     public int getMaxPlaylistSize() {

@@ -118,7 +118,8 @@ Example configuration:
   "maxTrackDurationMinutes": 15,
   "downloadDir": "./horizonradio-downloads",
   "youtubeCookiesFromBrowser": "",
-  "youtubeCookiesFile": ""
+  "youtubeCookiesFile": "",
+  "serverDebugChat": false
 }
 ```
 
@@ -129,6 +130,8 @@ the configured number of minutes. YouTube metadata and finite audio use the
 embedded Java resolver/backend. The legacy cookie fields remain readable for
 configuration compatibility, but the embedded resolver does not use them; they
 can be left empty.
+`serverDebugChat` is disabled by default; set it to `true` only to mirror
+server diagnostics into Minecraft chat.
 
 The JSON above is the server/common configuration. Client audio settings and
 the finite-track cache are kept separately: the volume slider stores its value

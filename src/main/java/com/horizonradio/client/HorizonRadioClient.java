@@ -531,6 +531,9 @@ public final class HorizonRadioClient {
         boolean remove) {
         List<PlaylistSelection> mapped = toPlaylistSelections(selections);
         transport.sendAddChartSelections(mapped, remove);
+        if (!remove) {
+            completeChartAddsLocally(mapped);
+        }
     }
 
     public static synchronized void sendRemove(String videoId) {
@@ -768,11 +771,18 @@ public final class HorizonRadioClient {
         transport.sendPlaylistResync(CLIENT_QUEUE.getRevision());
     }
 
-    public static synchronized void completeChartAdds(List<String> videoIds) {
+    private static void completeChartAddsLocally(List<PlaylistSelection> selections) {
         HorizonRadioScreen screen = getOpenScreen();
-        if (screen != null) {
-            screen.completeChartAdds(videoIds);
+        if (screen == null || selections == null || selections.isEmpty()) {
+            return;
         }
+        List<String> videoIds = new ArrayList<String>();
+        for (PlaylistSelection selection : selections) {
+            if (selection != null && selection.videoId != null) {
+                videoIds.add(selection.videoId);
+            }
+        }
+        screen.completeChartAdds(videoIds);
     }
 
     public static synchronized void updateRadioPresentation(ClientRadioPresentation presentation) {

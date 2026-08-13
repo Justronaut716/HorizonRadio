@@ -24,7 +24,6 @@ import com.horizonradio.core.model.PlaylistEntry;
 import com.horizonradio.core.server.PlaylistState;
 import com.horizonradio.network.HorizonRadioNetwork;
 import com.horizonradio.network.packets.AddChartsToPlaylistPacket;
-import com.horizonradio.network.packets.ChartAddCompletionPacket;
 import com.horizonradio.network.packets.LoopStatePacket;
 import com.horizonradio.network.packets.PausePacket;
 import com.horizonradio.network.packets.PlaylistDeltaPacket;
@@ -153,7 +152,6 @@ public final class PlaylistManager {
         } else {
             addChartEntries(player, entries);
         }
-        sendChartAddCompletion(player, entries);
     }
 
     public void handleSelectRadio(EntityPlayerMP player, String stationUuid) {
@@ -422,16 +420,6 @@ public final class PlaylistManager {
             cancelAdvancement();
             startNextFinite();
         }
-    }
-
-    private void sendChartAddCompletion(EntityPlayerMP player, List<AddChartsToPlaylistPacket.Entry> entries) {
-        List<String> completedIds = new ArrayList<String>();
-        for (AddChartsToPlaylistPacket.Entry entry : entries) {
-            if (entry != null && entry.getVideoId() != null && !entry.getVideoId().trim().isEmpty()) {
-                completedIds.add(entry.getVideoId());
-            }
-        }
-        sendTo(new ChartAddCompletionPacket(completedIds), player);
     }
 
     private void removeFiniteById(String videoId, boolean startReplacement) {

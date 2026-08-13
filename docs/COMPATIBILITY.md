@@ -216,7 +216,8 @@ The preserved JSON file is `config/horizonradio.json`:
   "maxTrackDurationMinutes": 15,
   "downloadDir": "./horizonradio-downloads",
   "youtubeCookiesFromBrowser": "",
-  "youtubeCookiesFile": ""
+  "youtubeCookiesFile": "",
+  "serverDebugChat": false
 }
 ```
 

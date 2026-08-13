@@ -15,7 +15,6 @@ import com.horizonradio.client.audio.AudioPlayer;
 import com.horizonradio.client.audio.ClientRadioPlayback;
 import com.horizonradio.client.media.ClientMediaService;
 import com.horizonradio.core.model.RadioStation;
-import com.horizonradio.network.packets.ChartAddCompletionPacket;
 import com.horizonradio.network.packets.ClockSyncResponsePacket;
 import com.horizonradio.network.packets.PausePacket;
 import com.horizonradio.network.packets.PlaylistDeltaPacket;
@@ -180,17 +179,6 @@ public class ClientProxy extends CommonProxy {
             @Override
             public void run() {
                 HorizonRadioClient.handlePlaylistDelta(packet);
-            }
-        });
-    }
-
-    @Override
-    public void handleChartAddCompletion(final ChartAddCompletionPacket packet) {
-        schedule(new Runnable() {
-
-            @Override
-            public void run() {
-                HorizonRadioClient.completeChartAdds(packet.getCompletedVideoIds());
             }
         });
     }
