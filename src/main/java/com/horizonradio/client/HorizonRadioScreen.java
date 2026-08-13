@@ -1794,13 +1794,13 @@ public class HorizonRadioScreen extends GuiScreen {
         if (result == null) {
             return;
         }
-        long durationMs = DurationParser.parseMillisStrict(result.duration);
-        if (durationMs <= 0L) {
-            return;
-        }
         if (charts) {
-            HorizonRadioClient.sendAddChartsToPlaylist(toPlaylistSelections(Collections.singletonList(result)));
+            HorizonRadioClient.sendAddChartsToPlaylist(Collections.singletonList(result));
         } else {
+            long durationMs = DurationParser.parseMillisStrict(result.duration);
+            if (durationMs <= 0L) {
+                return;
+            }
             HorizonRadioClient.sendAdd(result.videoId, durationMs);
         }
     }
