@@ -69,6 +69,7 @@ public final class HorizonRadioClient {
     private static String cachedChartRegionCode = "";
     private static String pendingChartRegionCode = "";
     private static String lastRequestedChartRegionCode;
+    private static HorizonRadioScreen chartRequestScreen;
     private static ClientTransport transport = new NoopClientTransport();
     private static HorizonRadioClientConfig clientConfig;
     private static AudioDownloadService clientAudioDownloadService;
@@ -393,9 +394,11 @@ public final class HorizonRadioClient {
 
     public static synchronized void sendChartsRequest(String regionCode, boolean forceRefresh) {
         String canonicalRegionCode = canonicalChartRegionCode(regionCode, ChartRegionCatalog.GLOBAL_CODE);
+        final HorizonRadioScreen originatingScreen = getOpenScreen();
         pendingChartRegionCode = canonicalRegionCode;
         lastRequestedChartRegionCode = canonicalRegionCode;
         chartRequestPending = true;
+        chartRequestScreen = originatingScreen;
         if (clientMediaService == null) {
             updateChartResults(new ArrayList<HorizonRadioScreen.SearchResult>(), canonicalRegionCode);
             return;
@@ -417,7 +420,7 @@ public final class HorizonRadioClient {
                             @Override
                             public void run() {
                                 synchronized (HorizonRadioClient.class) {
-                                    if (generation == chartGeneration) {
+                                    if (isCurrentChartRequest(generation, originatingScreen)) {
                                         showChartError();
                                     }
                                 }
@@ -434,7 +437,7 @@ public final class HorizonRadioClient {
                                 @Override
                                 public void run() {
                                     synchronized (HorizonRadioClient.class) {
-                                        if (generation != chartGeneration) {
+                                        if (!isCurrentChartRequest(generation, originatingScreen)) {
                                             return;
                                         }
                                         if (resolutionFailure != null) {
@@ -775,6 +778,7 @@ public final class HorizonRadioClient {
         pendingChartRegionCode = responseRegionCode;
         cachedChartsAt = System.currentTimeMillis();
         chartRequestPending = false;
+        chartRequestScreen = null;
         HorizonRadioScreen screen = getOpenScreen();
         if (screen != null) {
             screen.updateChartResults(CACHED_CHARTS, cachedChartRegionCode);
@@ -1115,6 +1119,7 @@ public final class HorizonRadioClient {
         CACHED_RADIO_RESULTS.clear();
         cachedChartsAt = 0L;
         chartRequestPending = false;
+        chartRequestScreen = null;
         cachedChartRegionCode = "";
         pendingChartRegionCode = "";
         lastRequestedChartRegionCode = null;
@@ -1467,8 +1472,15 @@ public final class HorizonRadioClient {
     }
 
     private static CompletableFuture<SearchResult> resolveChartDuration(final SearchResult chart) {
-        if (chart == null || durationMillis(chart.getDuration()) > 0L) {
+        if (chart == null) {
             return CompletableFuture.completedFuture(chart);
+        }
+        long durationMs = durationMillis(chart.getDuration());
+        if (isValidChartDuration(chart.getVideoId(), durationMs)) {
+            return CompletableFuture.completedFuture(chart);
+        }
+        if (durationMs > 0L) {
+            return CompletableFuture.completedFuture(chartWithDuration(chart, "--:--"));
         }
         if (clientMetadataCache == null) {
             return CompletableFuture.completedFuture(chartWithDuration(chart, "--:--"));
@@ -1490,7 +1502,8 @@ public final class HorizonRadioClient {
 
             @Override
             public SearchResult apply(SearchResult metadata, Throwable failure) {
-                if (failure == null && metadata != null && durationMillis(metadata.getDuration()) > 0L) {
+                if (failure == null && metadata != null
+                    && isValidChartDuration(chart.getVideoId(), durationMillis(metadata.getDuration()))) {
                     return chartWithDuration(chart, metadata.getDuration());
                 }
                 return chartWithDuration(chart, "--:--");
@@ -1552,6 +1565,7 @@ public final class HorizonRadioClient {
 
     private static void showChartError() {
         chartRequestPending = false;
+        chartRequestScreen = null;
         HorizonRadioScreen screen = getOpenScreen();
         if (screen != null) {
             screen.showChartError();
@@ -1691,6 +1705,27 @@ public final class HorizonRadioClient {
 
     private static boolean isValidChartDuration(String videoId, long durationMs) {
         return isValidSelection(videoId, durationMs) && durationMs < maxTrackDurationMs();
+    }
+
+    static synchronized void onChartScreenClosed(HorizonRadioScreen screen) {
+        if (screen != null && chartRequestPending && chartRequestScreen == screen) {
+            chartGeneration++;
+            chartRequestPending = false;
+            chartRequestScreen = null;
+        }
+    }
+
+    private static boolean isCurrentChartRequest(long generation, HorizonRadioScreen originatingScreen) {
+        if (generation != chartGeneration) {
+            return false;
+        }
+        if (originatingScreen == getOpenScreen()) {
+            return true;
+        }
+        chartGeneration++;
+        chartRequestPending = false;
+        chartRequestScreen = null;
+        return false;
     }
 
     private static String chartSelectionVideoId(Object selection) {

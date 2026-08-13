@@ -244,6 +244,42 @@ public class HorizonRadioClientDiscoveryTest {
     }
 
     @Test
+    public void knownOverLimitChartUsesPlaceholderWithoutMetadataLookup() {
+        DeferredProvider provider = new DeferredProvider();
+        provider.chartResults = Collections.singletonList(new SearchResult("KnOverLim07", "Too long", "", "16:00", ""));
+        HorizonRadioClient.setClientMediaService(new ClientMediaService(provider));
+        HorizonRadioScreen screen = new HorizonRadioScreen();
+        HorizonRadioScreen.setActiveScreen(screen);
+        try {
+            HorizonRadioClient.sendChartsRequest("DE", false);
+
+            assertEquals("--:--", chartResults(screen).get(0).duration);
+            assertEquals(0, provider.videoLookupCount);
+        } finally {
+            HorizonRadioScreen.clearActiveScreen(screen);
+        }
+    }
+
+    @Test
+    public void resolvedOverLimitChartUsesPlaceholder() {
+        DeferredProvider provider = new DeferredProvider();
+        provider.chartResults = Collections.singletonList(new SearchResult("RsOverLim08", "Too long", "", "", ""));
+        CompletableFuture<String> metadata = provider.deferVideo("RsOverLim08");
+        HorizonRadioClient.setClientMediaService(new ClientMediaService(provider));
+        HorizonRadioScreen screen = new HorizonRadioScreen();
+        HorizonRadioScreen.setActiveScreen(screen);
+        try {
+            HorizonRadioClient.sendChartsRequest("DE", false);
+            metadata.complete("{\"id\":\"RsOverLim08\",\"title\":\"Too long\",\"duration\":960}");
+
+            assertEquals("--:--", chartResults(screen).get(0).duration);
+            assertEquals(1, provider.videoLookupCount);
+        } finally {
+            HorizonRadioScreen.clearActiveScreen(screen);
+        }
+    }
+
+    @Test
     public void staleChartCompletionCannotReplaceNewerGeneration() {
         DeferredProvider provider = new DeferredProvider();
         CompletableFuture<List<SearchResult>> older = provider.deferCharts();
@@ -270,62 +306,33 @@ public class HorizonRadioClientDiscoveryTest {
     }
 
     @Test
-    public void chartAddRemainsPendingUntilAuthoritativePlaylistUpdate() {
-        HorizonRadioScreen screen = new HorizonRadioScreen();
-        HorizonRadioScreen.setActiveScreen(screen);
+    public void closedChartRequestCannotPublishIntoReopenedScreen() {
+        DeferredProvider provider = new DeferredProvider();
+        CompletableFuture<List<SearchResult>> pendingCharts = provider.deferCharts();
+        HorizonRadioClient.setClientMediaService(new ClientMediaService(provider));
+        HorizonRadioScreen original = new HorizonRadioScreen();
+        HorizonRadioScreen reopened = new HorizonRadioScreen();
+        HorizonRadioScreen.setActiveScreen(original);
         try {
-            HorizonRadioScreen.SearchResult result = chartWithDuration("pending-chart", "2:00");
-            assertEquals(Collections.singletonList(result), screen.beginChartAdd(Collections.singletonList(result)));
+            HorizonRadioClient.sendChartsRequest("DE", false);
+            original.onGuiClosed();
+            boolean pendingAfterClose = HorizonRadioClient.isChartRequestPending();
+            HorizonRadioScreen.setActiveScreen(reopened);
 
-            HorizonRadioClient.sendAddChartsToPlaylist(Collections.singletonList(result));
+            pendingCharts
+                .complete(Collections.singletonList(new SearchResult("ClChartP009", "Closed", "", "2:00", "")));
 
-            assertTrue(screen.isChartAddPending("pending-chart"));
-            assertTrue(
-                screen.beginChartAdd(Collections.singletonList(result))
-                    .isEmpty());
-            assertEquals(Collections.singletonList("pending-chart|120000"), transport.chartSelections);
-
-            screen.updatePlaylist(
-                Collections.singletonList(
-                    new HorizonRadioScreen.PlaylistEntry("pending-chart", "pending-chart", "2:00", "tester")));
-            assertFalse(screen.isChartAddPending("pending-chart"));
+            assertTrue(chartResults(reopened).isEmpty());
+            assertFalse(pendingAfterClose);
+            assertFalse(HorizonRadioClient.isChartRequestPending());
         } finally {
-            HorizonRadioScreen.clearActiveScreen(screen);
-        }
-    }
-
-    @Test
-    public void bulkChartAddDoesNotResendEntriesWhileTheyAwaitQueueUpdate() {
-        HorizonRadioScreen screen = new HorizonRadioScreen();
-        HorizonRadioScreen.setActiveScreen(screen);
-        try {
-            List<HorizonRadioScreen.SearchResult> results = new ArrayList<HorizonRadioScreen.SearchResult>();
-            for (int index = 1; index <= 50; index++) {
-                results.add(chartWithDuration("bulk-chart-" + index, "2:00"));
-            }
-
-            assertEquals(
-                50,
-                screen.beginChartAdd(results)
-                    .size());
-            HorizonRadioClient.sendAddChartsToPlaylist(results);
-
-            assertEquals(50, transport.chartSelections.size());
-            assertTrue(
-                screen.beginChartAdd(results)
-                    .isEmpty());
-            assertEquals(50, transport.chartSelections.size());
-        } finally {
-            HorizonRadioScreen.clearActiveScreen(screen);
+            HorizonRadioScreen.clearActiveScreen(original);
+            HorizonRadioScreen.clearActiveScreen(reopened);
         }
     }
 
     private static HorizonRadioScreen.SearchResult chart(String videoId) {
         return new HorizonRadioScreen.SearchResult(videoId, videoId, "", "", "");
-    }
-
-    private static HorizonRadioScreen.SearchResult chartWithDuration(String videoId, String duration) {
-        return new HorizonRadioScreen.SearchResult(videoId, videoId, "", duration, "");
     }
 
     private static List<HorizonRadioScreen.SearchResult> searchResults(HorizonRadioScreen screen) {

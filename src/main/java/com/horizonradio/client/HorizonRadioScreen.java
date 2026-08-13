@@ -1320,9 +1320,16 @@ public class HorizonRadioScreen extends GuiScreen {
         activeScreen = screen;
     }
 
-    static synchronized void clearActiveScreen(HorizonRadioScreen screen) {
-        if (activeScreen == screen) {
-            activeScreen = null;
+    static void clearActiveScreen(HorizonRadioScreen screen) {
+        boolean closed = false;
+        synchronized (HorizonRadioScreen.class) {
+            if (activeScreen == screen) {
+                activeScreen = null;
+                closed = true;
+            }
+        }
+        if (closed) {
+            HorizonRadioClient.onChartScreenClosed(screen);
         }
     }
 
