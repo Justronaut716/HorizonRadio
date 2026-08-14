@@ -26,6 +26,7 @@ import com.horizonradio.core.model.RadioStation;
 import com.horizonradio.core.model.SearchResult;
 import com.horizonradio.core.server.ChartRegion;
 import com.horizonradio.core.server.ChartRegionCatalog;
+import com.horizonradio.core.server.PlaylistImportService;
 import com.horizonradio.network.HorizonRadioNetwork;
 import com.horizonradio.network.packets.AddChartsToPlaylistPacket;
 import com.horizonradio.network.packets.AddChartsToPlaylistPacket.Entry;
@@ -55,6 +56,7 @@ public final class HorizonRadioClient {
 
     private static final List<HorizonRadioScreen.PlaylistEntry> CACHED_PLAYLIST = new ArrayList<HorizonRadioScreen.PlaylistEntry>();
     private static final List<HorizonRadioScreen.SearchResult> CACHED_CHARTS = new ArrayList<HorizonRadioScreen.SearchResult>();
+    private static final List<HorizonRadioScreen.SearchResult> CACHED_PLAYLIST_RESULTS = new ArrayList<HorizonRadioScreen.SearchResult>();
     private static final List<RadioStation> CACHED_RADIO_RESULTS = new ArrayList<RadioStation>();
     private static final long CHART_CACHE_TTL_MILLIS = 7L * 24L * 60L * 60L * 1000L;
     private static String cachedNowPlaying;
@@ -82,7 +84,9 @@ public final class HorizonRadioClient {
     private static boolean playlistResyncRequested;
     private static long searchTabDiscoveryGeneration;
     private static long chartGeneration;
+    private static long playlistImportGeneration;
     private static long radioSearchGeneration;
+    private static HorizonRadioScreen playlistImportScreen;
     private static MediaSourceType activeTrackSourceType;
     private static String activeTrackSourceId;
     private static String activeTrackVideoId;
@@ -500,6 +504,53 @@ public final class HorizonRadioClient {
         completeLocalImport(clientMediaService.importPlaylist(playlistUrl));
     }
 
+    public static synchronized void sendPlaylistImport(String playlistUrl) {
+        String sanitizedUrl = playlistUrl == null ? "" : playlistUrl.trim();
+        final HorizonRadioScreen originatingScreen = getOpenScreen();
+        if (!PlaylistImportService.isPlaylistUrl(sanitizedUrl)) {
+            if (originatingScreen != null) {
+                originatingScreen.showPlaylistError("Paste a valid YouTube playlist URL");
+            }
+            return;
+        }
+        final long generation = ++playlistImportGeneration;
+        playlistImportScreen = originatingScreen;
+        if (originatingScreen != null) {
+            originatingScreen.beginPlaylistLoading();
+        }
+        if (clientMediaService == null) {
+            if (originatingScreen != null && isCurrentPlaylistImport(generation, originatingScreen)) {
+                playlistImportScreen = null;
+                originatingScreen.showPlaylistError("Playlist konnte nicht geladen werden");
+            }
+            return;
+        }
+        clientMediaService.importPlaylist(sanitizedUrl)
+            .whenComplete(new BiConsumer<List<SearchResult>, Throwable>() {
+
+                @Override
+                public void accept(final List<SearchResult> results, final Throwable failure) {
+                    ClientProxy.scheduleOnClientThread(new Runnable() {
+
+                        @Override
+                        public void run() {
+                            synchronized (HorizonRadioClient.class) {
+                                if (!isCurrentPlaylistImport(generation, originatingScreen)) {
+                                    return;
+                                }
+                                playlistImportScreen = null;
+                                if (failure != null) {
+                                    originatingScreen.showPlaylistError("Playlist konnte nicht geladen werden");
+                                } else {
+                                    publishPlaylistResults(toScreenPlaylistResults(results), originatingScreen);
+                                }
+                            }
+                        }
+                    });
+                }
+            });
+    }
+
     public static synchronized void sendImportVideo(String videoUrl) {
         if (clientMediaService == null) {
             updateSearchResults(new ArrayList<HorizonRadioScreen.SearchResult>());
@@ -718,6 +769,10 @@ public final class HorizonRadioClient {
 
     public static synchronized List<HorizonRadioScreen.SearchResult> getCachedCharts() {
         return new ArrayList<HorizonRadioScreen.SearchResult>(CACHED_CHARTS);
+    }
+
+    public static synchronized List<HorizonRadioScreen.SearchResult> getCachedPlaylistResults() {
+        return new ArrayList<HorizonRadioScreen.SearchResult>(CACHED_PLAYLIST_RESULTS);
     }
 
     public static synchronized String getCachedChartRegionCode() {
@@ -1221,10 +1276,12 @@ public final class HorizonRadioClient {
         cancelActiveTrackDownload();
         CACHED_PLAYLIST.clear();
         CACHED_CHARTS.clear();
+        CACHED_PLAYLIST_RESULTS.clear();
         CACHED_RADIO_RESULTS.clear();
         cachedChartsAt = 0L;
         chartRequestPending = false;
         chartRequestScreen = null;
+        playlistImportScreen = null;
         cachedChartRegionCode = "";
         pendingChartRegionCode = "";
         lastRequestedChartRegionCode = null;
@@ -1239,6 +1296,7 @@ public final class HorizonRadioClient {
         playlistResyncRequested = false;
         searchTabDiscoveryGeneration++;
         chartGeneration++;
+        playlistImportGeneration++;
         radioSearchGeneration++;
         serverClockOffsetMs = 0L;
         AudioPlayer.getInstance()
@@ -1672,6 +1730,39 @@ public final class HorizonRadioClient {
         return converted;
     }
 
+    private static List<HorizonRadioScreen.SearchResult> toScreenPlaylistResults(List<SearchResult> results) {
+        List<HorizonRadioScreen.SearchResult> converted = new ArrayList<HorizonRadioScreen.SearchResult>();
+        if (results == null) {
+            return converted;
+        }
+        for (SearchResult result : results) {
+            if (result == null) {
+                continue;
+            }
+            converted.add(
+                new HorizonRadioScreen.SearchResult(
+                    result.getVideoId(),
+                    result.getTitle(),
+                    result.getChannel(),
+                    result.getDuration(),
+                    result.getThumbnail()));
+            if (converted.size() >= 50) {
+                break;
+            }
+        }
+        return converted;
+    }
+
+    private static void publishPlaylistResults(List<HorizonRadioScreen.SearchResult> results, HorizonRadioScreen screen) {
+        CACHED_PLAYLIST_RESULTS.clear();
+        if (results != null) {
+            CACHED_PLAYLIST_RESULTS.addAll(results);
+        }
+        if (screen != null) {
+            screen.updatePlaylistResults(CACHED_PLAYLIST_RESULTS);
+        }
+    }
+
     private static CompletableFuture<SearchResult> resolveChartDuration(final SearchResult chart) {
         if (chart == null) {
             return CompletableFuture.completedFuture(chart);
@@ -1915,6 +2006,13 @@ public final class HorizonRadioClient {
         }
     }
 
+    static synchronized void onPlaylistScreenClosed(HorizonRadioScreen screen) {
+        if (screen != null && playlistImportScreen == screen) {
+            playlistImportGeneration++;
+            playlistImportScreen = null;
+        }
+    }
+
     private static boolean isCurrentChartRequest(long generation, HorizonRadioScreen originatingScreen) {
         if (generation != chartGeneration) {
             return false;
@@ -1926,6 +2024,12 @@ public final class HorizonRadioClient {
         chartRequestPending = false;
         chartRequestScreen = null;
         return false;
+    }
+
+    private static boolean isCurrentPlaylistImport(long generation, HorizonRadioScreen originatingScreen) {
+        return generation == playlistImportGeneration && originatingScreen != null
+            && originatingScreen == playlistImportScreen
+            && originatingScreen == getOpenScreen();
     }
 
     private static String chartSelectionVideoId(Object selection) {

@@ -117,6 +117,9 @@ public class HorizonRadioScreen extends GuiScreen {
     private String chartSearchMessage = "";
     private List<SearchResult> searchResults = new ArrayList<SearchResult>();
     private String searchError = "";
+    private List<SearchResult> playlistResults = new ArrayList<SearchResult>();
+    private boolean playlistLoading;
+    private String playlistError = "";
     private List<PlaylistEntry> playlist = new ArrayList<PlaylistEntry>();
     private List<RadioStationResult> radioResults = new ArrayList<RadioStationResult>();
     private int currentTab;
@@ -174,6 +177,7 @@ public class HorizonRadioScreen extends GuiScreen {
         int panelTop = panelTop();
         chartResults = HorizonRadioClient.getCachedCharts();
         chartRegionCode = normalizeChartRegionCode(HorizonRadioClient.getCachedChartRegionCode());
+        playlistResults = HorizonRadioClient.getCachedPlaylistResults();
         playlist = HorizonRadioClient.getCachedPlaylist();
         radioLoading = false;
         radioResultsRevealPending = false;
@@ -1174,6 +1178,22 @@ public class HorizonRadioScreen extends GuiScreen {
         updateChartRefreshButtonState();
     }
 
+    public void beginPlaylistLoading() {
+        playlistLoading = true;
+        playlistError = "";
+    }
+
+    public void updatePlaylistResults(List<SearchResult> results) {
+        playlistResults = results == null ? new ArrayList<SearchResult>() : new ArrayList<SearchResult>(results);
+        playlistLoading = false;
+        playlistError = "";
+    }
+
+    public void showPlaylistError(String message) {
+        playlistLoading = false;
+        playlistError = message == null ? "" : message;
+    }
+
     void showSearchError() {
         updateSearchResults(new ArrayList<SearchResult>());
         searchError = "Search failed";
@@ -1391,6 +1411,7 @@ public class HorizonRadioScreen extends GuiScreen {
         }
         if (closed) {
             HorizonRadioClient.onChartScreenClosed(screen);
+            HorizonRadioClient.onPlaylistScreenClosed(screen);
         }
     }
 

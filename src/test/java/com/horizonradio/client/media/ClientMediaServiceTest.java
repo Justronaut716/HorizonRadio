@@ -50,6 +50,20 @@ public class ClientMediaServiceTest {
     }
 
     @Test
+    public void importPlaylistKeepsFirstFiftyValidUniqueEntriesInSourceOrder() throws Exception {
+        FakeProvider provider = new FakeProvider();
+        provider.playlistJson = playlistFixtureWithFiftyUniqueResults();
+
+        List<SearchResult> imported = new ClientMediaService(provider)
+            .importPlaylist("https://www.youtube.com/playlist?list=PL50")
+            .get();
+
+        assertEquals(50, imported.size());
+        assertEquals(new SearchResult("fixture-01", "Fixture 1", "", "1:00", ""), imported.get(0));
+        assertEquals(new SearchResult("fixture-52", "Fixture 52", "", "1:51", ""), imported.get(49));
+    }
+
+    @Test
     public void lookupRadioRejectsUnsuitableStationBeforeLocalUse() throws Exception {
         FakeProvider provider = new FakeProvider();
         provider.station = new RadioStation("station-id", "Broken", "ftp://example.invalid/stream", true, false);
@@ -99,5 +113,30 @@ public class ClientMediaServiceTest {
         public CompletableFuture<RadioStation> lookupRadio(String stationUuid) {
             return CompletableFuture.completedFuture(station);
         }
+    }
+
+    private static String playlistFixtureWithFiftyUniqueResults() {
+        StringBuilder json = new StringBuilder("{\"entries\":[");
+        for (int index = 1; index <= 52; index++) {
+            if (index > 1) {
+                json.append(',');
+            }
+            if (index == 17) {
+                json.append("{\"id\":\"fixture-05\",\"title\":\"Duplicate Five\",\"duration\":77}");
+            } else if (index == 23) {
+                json.append("{\"title\":\"Missing Id\",\"duration\":78}");
+            } else {
+                json.append("{\"id\":\"fixture-")
+                    .append(index < 10 ? "0" : "")
+                    .append(index)
+                    .append("\",\"title\":\"Fixture ")
+                    .append(index)
+                    .append("\",\"duration\":")
+                    .append(59 + index)
+                    .append('}');
+            }
+        }
+        json.append("]}");
+        return json.toString();
     }
 }
