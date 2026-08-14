@@ -61,6 +61,46 @@ public class PlaylistStateTest {
     }
 
     @Test
+    public void radioSelectionStoresInterruptedFiniteTrackAndKeepsSuccessors() {
+        PlaylistState state = new PlaylistState(5);
+        state.add(PlaylistEntry.youtube("current", 60_000L, "Alice"));
+        state.add(PlaylistEntry.youtube("next", 60_000L, "Bob"));
+        state.startFiniteTrack(0, "current", 60_000L, 0L);
+
+        assertTrue(state.selectRadioAtFront(PlaylistEntry.radio("station", "Carol")));
+
+        assertEquals(
+            "station",
+            state.get(0)
+                .getSourceId());
+        assertEquals(
+            "next",
+            state.get(1)
+                .getSourceId());
+        assertEquals(
+            "current",
+            state.peekLastTrack()
+                .getSourceId());
+        assertEquals(MediaSourceType.RADIO, state.getCurrentSourceType());
+    }
+
+    @Test
+    public void pausingRadioKeepsQueueAndRadioSelection() {
+        PlaylistState state = new PlaylistState(5);
+        state.selectRadioAtFront(PlaylistEntry.radio("station", "Carol"));
+
+        assertTrue(state.pauseRadioPlayback());
+
+        assertFalse(state.isPlaying());
+        assertEquals(0, state.getCurrentIndex());
+        assertEquals(MediaSourceType.RADIO, state.getCurrentSourceType());
+        assertEquals(
+            "station",
+            state.get(0)
+                .getSourceId());
+    }
+
+    @Test
     public void selectingRadioAtFrontAtomicallyReplacesTheActiveStation() {
         PlaylistState state = new PlaylistState(5);
         state.selectRadioAtFront(PlaylistEntry.radio("station-one", "Alice"));

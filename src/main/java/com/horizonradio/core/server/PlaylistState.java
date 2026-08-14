@@ -182,6 +182,14 @@ public final class PlaylistState {
             return false;
         }
 
+        if (currentIndex >= 0 && currentIndex < playlist.size()
+            && currentSourceType == MediaSourceType.YOUTUBE
+            && playlist.get(currentIndex)
+                .isFinite()) {
+            lastTrack = playlist.remove(currentIndex);
+            currentIndex--;
+        }
+
         boolean replacesFrontRadio = !playlist.isEmpty() && playlist.get(0)
             .isRadio();
         if (replacesFrontRadio) {
@@ -192,6 +200,18 @@ public final class PlaylistState {
         }
         markQueueMutation();
         startRadioTrack(0, station.getSourceId());
+        return true;
+    }
+
+    public boolean pauseRadioPlayback() {
+        if (currentIndex < 0 || currentIndex >= playlist.size()
+            || currentSourceType != MediaSourceType.RADIO
+            || !playlist.get(currentIndex)
+                .isRadio()) {
+            return false;
+        }
+        playing = false;
+        paused = false;
         return true;
     }
 
