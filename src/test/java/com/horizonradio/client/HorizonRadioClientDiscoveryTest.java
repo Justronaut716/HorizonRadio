@@ -94,7 +94,10 @@ public class HorizonRadioClientDiscoveryTest {
             HorizonRadioClient.sendPlaylistImport("https://www.youtube.com/playlist?list=PLlocal");
             importPlaylist.complete("{\"entries\":[{\"id\":\"song-one\",\"title\":\"One\",\"duration\":60}]}");
 
-            assertEquals("song-one", HorizonRadioClient.getCachedPlaylistResults().get(0).videoId);
+            assertEquals(
+                "song-one",
+                HorizonRadioClient.getCachedPlaylistResults()
+                    .get(0).videoId);
             assertEquals("song-one", playlistResults(screen).get(0).videoId);
             assertEquals(0, transport.discoveryCallCount);
         } finally {
@@ -117,7 +120,10 @@ public class HorizonRadioClientDiscoveryTest {
             newer.complete("{\"entries\":[{\"id\":\"new-song\",\"title\":\"New\",\"duration\":60}]}");
             older.complete("{\"entries\":[{\"id\":\"old-song\",\"title\":\"Old\",\"duration\":60}]}");
 
-            assertEquals("new-song", HorizonRadioClient.getCachedPlaylistResults().get(0).videoId);
+            assertEquals(
+                "new-song",
+                HorizonRadioClient.getCachedPlaylistResults()
+                    .get(0).videoId);
             assertEquals("new-song", playlistResults(screen).get(0).videoId);
         } finally {
             HorizonRadioScreen.clearActiveScreen(screen);
@@ -133,7 +139,9 @@ public class HorizonRadioClientDiscoveryTest {
         try {
             HorizonRadioClient.sendPlaylistImport("not a playlist");
 
-            assertTrue(HorizonRadioClient.getCachedPlaylistResults().isEmpty());
+            assertTrue(
+                HorizonRadioClient.getCachedPlaylistResults()
+                    .isEmpty());
             assertEquals("Paste a valid YouTube playlist URL", playlistError(screen));
             assertFalse(isPlaylistLoading(screen));
             assertEquals(0, provider.playlistImportCallCount);
@@ -158,7 +166,9 @@ public class HorizonRadioClientDiscoveryTest {
 
             pendingImport.complete("{\"entries\":[{\"id\":\"closed-song\",\"title\":\"Closed\",\"duration\":60}]}");
 
-            assertTrue(HorizonRadioClient.getCachedPlaylistResults().isEmpty());
+            assertTrue(
+                HorizonRadioClient.getCachedPlaylistResults()
+                    .isEmpty());
             assertTrue(playlistResults(reopened).isEmpty());
         } finally {
             HorizonRadioScreen.clearActiveScreen(original);
@@ -279,10 +289,8 @@ public class HorizonRadioClientDiscoveryTest {
 
     @Test
     public void playlistBulkAddPreservesOrderAndUsesOnlyQueueSelectionTransport() {
-        HorizonRadioScreen.SearchResult first =
-            new HorizonRadioScreen.SearchResult("pl-one", "One", "", "1:00", "");
-        HorizonRadioScreen.SearchResult second =
-            new HorizonRadioScreen.SearchResult("pl-two", "Two", "", "2:00", "");
+        HorizonRadioScreen.SearchResult first = new HorizonRadioScreen.SearchResult("pl-one", "One", "", "1:00", "");
+        HorizonRadioScreen.SearchResult second = new HorizonRadioScreen.SearchResult("pl-two", "Two", "", "2:00", "");
 
         HorizonRadioClient.sendPlaylistResultsToQueue(Arrays.asList(first, second));
 
@@ -296,12 +304,14 @@ public class HorizonRadioClientDiscoveryTest {
         HorizonRadioClient.setClientMediaService(new ClientMediaService(provider));
         HorizonRadioScreen screen = new HorizonRadioScreen();
         HorizonRadioScreen.setActiveScreen(screen);
-        HorizonRadioScreen.SearchResult result =
-            new HorizonRadioScreen.SearchResult("pl-missing", "Missing", "", "", "");
+        HorizonRadioScreen.SearchResult result = new HorizonRadioScreen.SearchResult(
+            "pl-missing",
+            "Missing",
+            "",
+            "",
+            "");
         try {
-            assertEquals(
-                Collections.singletonList(result),
-                screen.beginPlaylistAdd(Collections.singletonList(result)));
+            assertEquals(Collections.singletonList(result), screen.beginPlaylistAdd(Collections.singletonList(result)));
 
             HorizonRadioClient.sendPlaylistResultsToQueue(Collections.singletonList(result));
             provider.deferVideo("pl-missing")

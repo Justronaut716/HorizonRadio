@@ -772,23 +772,17 @@ public class HorizonRadioScreen extends GuiScreen {
 
     @Override
     protected void keyTyped(char typedChar, int keyCode) {
-        if (usesSharedSearchField()
-            && searchField.textboxKeyTyped(typedChar, keyCode)) {
+        if (usesSharedSearchField() && searchField.textboxKeyTyped(typedChar, keyCode)) {
             return;
         }
-        if (currentTab == PLAYLIST_DISCOVERY_TAB
-            && playlistUrlField.textboxKeyTyped(typedChar, keyCode)) {
+        if (currentTab == PLAYLIST_DISCOVERY_TAB && playlistUrlField.textboxKeyTyped(typedChar, keyCode)) {
             return;
         }
-        if (usesSharedSearchField()
-            && keyCode == Keyboard.KEY_RETURN
-            && searchField.isFocused()) {
+        if (usesSharedSearchField() && keyCode == Keyboard.KEY_RETURN && searchField.isFocused()) {
             performSearch();
             return;
         }
-        if (currentTab == PLAYLIST_DISCOVERY_TAB
-            && keyCode == Keyboard.KEY_RETURN
-            && playlistUrlField.isFocused()) {
+        if (currentTab == PLAYLIST_DISCOVERY_TAB && keyCode == Keyboard.KEY_RETURN && playlistUrlField.isFocused()) {
             performPlaylistImport();
             return;
         }
@@ -836,7 +830,8 @@ public class HorizonRadioScreen extends GuiScreen {
                 } else if (playlistDiscovery && areAllPlaylistResultsInQueue()) {
                     HorizonRadioClient.sendAddChartsToPlaylist(toPlaylistSelections(playlistResults), true);
                 } else {
-                    List<SearchResult> request = charts ? beginChartAdd(chartResults) : beginPlaylistAdd(playlistResults);
+                    List<SearchResult> request = charts ? beginChartAdd(chartResults)
+                        : beginPlaylistAdd(playlistResults);
                     if (!request.isEmpty()) {
                         if (charts) {
                             HorizonRadioClient.sendAddChartsToPlaylist(request);
@@ -849,17 +844,13 @@ public class HorizonRadioScreen extends GuiScreen {
             }
             List<SearchResult> results = charts ? chartResults
                 : (playlistDiscovery ? playlistResults : displayedSearchResults());
-            int scrollOffset = charts ? chartScrollOffset : (playlistDiscovery ? playlistScrollOffset : searchScrollOffset);
+            int scrollOffset = charts ? chartScrollOffset
+                : (playlistDiscovery ? playlistScrollOffset : searchScrollOffset);
             int listTop = playlistDiscovery ? playlistDiscoveryListTop(panelTop()) : resultListTop(panelTop());
             if (isResultScrollbarAt(panelLeft(), listTop, results.size(), mouseX, mouseY)) {
                 int trackHeight = MAX_VISIBLE_ROWS * ROW_HEIGHT - 2;
                 int thumbHeight = resultScrollbarThumbHeight(results.size(), trackHeight);
-                int thumbTop = resultScrollbarThumbTop(
-                    results.size(),
-                    scrollOffset,
-                    listTop,
-                    trackHeight,
-                    thumbHeight);
+                int thumbTop = resultScrollbarThumbTop(results.size(), scrollOffset, listTop, trackHeight, thumbHeight);
                 resultScrollbarDragOffset = mouseY - thumbTop;
                 draggingResultScrollbar = true;
                 updateResultScrollbarScroll(mouseY);
@@ -1200,7 +1191,9 @@ public class HorizonRadioScreen extends GuiScreen {
         for (int index = 0; index < results.size(); index++) {
             SearchResult result = results.get(index);
             if (result != null && videoId.equals(result.videoId) && !duration.equals(result.duration)) {
-                results.set(index, new SearchResult(result.videoId, result.title, result.channel, duration, result.thumbnail));
+                results.set(
+                    index,
+                    new SearchResult(result.videoId, result.title, result.channel, duration, result.thumbnail));
             }
         }
     }
@@ -1548,7 +1541,6 @@ public class HorizonRadioScreen extends GuiScreen {
         draggedPlaylistIndex = -1;
         draggedPlaylistEntry = null;
         playlistDragMoved = false;
-        HorizonRadioClient.onPlaylistScreenClosed(this);
         clearActiveScreen(this);
     }
 

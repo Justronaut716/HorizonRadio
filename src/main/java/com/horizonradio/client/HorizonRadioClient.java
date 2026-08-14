@@ -1771,7 +1771,8 @@ public final class HorizonRadioClient {
         return converted;
     }
 
-    private static void publishPlaylistResults(List<HorizonRadioScreen.SearchResult> results, HorizonRadioScreen screen) {
+    private static void publishPlaylistResults(List<HorizonRadioScreen.SearchResult> results,
+        HorizonRadioScreen screen) {
         CACHED_PLAYLIST_RESULTS.clear();
         if (results != null) {
             CACHED_PLAYLIST_RESULTS.addAll(results);
@@ -1934,7 +1935,11 @@ public final class HorizonRadioClient {
                                         updateCachedResultDuration(resolution.videoId, resolution.metadata);
                                     } else if (resolution != null && resolution.videoId != null) {
                                         failedIds.add(resolution.videoId);
-                                        debugChat(addItemFailureMessage(origin, resolution.videoId, failureMessage(null, resolution)));
+                                        debugChat(
+                                            addItemFailureMessage(
+                                                origin,
+                                                resolution.videoId,
+                                                failureMessage(null, resolution)));
                                     }
                                 }
                                 clearPendingAdds(origin, failedIds);
@@ -2015,18 +2020,12 @@ public final class HorizonRadioClient {
 
     private static String addItemFailureMessage(QueueSelectionOrigin origin, String videoId, String message) {
         return (origin == QueueSelectionOrigin.PLAYLIST ? "Playlist konnte nicht hinzugefügt werden: "
-            : "Chart konnte nicht hinzugefügt werden: ")
-            + videoId
-            + " ("
-            + message
-            + ")";
+            : "Chart konnte nicht hinzugefügt werden: ") + videoId + " (" + message + ")";
     }
 
     private static String addSuccessMessage(QueueSelectionOrigin origin, int count) {
         return (origin == QueueSelectionOrigin.PLAYLIST ? "Playlist-Auswahl lokal aufgelöst: "
-            : "Chart-Auswahl lokal aufgelöst: ")
-            + count
-            + " Titel.";
+            : "Chart-Auswahl lokal aufgelöst: ") + count + " Titel.";
     }
 
     private static boolean isValidChartDuration(String videoId, long durationMs) {

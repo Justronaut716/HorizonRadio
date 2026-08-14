@@ -20,6 +20,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 
 import javax.imageio.ImageIO;
 
@@ -30,6 +31,9 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
+import com.horizonradio.client.media.ClientMediaService;
+import com.horizonradio.core.model.RadioStation;
+import com.horizonradio.core.server.ChartRegion;
 import com.horizonradio.network.packets.TrackSyncPacket;
 
 public class GuiLayoutTest {
@@ -45,6 +49,7 @@ public class GuiLayoutTest {
     @After
     public void tearDown() {
         HorizonRadioClient.clearCache();
+        HorizonRadioClient.setClientMediaService(null);
         HorizonRadioClient.loadClientConfig(null);
         HorizonRadioClient.setVolume(1.0f);
         HorizonRadioClient.setTransport(new HorizonRadioClient.NoopClientTransport());
@@ -83,6 +88,59 @@ public class GuiLayoutTest {
         } finally {
             HorizonRadioScreen.clearActiveScreen(screen);
         }
+    }
+
+    @Test
+    public void playlistDiscoveryResultsCachePopulateANewScreenWithoutChangingQueue() {
+        HorizonRadioClient.setClientMediaService(
+            new ClientMediaService(
+                new ImmediatePlaylistImportProvider(
+                    "{\"entries\":[{\"id\":\"cached-playlist-song\",\"title\":\"Cached Playlist Song\",\"duration\":60}]}")));
+        TestScreen original = new TestScreen();
+        TestScreen reopened = new TestScreen();
+        original.setScreenSize(300, 285);
+        reopened.setScreenSize(300, 285);
+        try {
+            original.initialize();
+            original.selectPlaylistDiscoveryTab();
+
+            HorizonRadioClient.sendPlaylistImport("https://www.youtube.com/playlist?list=PLcache");
+
+            reopened.initialize();
+            reopened.selectPlaylistDiscoveryTab();
+
+            assertEquals(Collections.singletonList("cached-playlist-song"), reopened.playlistResultVideoIds());
+            assertTrue(
+                reopened.getPlaylistSnapshot()
+                    .isEmpty());
+            assertFalse(reopened.isPlaylistTab());
+        } finally {
+            HorizonRadioScreen.clearActiveScreen(original);
+            HorizonRadioScreen.clearActiveScreen(reopened);
+        }
+    }
+
+    @Test
+    public void closingAnActivePlaylistImportScreenInvalidatesPlaylistImportsOnce() {
+        CompletableFuture<String> pendingImport = new CompletableFuture<String>();
+        HorizonRadioClient
+            .setClientMediaService(new ClientMediaService(new PendingPlaylistImportProvider(pendingImport)));
+        TestScreen screen = new TestScreen();
+        screen.setScreenSize(300, 285);
+        screen.initialize();
+        screen.selectPlaylistDiscoveryTab();
+
+        HorizonRadioClient.sendPlaylistImport("https://www.youtube.com/playlist?list=PLclose");
+        long generationAfterRequest = playlistImportGeneration();
+
+        screen.onGuiClosed();
+        pendingImport
+            .complete("{\"entries\":[{\"id\":\"closed-after-gui\",\"title\":\"Closed After GUI\",\"duration\":60}]}");
+
+        assertEquals(generationAfterRequest + 1L, playlistImportGeneration());
+        assertTrue(
+            HorizonRadioClient.getCachedPlaylistResults()
+                .isEmpty());
     }
 
     @Test
@@ -267,15 +325,21 @@ public class GuiLayoutTest {
     @Test
     public void playlistPendingStateIsIndependentFromPendingChartAdds() {
         TestScreen screen = new TestScreen();
-        HorizonRadioScreen.SearchResult shared =
-            new HorizonRadioScreen.SearchResult("shared", "Shared", "", "2:00", "");
-        HorizonRadioScreen.SearchResult playlistOnly =
-            new HorizonRadioScreen.SearchResult("playlist-only", "Playlist only", "", "3:00", "");
+        HorizonRadioScreen.SearchResult shared = new HorizonRadioScreen.SearchResult(
+            "shared",
+            "Shared",
+            "",
+            "2:00",
+            "");
+        HorizonRadioScreen.SearchResult playlistOnly = new HorizonRadioScreen.SearchResult(
+            "playlist-only",
+            "Playlist only",
+            "",
+            "3:00",
+            "");
 
         assertEquals(Collections.singletonList(shared), screen.beginChartAdd(Collections.singletonList(shared)));
-        assertEquals(
-            Arrays.asList(shared, playlistOnly),
-            screen.beginPlaylistAdd(Arrays.asList(shared, playlistOnly)));
+        assertEquals(Arrays.asList(shared, playlistOnly), screen.beginPlaylistAdd(Arrays.asList(shared, playlistOnly)));
 
         assertTrue(screen.isChartAddPending("shared"));
         assertTrue(screen.isPlaylistAddPending("shared"));
@@ -314,21 +378,26 @@ public class GuiLayoutTest {
     @Test
     public void playlistRowQueueButtonUsesQueueTransportWithoutAddingToQueueLocally() {
         TestScreen screen = initializedPlaylistScreen(
-            Collections.singletonList(
-                new HorizonRadioScreen.SearchResult("playlist-song", "Playlist Song", "", "2:00", "")));
+            Collections
+                .singletonList(new HorizonRadioScreen.SearchResult("playlist-song", "Playlist Song", "", "2:00", "")));
 
         screen.click(280, 75);
 
         assertEquals(Collections.singletonList("playlist-song|120000"), transport.chartSelections);
-        assertEquals("playlist-song", screen.getPlaylistResultsSnapshot().get(0).videoId);
-        assertTrue(screen.getPlaylistSnapshot().isEmpty());
+        assertEquals(
+            "playlist-song",
+            screen.getPlaylistResultsSnapshot()
+                .get(0).videoId);
+        assertTrue(
+            screen.getPlaylistSnapshot()
+                .isEmpty());
     }
 
     @Test
     public void playlistRowClickPlaysNowAndSwitchesToQueue() {
         TestScreen screen = initializedPlaylistScreen(
-            Collections.singletonList(
-                new HorizonRadioScreen.SearchResult("playlist-song", "Playlist Song", "", "2:00", "")));
+            Collections
+                .singletonList(new HorizonRadioScreen.SearchResult("playlist-song", "Playlist Song", "", "2:00", "")));
 
         screen.click(50, 75);
 
@@ -346,7 +415,9 @@ public class GuiLayoutTest {
         screen.click(280, 58);
 
         assertEquals(Arrays.asList("playlist-one|60000", "playlist-two|120000"), transport.chartSelections);
-        assertTrue(screen.getPlaylistSnapshot().isEmpty());
+        assertTrue(
+            screen.getPlaylistSnapshot()
+                .isEmpty());
     }
 
     @Test
@@ -1234,6 +1305,16 @@ public class GuiLayoutTest {
         }
     }
 
+    private static long playlistImportGeneration() {
+        try {
+            java.lang.reflect.Field field = HorizonRadioClient.class.getDeclaredField("playlistImportGeneration");
+            field.setAccessible(true);
+            return field.getLong(null);
+        } catch (ReflectiveOperationException exception) {
+            throw new AssertionError("Playlist import generation was not available", exception);
+        }
+    }
+
     private static boolean invokeShouldDrawPlaybackProgress(boolean radioActive, boolean pausedRadio) {
         try {
             java.lang.reflect.Method method = HorizonRadioScreen.class
@@ -1427,6 +1508,14 @@ public class GuiLayoutTest {
             return ids;
         }
 
+        private List<String> playlistResultVideoIds() {
+            List<String> ids = new ArrayList<String>();
+            for (SearchResult result : getPlaylistResultsSnapshot()) {
+                ids.add(result.videoId);
+            }
+            return ids;
+        }
+
         private List<String> radioDisplayStationUuids() {
             List<RadioStationResult> results = invokeDisplayedRadioResults();
             List<String> ids = new ArrayList<String>();
@@ -1590,6 +1679,86 @@ public class GuiLayoutTest {
         @Override
         public void sendStopRadio() {
             stopRadio = true;
+        }
+    }
+
+    private static final class ImmediatePlaylistImportProvider implements ClientMediaService.RemoteProvider {
+
+        private final String playlistJson;
+
+        private ImmediatePlaylistImportProvider(String playlistJson) {
+            this.playlistJson = playlistJson;
+        }
+
+        @Override
+        public CompletableFuture<List<com.horizonradio.core.model.SearchResult>> search(String query,
+            long maxDurationMs) {
+            return CompletableFuture.completedFuture(Collections.<com.horizonradio.core.model.SearchResult>emptyList());
+        }
+
+        @Override
+        public CompletableFuture<List<com.horizonradio.core.model.SearchResult>> fetchCharts(ChartRegion region) {
+            return CompletableFuture.completedFuture(Collections.<com.horizonradio.core.model.SearchResult>emptyList());
+        }
+
+        @Override
+        public CompletableFuture<String> extractPlaylistJson(String playlistUrl) {
+            return CompletableFuture.completedFuture(playlistJson);
+        }
+
+        @Override
+        public CompletableFuture<String> extractVideoJson(String videoUrl) {
+            return CompletableFuture.completedFuture("{}");
+        }
+
+        @Override
+        public CompletableFuture<List<RadioStation>> searchRadio(String query) {
+            return CompletableFuture.completedFuture(Collections.<RadioStation>emptyList());
+        }
+
+        @Override
+        public CompletableFuture<RadioStation> lookupRadio(String stationUuid) {
+            return CompletableFuture.completedFuture(null);
+        }
+    }
+
+    private static final class PendingPlaylistImportProvider implements ClientMediaService.RemoteProvider {
+
+        private final CompletableFuture<String> playlistJson;
+
+        private PendingPlaylistImportProvider(CompletableFuture<String> playlistJson) {
+            this.playlistJson = playlistJson;
+        }
+
+        @Override
+        public CompletableFuture<List<com.horizonradio.core.model.SearchResult>> search(String query,
+            long maxDurationMs) {
+            return CompletableFuture.completedFuture(Collections.<com.horizonradio.core.model.SearchResult>emptyList());
+        }
+
+        @Override
+        public CompletableFuture<List<com.horizonradio.core.model.SearchResult>> fetchCharts(ChartRegion region) {
+            return CompletableFuture.completedFuture(Collections.<com.horizonradio.core.model.SearchResult>emptyList());
+        }
+
+        @Override
+        public CompletableFuture<String> extractPlaylistJson(String playlistUrl) {
+            return playlistJson;
+        }
+
+        @Override
+        public CompletableFuture<String> extractVideoJson(String videoUrl) {
+            return CompletableFuture.completedFuture("{}");
+        }
+
+        @Override
+        public CompletableFuture<List<RadioStation>> searchRadio(String query) {
+            return CompletableFuture.completedFuture(Collections.<RadioStation>emptyList());
+        }
+
+        @Override
+        public CompletableFuture<RadioStation> lookupRadio(String stationUuid) {
+            return CompletableFuture.completedFuture(null);
         }
     }
 }
