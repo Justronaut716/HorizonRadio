@@ -15,6 +15,7 @@ public final class JavaAudioDownloadBackend implements YouTubeMediaModels.AudioD
     private static final int TIMEOUT_MILLIS = 15000;
     private static final int PREFIX_BYTES = 44;
     private static final long RANGE_CHUNK_BYTES = 1024L * 1024L;
+    private static final long DEFAULT_MAXIMUM_BYTES = 128L * 1024L * 1024L;
     private static final String MEDIA_USER_AGENT = "com.google.android.apps.youtube.vr.oculus/1.65.10 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip";
     private static final ConcurrentMap<Path, Object> DESTINATION_LOCKS = new ConcurrentHashMap<Path, Object>();
     private final YouTubeStreamResolver resolver;
@@ -28,7 +29,7 @@ public final class JavaAudioDownloadBackend implements YouTubeMediaModels.AudioD
             new YouTubeStreamResolver(),
             new YouTubeMediaModels.UrlConnectionHttpRequester(),
             new AudioDecoderRegistry(),
-            64L * 1024L * 1024L);
+            DEFAULT_MAXIMUM_BYTES);
     }
 
     public JavaAudioDownloadBackend(YouTubeStreamResolver resolver, YouTubeMediaModels.HttpRequester requester,
@@ -69,43 +70,57 @@ public final class JavaAudioDownloadBackend implements YouTubeMediaModels.AudioD
         WavFileSink sink = null;
         MediaRangeInputStream rangeInput = null;
         long chunkBytes = Math.min(RANGE_CHUNK_BYTES, maximumBytes);
-        Map<String, String> mediaHeaders = mediaHeaders();
-        if (stream.getVisitorData()
-            .length() > 0) {
-            mediaHeaders.put("X-Goog-Visitor-Id", stream.getVisitorData());
+        Map<String, String> mediaHeaders = mediaHeaders(stream);
+        YouTubeMediaModels.HttpResponse response;
+        try {
+            response = openInitialResponse(stream, mediaHeaders, chunkBytes, true);
+        } catch (IOException firstFailure) {
+            checkCancelled(token);
+            stream = resolver.resolveAudio(videoId);
+            checkCancelled(token);
+            if (stream.getExpiresAtMillis() <= System.currentTimeMillis())
+                throw new MediaException("YouTube stream URL expired before retry", firstFailure);
+            mediaHeaders = mediaHeaders(stream);
+            try {
+                response = openInitialResponse(stream, mediaHeaders, chunkBytes, false);
+            } catch (IOException retryFailure) {
+                retryFailure.addSuppressed(firstFailure);
+                throw retryFailure;
+            }
         }
-        Map<String, String> firstHeaders = new HashMap<String, String>(mediaHeaders);
-        firstHeaders.put("Range", rangeHeader(0L, chunkBytes - 1L));
-        try (YouTubeMediaModels.HttpResponse response = requester.get(
-            stream.getUrl(),
-            firstHeaders,
-            TIMEOUT_MILLIS,
-            maximumBytes,
-            YouTubeMediaModels.RedirectPolicy.MEDIA)) {
-            if (response.getStatusCode() < 200 || response.getStatusCode() >= 300
-                || !YouTubeStreamResolver.isSafeMediaUrl(response.getUrl())) {
+        try (YouTubeMediaModels.HttpResponse responseResource = response) {
+            if (responseResource.getStatusCode() < 200 || responseResource.getStatusCode() >= 300
+                || !YouTubeStreamResolver.isSafeMediaUrl(responseResource.getUrl())) {
                 throw new MediaException("Audio response exceeds its finite limits");
             }
             InputStream compressed;
             long expectedLength;
-            if (response.getStatusCode() == 206) {
-                rangeInput = MediaRangeInputStream
-                    .open(stream.getUrl(), requester, mediaHeaders, TIMEOUT_MILLIS, maximumBytes, chunkBytes, response);
+            if (responseResource.getStatusCode() == 206) {
+                rangeInput = MediaRangeInputStream.open(
+                    stream.getUrl(),
+                    requester,
+                    mediaHeaders,
+                    TIMEOUT_MILLIS,
+                    maximumBytes,
+                    chunkBytes,
+                    responseResource);
                 compressed = rangeInput;
                 expectedLength = rangeInput.getTotalBytes();
             } else {
-                if (response.getContentLength() < 0L || response.getContentLength() > maximumBytes) {
+                if (responseResource.getContentLength() < 0L || responseResource.getContentLength() > maximumBytes) {
                     throw new MediaException("Audio response exceeds its finite limits");
                 }
-                compressed = new BoundedInputStream(response.getInputStream(), response.getContentLength());
-                expectedLength = response.getContentLength();
+                compressed = new BoundedInputStream(
+                    responseResource.getInputStream(),
+                    responseResource.getContentLength());
+                expectedLength = responseResource.getContentLength();
             }
-            if (!YouTubeStreamResolver.isSafeMediaUrl(response.getUrl()))
+            if (!YouTubeStreamResolver.isSafeMediaUrl(responseResource.getUrl()))
                 throw new MediaException("Audio response redirected to an unsafe URL");
             CountingInputStream counted = new CountingInputStream(compressed);
             InputStream input = new CancellationInputStream(counted, token);
             byte[] prefix = readPrefix(input, PREFIX_BYTES);
-            MediaFormat detected = detector.detect(response.getContentType(), prefix);
+            MediaFormat detected = detector.detect(responseResource.getContentType(), prefix);
             if (detected != stream.getFormat() || !registry.supports(detected))
                 throw new MediaException("Resolved stream format does not match the audio response");
             sink = new WavFileSink(destination, maximumBytes);
@@ -131,6 +146,16 @@ public final class JavaAudioDownloadBackend implements YouTubeMediaModels.AudioD
         return true;
     }
 
+    private YouTubeMediaModels.HttpResponse openInitialResponse(YouTubeMediaModels.ResolvedAudioStream stream,
+        Map<String, String> mediaHeaders, long chunkBytes, boolean ranged) throws IOException {
+        Map<String, String> firstHeaders = new HashMap<String, String>(mediaHeaders);
+        if (ranged) {
+            firstHeaders.put("Range", rangeHeader(0L, chunkBytes - 1L));
+        }
+        return requester
+            .get(stream.getUrl(), firstHeaders, TIMEOUT_MILLIS, maximumBytes, YouTubeMediaModels.RedirectPolicy.MEDIA);
+    }
+
     private static byte[] readPrefix(InputStream input, int maximum) throws IOException {
         java.io.ByteArrayOutputStream output = new java.io.ByteArrayOutputStream();
         byte[] buffer = new byte[maximum];
@@ -144,12 +169,16 @@ public final class JavaAudioDownloadBackend implements YouTubeMediaModels.AudioD
             .isInterrupted()) throw new MediaException("YouTube audio download cancelled");
     }
 
-    private static Map<String, String> mediaHeaders() {
+    private static Map<String, String> mediaHeaders(YouTubeMediaModels.ResolvedAudioStream stream) {
         Map<String, String> headers = new HashMap<String, String>();
         headers.put("Accept", "*/*");
         headers.put("Origin", "https://www.youtube.com");
         headers.put("Referer", "https://www.youtube.com/");
         headers.put("User-Agent", MEDIA_USER_AGENT);
+        if (stream.getVisitorData()
+            .length() > 0) {
+            headers.put("X-Goog-Visitor-Id", stream.getVisitorData());
+        }
         return headers;
     }
 

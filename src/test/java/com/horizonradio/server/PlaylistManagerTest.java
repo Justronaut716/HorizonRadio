@@ -38,6 +38,69 @@ public class PlaylistManagerTest {
     private static final String SECOND_VIDEO_ID = "lmnopqrstuv";
 
     @Test
+    public void givesTheFirstFiniteTrackEnoughLocalPreparationTime() throws Exception {
+        RecordingPacketBroadcaster broadcaster = new RecordingPacketBroadcaster();
+        PlaylistManager manager = manager(broadcaster);
+        try {
+            long before = System.currentTimeMillis();
+            manager.handleAddToPlaylist(testPlayer(), VIDEO_ID, 60_000L);
+
+            TrackSyncPacket sync = broadcaster.lastTrackSync();
+            long preparationDelay = sync.getStartAtMs() - before;
+            assertTrue("initial preparation delay was too short: " + preparationDelay, preparationDelay >= 4_000L);
+            assertTrue(
+                "initial preparation delay was unexpectedly long: " + preparationDelay,
+                preparationDelay <= 6_000L);
+        } finally {
+            manager.shutdown();
+        }
+    }
+
+    @Test
+    public void keepsTheShorterDelayForAQueuedSuccessorAfterTheInitialTrack() throws Exception {
+        RecordingPacketBroadcaster broadcaster = new RecordingPacketBroadcaster();
+        PlaylistManager manager = manager(broadcaster);
+        try {
+            EntityPlayerMP player = testPlayer();
+            manager.handleAddToPlaylist(player, VIDEO_ID, 60_000L);
+            manager.handleAddToPlaylist(player, SECOND_VIDEO_ID, 60_000L);
+            manager.handleSkipTrack(player);
+
+            long now = System.currentTimeMillis();
+            long preparationDelay = broadcaster.lastTrackSync()
+                .getStartAtMs() - now;
+            assertTrue("successor preparation delay was too short: " + preparationDelay, preparationDelay >= 2_000L);
+            assertTrue(
+                "successor preparation delay was unexpectedly long: " + preparationDelay,
+                preparationDelay <= 4_000L);
+        } finally {
+            manager.shutdown();
+        }
+    }
+
+    @Test
+    public void givesDirectlySelectedTracksTheLongerPreparationWindow() throws Exception {
+        RecordingPacketBroadcaster broadcaster = new RecordingPacketBroadcaster();
+        PlaylistManager manager = manager(broadcaster);
+        try {
+            EntityPlayerMP player = testPlayer();
+            manager.handleAddToPlaylist(player, VIDEO_ID, 60_000L);
+            long before = System.currentTimeMillis();
+
+            manager.handlePlayNow(player, SECOND_VIDEO_ID, 60_000L);
+
+            long preparationDelay = broadcaster.lastTrackSync()
+                .getStartAtMs() - before;
+            assertTrue("direct-play preparation delay was too short: " + preparationDelay, preparationDelay >= 4_000L);
+            assertTrue(
+                "direct-play preparation delay was unexpectedly long: " + preparationDelay,
+                preparationDelay <= 6_000L);
+        } finally {
+            manager.shutdown();
+        }
+    }
+
+    @Test
     public void selectingRadioCreatesQueueEntryWithoutDirectoryLookupOrRelay() throws Exception {
         PlaylistManager manager = manager();
         try {
@@ -80,6 +143,24 @@ public class PlaylistManagerTest {
                 60_000L,
                 playlist(manager).get(1)
                     .getDurationMs());
+        } finally {
+            manager.shutdown();
+        }
+    }
+
+    @Test
+    public void rejectsDuplicateFiniteVideoIdsFromNormalPlaylistPackets() throws Exception {
+        PlaylistManager manager = manager();
+        try {
+            EntityPlayerMP player = testPlayer();
+
+            manager.handleAddToPlaylist(player, VIDEO_ID, 60_000L);
+            long revisionAfterFirstAdd = state(manager).getQueueRevision();
+
+            manager.handleAddToPlaylist(player, VIDEO_ID, 60_000L);
+
+            assertEquals(1, playlist(manager).size());
+            assertEquals(revisionAfterFirstAdd, state(manager).getQueueRevision());
         } finally {
             manager.shutdown();
         }

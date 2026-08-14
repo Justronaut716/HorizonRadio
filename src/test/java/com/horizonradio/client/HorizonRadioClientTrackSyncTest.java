@@ -5,10 +5,13 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 
 import org.junit.After;
 import org.junit.Before;
@@ -22,6 +25,7 @@ import com.horizonradio.core.server.ChartRegion;
 import com.horizonradio.network.packets.PlaylistDeltaPacket;
 import com.horizonradio.network.packets.PlaylistSyncPacket;
 import com.horizonradio.network.packets.TrackSyncPacket;
+import com.horizonradio.server.AudioDownloadService;
 
 public class HorizonRadioClientTrackSyncTest {
 
@@ -126,6 +130,64 @@ public class HorizonRadioClientTrackSyncTest {
     }
 
     @Test
+    public void immediatelyResolvedQueueMetadataDoesNotDuplicateAnAuthoritativePlaylistEntry() {
+        new ClientProxy(new DirectClientTaskScheduler());
+        HorizonRadioClient.setClientMediaService(new ClientMediaService(new LocalMetadataProvider()));
+        HorizonRadioScreen screen = new HorizonRadioScreen();
+        HorizonRadioScreen.setActiveScreen(screen);
+        try {
+            HorizonRadioClient.handlePlaylistDelta(
+                PlaylistDeltaPacket
+                    .add(1L, new PlaylistDeltaPacket.Entry(MediaSourceType.YOUTUBE, "dQw4w9WgXcQ", "Alice"), 0));
+
+            assertEquals(
+                1,
+                HorizonRadioClient.getCachedPlaylist()
+                    .size());
+            assertEquals(
+                "Local title",
+                HorizonRadioClient.getCachedPlaylist()
+                    .get(0)
+                    .displayTitle());
+            assertEquals(
+                1,
+                screen.getPlaylistSnapshot()
+                    .size());
+        } finally {
+            HorizonRadioScreen.clearActiveScreen(screen);
+            HorizonRadioClient.setClientMediaService(null);
+        }
+    }
+
+    @Test
+    public void authoritativeQueueUpdatesPrefetchOnlyTheNextFiniteTrack() throws Exception {
+        new ClientProxy(new DirectClientTaskScheduler());
+        Path directory = Files.createTempDirectory("horizonradio-prefetch-test");
+        RecordingAudioDownloadService service = new RecordingAudioDownloadService(directory);
+        HorizonRadioClient.setClientAudioDownloadService(service);
+        try {
+            HorizonRadioClient.handlePlaylistSnapshot(
+                new PlaylistSyncPacket(
+                    0L,
+                    false,
+                    false,
+                    Arrays.asList(
+                        new PlaylistSyncPacket.Entry(MediaSourceType.YOUTUBE, "dQw4w9WgXcQ", "Alice"),
+                        new PlaylistSyncPacket.Entry(MediaSourceType.YOUTUBE, "aQw4w9WgXcQ", "Alice"),
+                        new PlaylistSyncPacket.Entry(MediaSourceType.YOUTUBE, "bQw4w9WgXcQ", "Alice"))));
+            assertTrue(service.awaitDownload("dQw4w9WgXcQ"));
+
+            HorizonRadioClient.handleTrackSync(
+                TrackSyncPacket.youtube(5L, "dQw4w9WgXcQ", 0L, System.currentTimeMillis() + 3_000L, false));
+            assertTrue(service.awaitDownload("aQw4w9WgXcQ"));
+            assertFalse(service.hasDownload("bQw4w9WgXcQ"));
+        } finally {
+            HorizonRadioClient.setClientAudioDownloadService(null);
+            Files.deleteIfExists(directory);
+        }
+    }
+
+    @Test
     public void removingActiveRadioFromAuthoritativeQueueStopsLocalRadio() {
         HorizonRadioClient.handlePlaylistSnapshot(
             new PlaylistSyncPacket(
@@ -159,6 +221,53 @@ public class HorizonRadioClientTrackSyncTest {
         @Override
         public void schedule(Runnable task) {
             task.run();
+        }
+    }
+
+    private static final class RecordingAudioDownloadService extends AudioDownloadService {
+
+        private final List<String> downloads = Collections.synchronizedList(new java.util.ArrayList<String>());
+        private final java.util.Map<String, CompletableFuture<Path>> futures = new java.util.HashMap<String, CompletableFuture<Path>>();
+
+        private RecordingAudioDownloadService(Path directory) throws java.io.IOException {
+            super(directory);
+        }
+
+        @Override
+        public synchronized CompletableFuture<Path> download(String videoId) {
+            CompletableFuture<Path> existing = futures.get(videoId);
+            if (existing != null) {
+                return existing;
+            }
+            downloads.add(videoId);
+            CompletableFuture<Path> future = new CompletableFuture<Path>();
+            futures.put(videoId, future);
+            return future;
+        }
+
+        @Override
+        public synchronized void cancelDownload(String videoId) {
+            CompletableFuture<Path> future = futures.remove(videoId);
+            if (future != null) {
+                future.cancel(false);
+            }
+        }
+
+        private boolean awaitDownload(String videoId) throws InterruptedException {
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2L);
+            while (System.nanoTime() < deadline) {
+                if (hasDownload(videoId)) {
+                    return true;
+                }
+                Thread.sleep(5L);
+            }
+            return hasDownload(videoId);
+        }
+
+        private boolean hasDownload(String videoId) {
+            synchronized (downloads) {
+                return downloads.contains(videoId);
+            }
         }
     }
 

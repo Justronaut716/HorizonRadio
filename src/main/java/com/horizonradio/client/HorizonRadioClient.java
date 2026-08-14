@@ -195,6 +195,19 @@ public final class HorizonRadioClient {
                     entries.add(new Entry(result.videoId, result.title, result.duration));
                 }
             }
+            StringBuilder packetIds = new StringBuilder();
+            for (Entry entry : entries) {
+                if (packetIds.length() > 0) {
+                    packetIds.append(',');
+                }
+                packetIds.append(entry.getVideoId());
+            }
+            debugChat(
+                "Sende AddChartsToPlaylistPacket remove=" + remove
+                    + " ids="
+                    + packetIds
+                    + " entries="
+                    + entries.size());
             HorizonRadioNetwork.CHANNEL.sendToServer(new AddChartsToPlaylistPacket(entries, remove));
         }
 
@@ -206,6 +219,19 @@ public final class HorizonRadioClient {
                     entries.add(new Entry(selection.videoId, selection.durationMs));
                 }
             }
+            StringBuilder packetIds = new StringBuilder();
+            for (Entry entry : entries) {
+                if (packetIds.length() > 0) {
+                    packetIds.append(',');
+                }
+                packetIds.append(entry.getVideoId());
+            }
+            debugChat(
+                "Sende kompaktes AddChartsToPlaylistPacket remove=" + remove
+                    + " ids="
+                    + packetIds
+                    + " entries="
+                    + entries.size());
             HorizonRadioNetwork.CHANNEL.sendToServer(new AddChartsToPlaylistPacket(entries, remove));
         }
 
@@ -587,9 +613,6 @@ public final class HorizonRadioClient {
         if (remove || selections == null || selections.isEmpty() || !containsSearchResult(selections)) {
             List<PlaylistSelection> mapped = toPlaylistSelections(selections);
             transport.sendAddChartSelections(mapped, remove);
-            if (!remove) {
-                completeChartAddsLocally(mapped);
-            }
             return;
         }
         resolveAndSendChartAdds(selections);
@@ -828,11 +851,33 @@ public final class HorizonRadioClient {
         if (packet == null) {
             return;
         }
+        long revisionBefore = CLIENT_QUEUE.getRevision();
+        int sizeBefore = CLIENT_QUEUE.snapshot()
+            .size();
+        debugChat(
+            "PlaylistSyncPacket empfangen revision=" + packet.getQueueRevision()
+                + " entries="
+                + packet.getEntries()
+                    .size()
+                + " queueBefore="
+                + sizeBefore
+                + " clientRevision="
+                + revisionBefore);
         List<PlaylistEntry> entries = new ArrayList<PlaylistEntry>();
         for (PlaylistSyncPacket.Entry entry : packet.getEntries()) {
             entries.add(PlaylistEntry.of(entry.getSourceType(), entry.getSourceId(), 0L, entry.getAddedBy()));
         }
         CLIENT_QUEUE.applySnapshot(packet.getQueueRevision(), packet.isShuffling(), packet.isLooping(), entries);
+        if (CLIENT_QUEUE.isSnapshotRequired()) {
+            debugChat(
+                "PlaylistSyncPacket verworfen: veraltet oder doppelte IDs; Resync wird angefordert. clientRevision="
+                    + CLIENT_QUEUE.getRevision());
+            requestPlaylistResync();
+            return;
+        }
+        debugChat(
+            "PlaylistSyncPacket übernommen queueAfter=" + CLIENT_QUEUE.snapshot()
+                .size() + " revision=" + CLIENT_QUEUE.getRevision());
         playlistResyncRequested = false;
         cachedShuffling = CLIENT_QUEUE.isShuffling();
         cachedLooping = CLIENT_QUEUE.isLooping();
@@ -843,7 +888,31 @@ public final class HorizonRadioClient {
     }
 
     public static synchronized void handlePlaylistDelta(PlaylistDeltaPacket packet) {
-        if (CLIENT_QUEUE.applyDelta(packet)) {
+        long revisionBefore = CLIENT_QUEUE.getRevision();
+        int sizeBefore = CLIENT_QUEUE.snapshot()
+            .size();
+        String deltaId = packet == null || packet.getEntry() == null ? "-"
+            : packet.getEntry()
+                .getSourceId();
+        boolean applied = CLIENT_QUEUE.applyDelta(packet);
+        debugChat(
+            "PlaylistDeltaPacket op=" + (packet == null ? "null" : packet.getOperation())
+                + " id="
+                + deltaId
+                + " revision="
+                + (packet == null ? "-" : packet.getQueueRevision())
+                + " accepted="
+                + applied
+                + " queueBefore="
+                + sizeBefore
+                + " queueAfter="
+                + CLIENT_QUEUE.snapshot()
+                    .size()
+                + " clientRevisionBefore="
+                + revisionBefore
+                + " clientRevisionAfter="
+                + CLIENT_QUEUE.getRevision());
+        if (applied) {
             stopLocalRadioWhenAbsentFromQueue();
             refreshCachedPlaylistFromQueue();
             return;
@@ -857,20 +926,6 @@ public final class HorizonRadioClient {
         }
         playlistResyncRequested = true;
         transport.sendPlaylistResync(CLIENT_QUEUE.getRevision());
-    }
-
-    private static void completeChartAddsLocally(List<PlaylistSelection> selections) {
-        HorizonRadioScreen screen = getOpenScreen();
-        if (screen == null || selections == null || selections.isEmpty()) {
-            return;
-        }
-        List<String> videoIds = new ArrayList<String>();
-        for (PlaylistSelection selection : selections) {
-            if (selection != null && selection.videoId != null) {
-                videoIds.add(selection.videoId);
-            }
-        }
-        screen.completeChartAdds(videoIds);
     }
 
     private static void clearPendingChartAdds(List<String> videoIds) {
@@ -1004,6 +1059,7 @@ public final class HorizonRadioClient {
             debugChat("Lokaler Downloader lieferte keinen Download für: " + videoId);
             return;
         }
+        prefetchNextFiniteTrack(CLIENT_QUEUE.snapshot());
         download.whenComplete(new BiConsumer<Path, Throwable>() {
 
             @Override
@@ -1130,7 +1186,7 @@ public final class HorizonRadioClient {
         cachedShuffling = false;
         cachedRadioActive = false;
         cachedRadioPresentation = null;
-        CLIENT_QUEUE.applySnapshot(0L, false, false, new ArrayList<PlaylistEntry>());
+        CLIENT_QUEUE.reset();
         playlistResyncRequested = false;
         searchTabDiscoveryGeneration++;
         chartGeneration++;
@@ -1353,13 +1409,62 @@ public final class HorizonRadioClient {
     }
 
     private static void refreshCachedPlaylistFromQueue() {
-        CACHED_PLAYLIST.clear();
-        for (PlaylistEntry entry : CLIENT_QUEUE.snapshot()) {
-            CACHED_PLAYLIST.add(toScreenPlaylistEntry(entry));
+        List<HorizonRadioScreen.PlaylistEntry> refreshed = new ArrayList<HorizonRadioScreen.PlaylistEntry>();
+        List<PlaylistEntry> queue = CLIENT_QUEUE.snapshot();
+        for (PlaylistEntry entry : queue) {
+            refreshed.add(toScreenPlaylistEntry(entry));
         }
+        CACHED_PLAYLIST.clear();
+        CACHED_PLAYLIST.addAll(refreshed);
+        prefetchNextFiniteTrack(queue);
         HorizonRadioScreen screen = getOpenScreen();
         if (screen != null) {
             screen.updatePlaylist(CACHED_PLAYLIST);
+        }
+    }
+
+    private static void prefetchNextFiniteTrack(List<PlaylistEntry> queue) {
+        if (clientAudioDownloadService == null || queue == null) {
+            return;
+        }
+        boolean currentSeen = activeTrackSourceType == null || activeTrackSourceType == MediaSourceType.RADIO;
+        PlaylistEntry fallback = null;
+        for (PlaylistEntry entry : queue) {
+            if (entry == null || !entry.isFinite()) {
+                continue;
+            }
+            if (fallback == null || !entry.getSourceId()
+                .equals(activeTrackSourceId)) {
+                fallback = entry;
+            }
+            if (!currentSeen) {
+                if (entry.getSourceId()
+                    .equals(activeTrackSourceId) && activeTrackSourceType == MediaSourceType.YOUTUBE) {
+                    currentSeen = true;
+                }
+                continue;
+            }
+            if (activeTrackSourceType == MediaSourceType.YOUTUBE && entry.getSourceId()
+                .equals(activeTrackSourceId)) {
+                continue;
+            }
+            requestLocalAudioDownload(entry.getSourceId());
+            return;
+        }
+        if (fallback != null && (activeTrackSourceType != MediaSourceType.YOUTUBE || !fallback.getSourceId()
+            .equals(activeTrackSourceId))) {
+            requestLocalAudioDownload(fallback.getSourceId());
+        }
+    }
+
+    private static void requestLocalAudioDownload(String videoId) {
+        if (videoId == null || clientAudioDownloadService == null) {
+            return;
+        }
+        try {
+            clientAudioDownloadService.download(videoId);
+        } catch (RuntimeException exception) {
+            debugChat("Vorladen konnte nicht gestartet werden: " + videoId);
         }
     }
 
@@ -1368,11 +1473,11 @@ public final class HorizonRadioClient {
         RadioStation station = null;
         if (clientMetadataCache != null) {
             if (entry.getSourceType() == MediaSourceType.YOUTUBE) {
-                video = clientMetadataCache.getVideo(entry.getSourceId());
                 requestVideoMetadata(entry.getSourceId());
+                video = clientMetadataCache.getVideo(entry.getSourceId());
             } else {
-                station = clientMetadataCache.getStation(entry.getSourceId());
                 requestStationMetadata(entry.getSourceId());
+                station = clientMetadataCache.getStation(entry.getSourceId());
             }
         }
         return new HorizonRadioScreen.PlaylistEntry(
@@ -1634,7 +1739,6 @@ public final class HorizonRadioClient {
                                 clearPendingChartAdds(failedIds);
                                 if (!mapped.isEmpty()) {
                                     transport.sendAddChartSelections(mapped, false);
-                                    completeChartAddsLocally(mapped);
                                     debugChat("Chart-Auswahl lokal aufgelöst: " + mapped.size() + " Titel.");
                                 }
                             }

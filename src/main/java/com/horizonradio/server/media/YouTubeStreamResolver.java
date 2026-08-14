@@ -26,10 +26,27 @@ import com.google.gson.JsonObject;
 /** Resolves one bounded, supported YouTube adaptive audio stream without downloading it. */
 public final class YouTubeStreamResolver {
 
-    private static final String CLIENT_NAME = "ANDROID_VR";
-    private static final String CLIENT_VERSION = "1.65.10";
-    private static final String CLIENT_HEADER_NAME = "28";
     private static final String CLIENT_USER_AGENT = "com.google.android.apps.youtube.vr.oculus/1.65.10 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip";
+    private static final ClientProfile ANDROID_VR_CLIENT = new ClientProfile(
+        "ANDROID_VR",
+        "1.65.10",
+        "28",
+        CLIENT_USER_AGENT,
+        "Oculus",
+        "Quest 3",
+        32,
+        "Android",
+        "12L");
+    private static final ClientProfile IOS_CLIENT = new ClientProfile(
+        "IOS",
+        "20.10.4",
+        "5",
+        "com.google.ios.youtube/20.10.4 (iPhone16,2; U; CPU iOS 18_1 like Mac OS X)",
+        "",
+        "",
+        0,
+        "iOS",
+        "18.1");
     private static final String WATCH_PAGE_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0 Safari/537.36";
     private static final URL PLAYER_URL;
     private static final int TIMEOUT_MILLIS = 15000;
@@ -92,16 +109,39 @@ public final class YouTubeStreamResolver {
 
     public YouTubeMediaModels.ResolvedAudioStream resolveAudio(String videoId) throws IOException {
         String safeVideoId = YouTubeUrlParser.requireVideoId(videoId);
-        String visitorData = resolveVisitorData(safeVideoId);
-        byte[] body = buildRequestBody(safeVideoId).getBytes(StandardCharsets.UTF_8);
+        String visitorData = "";
+        IOException visitorFailure = null;
+        try {
+            visitorData = resolveVisitorData(safeVideoId);
+        } catch (IOException exception) {
+            visitorFailure = exception;
+        }
+        IOException androidFailure;
+        try {
+            return resolveAudioWithClient(safeVideoId, visitorData, ANDROID_VR_CLIENT);
+        } catch (ClientUnavailableException exception) {
+            androidFailure = exception;
+        }
+        try {
+            return resolveAudioWithClient(safeVideoId, visitorData, IOS_CLIENT);
+        } catch (IOException fallbackFailure) {
+            fallbackFailure.addSuppressed(androidFailure);
+            if (visitorFailure != null) fallbackFailure.addSuppressed(visitorFailure);
+            throw fallbackFailure;
+        }
+    }
+
+    private YouTubeMediaModels.ResolvedAudioStream resolveAudioWithClient(String videoId, String visitorData,
+        ClientProfile client) throws IOException {
+        byte[] body = buildRequestBody(videoId, client).getBytes(StandardCharsets.UTF_8);
         Map<String, String> headers = new HashMap<String, String>();
         headers.put("Content-Type", "application/json");
         headers.put("Accept", "application/json");
         headers.put("Origin", "https://www.youtube.com");
-        headers.put("User-Agent", CLIENT_USER_AGENT);
-        headers.put("X-YouTube-Client-Name", CLIENT_HEADER_NAME);
-        headers.put("X-YouTube-Client-Version", CLIENT_VERSION);
-        headers.put("X-Goog-Visitor-Id", visitorData);
+        headers.put("User-Agent", client.userAgent);
+        headers.put("X-YouTube-Client-Name", client.headerName);
+        headers.put("X-YouTube-Client-Version", client.version);
+        if (visitorData.length() > 0) headers.put("X-Goog-Visitor-Id", visitorData);
         try (YouTubeMediaModels.HttpResponse response = requester.post(
             PLAYER_URL,
             headers,
@@ -202,7 +242,7 @@ public final class YouTubeStreamResolver {
         JsonObject streaming = object(root, "streamingData");
         JsonArray formats = streaming == null ? null : streaming.getAsJsonArray("adaptiveFormats");
         if (formats == null || formats.size() == 0)
-            throw new MediaException("YouTube player response has no adaptive audio formats");
+            throw new ClientUnavailableException("YouTube player response has no adaptive audio formats");
         long rootExpiry = relativeExpiry(root);
         List<Candidate> candidates = new ArrayList<Candidate>();
         for (JsonElement element : formats) {
@@ -210,7 +250,8 @@ public final class YouTubeStreamResolver {
             Candidate candidate = candidate(element.getAsJsonObject(), rootExpiry, transformPlans);
             if (candidate != null && registry.supports(candidate.format)) candidates.add(candidate);
         }
-        if (candidates.isEmpty()) throw new MediaException("YouTube player response has no supported audio stream");
+        if (candidates.isEmpty())
+            throw new ClientUnavailableException("YouTube player response has no supported audio stream");
         Collections.sort(candidates, new Comparator<Candidate>() {
 
             @Override
@@ -265,16 +306,18 @@ public final class YouTubeStreamResolver {
         return n == null ? url : replaceParameter(url, "n", applyTransform(n, transformPlans.nPlan));
     }
 
-    private static String buildRequestBody(String videoId) {
+    private static String buildRequestBody(String videoId, ClientProfile clientProfile) {
         JsonObject client = new JsonObject();
-        client.addProperty("clientName", CLIENT_NAME);
-        client.addProperty("clientVersion", CLIENT_VERSION);
-        client.addProperty("userAgent", CLIENT_USER_AGENT);
-        client.addProperty("deviceMake", "Oculus");
-        client.addProperty("deviceModel", "Quest 3");
-        client.addProperty("androidSdkVersion", 32);
-        client.addProperty("osName", "Android");
-        client.addProperty("osVersion", "12L");
+        client.addProperty("clientName", clientProfile.name);
+        client.addProperty("clientVersion", clientProfile.version);
+        client.addProperty("userAgent", clientProfile.userAgent);
+        if (clientProfile.deviceMake.length() > 0) client.addProperty("deviceMake", clientProfile.deviceMake);
+        if (clientProfile.deviceModel.length() > 0) client.addProperty("deviceModel", clientProfile.deviceModel);
+        if (clientProfile.androidSdkVersion > 0) {
+            client.addProperty("androidSdkVersion", clientProfile.androidSdkVersion);
+        }
+        if (clientProfile.osName.length() > 0) client.addProperty("osName", clientProfile.osName);
+        if (clientProfile.osVersion.length() > 0) client.addProperty("osVersion", clientProfile.osVersion);
         client.addProperty("hl", "en");
         JsonObject context = new JsonObject();
         context.add("client", client);
@@ -508,6 +551,39 @@ public final class YouTubeStreamResolver {
         query.append('=');
         query.append(URLEncoder.encode(value, "UTF-8"));
         return new URL(url.getProtocol(), url.getHost(), url.getPort(), url.getPath() + "?" + query);
+    }
+
+    private static final class ClientProfile {
+
+        private final String name;
+        private final String version;
+        private final String headerName;
+        private final String userAgent;
+        private final String deviceMake;
+        private final String deviceModel;
+        private final int androidSdkVersion;
+        private final String osName;
+        private final String osVersion;
+
+        private ClientProfile(String name, String version, String headerName, String userAgent, String deviceMake,
+            String deviceModel, int androidSdkVersion, String osName, String osVersion) {
+            this.name = name;
+            this.version = version;
+            this.headerName = headerName;
+            this.userAgent = userAgent;
+            this.deviceMake = deviceMake;
+            this.deviceModel = deviceModel;
+            this.androidSdkVersion = androidSdkVersion;
+            this.osName = osName;
+            this.osVersion = osVersion;
+        }
+    }
+
+    private static final class ClientUnavailableException extends MediaException {
+
+        private ClientUnavailableException(String message) {
+            super(message);
+        }
     }
 
     private static final class Candidate {

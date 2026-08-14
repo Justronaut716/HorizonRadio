@@ -49,6 +49,42 @@ public class ClientQueueStateTest {
         assertEquals(Arrays.asList("one"), sourceIds(state.snapshot()));
     }
 
+    @Test
+    public void rejectsDuplicateAddForExistingSourceAndRequestsSnapshot() {
+        ClientQueueState state = new ClientQueueState();
+        state.applySnapshot(4L, false, false, entries("one"));
+
+        assertFalse(state.applyDelta(PlaylistDeltaPacket.add(5L, entry("one"), 1)));
+        assertTrue(state.isSnapshotRequired());
+        assertEquals(Arrays.asList("one"), sourceIds(state.snapshot()));
+        assertEquals(4L, state.getRevision());
+    }
+
+    @Test
+    public void ignoresStaleSnapshotInsteadOfReplacingNewerQueue() {
+        ClientQueueState state = new ClientQueueState();
+        state.applySnapshot(4L, false, false, entries("one"));
+        assertTrue(state.applyDelta(PlaylistDeltaPacket.add(5L, entry("two"), 1)));
+
+        state.applySnapshot(4L, false, false, entries("one"));
+
+        assertTrue(state.isSnapshotRequired());
+        assertEquals(Arrays.asList("one", "two"), sourceIds(state.snapshot()));
+        assertEquals(5L, state.getRevision());
+    }
+
+    @Test
+    public void rejectsDuplicateEntriesFromSnapshotWithoutPublishingThem() {
+        ClientQueueState state = new ClientQueueState();
+        state.applySnapshot(4L, false, false, entries("one"));
+
+        state.applySnapshot(5L, false, false, entries("one", "one"));
+
+        assertTrue(state.isSnapshotRequired());
+        assertEquals(Arrays.asList("one"), sourceIds(state.snapshot()));
+        assertEquals(4L, state.getRevision());
+    }
+
     private static PlaylistDeltaPacket.Entry entry(String sourceId) {
         return new PlaylistDeltaPacket.Entry(MediaSourceType.YOUTUBE, sourceId, "tester");
     }

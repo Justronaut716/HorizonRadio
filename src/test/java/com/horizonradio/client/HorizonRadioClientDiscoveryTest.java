@@ -331,8 +331,63 @@ public class HorizonRadioClientDiscoveryTest {
         }
     }
 
+    @Test
+    public void chartAddRemainsPendingUntilAuthoritativePlaylistUpdate() {
+        HorizonRadioScreen screen = new HorizonRadioScreen();
+        HorizonRadioScreen.setActiveScreen(screen);
+        try {
+            HorizonRadioScreen.SearchResult result = chartWithDuration("pending-chart", "2:00");
+            assertEquals(Collections.singletonList(result), screen.beginChartAdd(Collections.singletonList(result)));
+
+            HorizonRadioClient.sendAddChartsToPlaylist(Collections.singletonList(result));
+
+            assertTrue(screen.isChartAddPending("pending-chart"));
+            assertTrue(
+                screen.beginChartAdd(Collections.singletonList(result))
+                    .isEmpty());
+            assertEquals(Collections.singletonList("pending-chart|120000"), transport.chartSelections);
+
+            screen.updatePlaylist(
+                Collections.singletonList(
+                    new HorizonRadioScreen.PlaylistEntry("pending-chart", "pending-chart", "2:00", "tester")));
+            assertFalse(screen.isChartAddPending("pending-chart"));
+        } finally {
+            HorizonRadioScreen.clearActiveScreen(screen);
+        }
+    }
+
+    @Test
+    public void bulkChartAddDoesNotResendEntriesWhileTheyAwaitQueueUpdate() {
+        HorizonRadioScreen screen = new HorizonRadioScreen();
+        HorizonRadioScreen.setActiveScreen(screen);
+        try {
+            List<HorizonRadioScreen.SearchResult> results = new ArrayList<HorizonRadioScreen.SearchResult>();
+            for (int index = 1; index <= 50; index++) {
+                results.add(chartWithDuration("bulk-chart-" + index, "2:00"));
+            }
+
+            assertEquals(
+                50,
+                screen.beginChartAdd(results)
+                    .size());
+            HorizonRadioClient.sendAddChartsToPlaylist(results);
+
+            assertEquals(50, transport.chartSelections.size());
+            assertTrue(
+                screen.beginChartAdd(results)
+                    .isEmpty());
+            assertEquals(50, transport.chartSelections.size());
+        } finally {
+            HorizonRadioScreen.clearActiveScreen(screen);
+        }
+    }
+
     private static HorizonRadioScreen.SearchResult chart(String videoId) {
         return new HorizonRadioScreen.SearchResult(videoId, videoId, "", "", "");
+    }
+
+    private static HorizonRadioScreen.SearchResult chartWithDuration(String videoId, String duration) {
+        return new HorizonRadioScreen.SearchResult(videoId, videoId, "", duration, "");
     }
 
     private static List<HorizonRadioScreen.SearchResult> searchResults(HorizonRadioScreen screen) {

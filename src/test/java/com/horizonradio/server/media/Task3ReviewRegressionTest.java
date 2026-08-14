@@ -188,6 +188,15 @@ public class Task3ReviewRegressionTest {
     }
 
     @Test
+    public void acceptsWebmSegmentLargerThanNestedElementLimit() throws Exception {
+        Recording sink = new Recording();
+        new WebmOpusDecoder().decode(new ByteArrayInputStream(withLargeWebmSegment()), sink);
+        assertEquals(10584, sink.bytes.size());
+        assertEquals(1, sink.finishCalls);
+        assertEquals(0, sink.abortCalls);
+    }
+
+    @Test
     public void rejectsAbsentEbmlHeaderBeforePublishingPcm() throws Exception {
         int segment = indexOf(WEBM_OPUS, new byte[] { 0x18, 0x53, (byte) 0x80, 0x67 });
         Recording sink = new Recording();
@@ -364,6 +373,40 @@ public class Task3ReviewRegressionTest {
         int padding = indexOf(result, new byte[] { 0x75, (byte) 0xa2, (byte) 0x84 });
         assertTrue(padding >= 0);
         beInt(result, padding + 3, (int) nanos);
+        return result;
+    }
+
+    private static byte[] withLargeWebmSegment() {
+        int segment = indexOf(WEBM_OPUS, new byte[] { 0x18, 0x53, (byte) 0x80, 0x67 });
+        assertTrue(segment >= 0);
+        int sizeOffset = segment + 4;
+        int sizeLength = ebmlLength(WEBM_OPUS[sizeOffset]);
+        int segmentData = sizeOffset + sizeLength;
+        int segmentEnd = segmentData + readEbmlSize(WEBM_OPUS, sizeOffset);
+        assertEquals(WEBM_OPUS.length, segmentEnd);
+
+        byte[] firstPadding = webmVoid(4_000_000);
+        byte[] secondPadding = webmVoid(300_000);
+        byte[] result = new byte[WEBM_OPUS.length + firstPadding.length + secondPadding.length];
+        System.arraycopy(WEBM_OPUS, 0, result, 0, segmentEnd);
+        int paddingOffset = segmentEnd;
+        System.arraycopy(firstPadding, 0, result, paddingOffset, firstPadding.length);
+        paddingOffset += firstPadding.length;
+        System.arraycopy(secondPadding, 0, result, paddingOffset, secondPadding.length);
+        paddingOffset += secondPadding.length;
+        System.arraycopy(WEBM_OPUS, segmentEnd, result, paddingOffset, WEBM_OPUS.length - segmentEnd);
+        writeEbmlSize(
+            result,
+            sizeOffset,
+            sizeLength,
+            readEbmlSize(WEBM_OPUS, sizeOffset) + firstPadding.length + secondPadding.length);
+        return result;
+    }
+
+    private static byte[] webmVoid(int payloadLength) {
+        byte[] result = new byte[1 + 4 + payloadLength];
+        result[0] = (byte) 0xec;
+        writeEbmlSize(result, 1, 4, payloadLength);
         return result;
     }
 

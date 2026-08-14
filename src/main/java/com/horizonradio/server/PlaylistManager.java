@@ -41,6 +41,7 @@ import cpw.mods.fml.common.network.simpleimpl.IMessage;
 public final class PlaylistManager {
 
     private static final long CLIENT_TRACK_START_DELAY_MS = 3000L;
+    private static final long INITIAL_CLIENT_TRACK_START_DELAY_MS = 5000L;
     private static final Logger LOGGER = Logger.getLogger(PlaylistManager.class.getName());
 
     interface PacketBroadcaster {
@@ -68,6 +69,7 @@ public final class PlaylistManager {
 
     private ScheduledFuture<?> advanceFuture;
     private long playbackGeneration;
+    private boolean finiteTrackStarted;
     private boolean shuttingDown;
 
     public PlaylistManager(MinecraftServer server, File configDirectory) {
@@ -101,6 +103,20 @@ public final class PlaylistManager {
             sendChat(player, EnumChatFormatting.RED, "Invalid playlist entry.");
             return;
         }
+        sendChat(
+            player,
+            EnumChatFormatting.GRAY,
+            "[debug] AddToPlaylistPacket id=" + videoId
+                + " durationMs="
+                + durationMs
+                + " queueBefore="
+                + state.size()
+                + " revision="
+                + state.getQueueRevision());
+        if (state.findIndex(MediaSourceType.YOUTUBE, videoId) >= 0) {
+            sendChat(player, EnumChatFormatting.GRAY, "Ignored duplicate playlist entry: " + videoId);
+            return;
+        }
 
         PlaylistEntry entry = PlaylistEntry.youtube(videoId, durationMs, playerName(player));
         if (!state.add(entry)) {
@@ -119,6 +135,16 @@ public final class PlaylistManager {
             sendChat(player, EnumChatFormatting.RED, "Invalid playlist entry.");
             return;
         }
+        sendChat(
+            player,
+            EnumChatFormatting.GRAY,
+            "[debug] PlayNowPacket id=" + videoId
+                + " durationMs="
+                + durationMs
+                + " queueBefore="
+                + state.size()
+                + " revision="
+                + state.getQueueRevision());
 
         int existingIndex = state.findIndex(MediaSourceType.YOUTUBE, videoId);
         boolean replacesCurrent = state.getCurrentIndex() >= 0 && state.getCurrentIndex() < state.size();
@@ -139,7 +165,7 @@ public final class PlaylistManager {
             state.takeLastTrack();
         }
         broadcastReplace();
-        startFiniteTrack(0, selected);
+        startFiniteTrack(0, selected, true);
     }
 
     public void handleAddChartsToPlaylist(EntityPlayerMP player, List<AddChartsToPlaylistPacket.Entry> entries,
@@ -147,6 +173,23 @@ public final class PlaylistManager {
         if (!acceptsPlayer(player) || entries == null || entries.isEmpty()) {
             return;
         }
+        StringBuilder packetIds = new StringBuilder();
+        for (AddChartsToPlaylistPacket.Entry entry : entries) {
+            if (packetIds.length() > 0) {
+                packetIds.append(',');
+            }
+            packetIds.append(entry == null ? "null" : safe(entry.getVideoId()));
+        }
+        sendChat(
+            player,
+            EnumChatFormatting.GRAY,
+            "[debug] AddChartsToPlaylistPacket remove=" + remove
+                + " ids="
+                + packetIds
+                + " queueBefore="
+                + state.size()
+                + " revision="
+                + state.getQueueRevision());
         if (remove) {
             removeChartEntries(entries);
         } else {
@@ -382,17 +425,31 @@ public final class PlaylistManager {
         }
 
         boolean wasPlaying = state.isPlaying();
+        int accepted = 0;
+        int skipped = 0;
         for (AddChartsToPlaylistPacket.Entry chart : entries) {
             if (chart == null || !isValidFiniteEntry(chart.getVideoId(), chart.getDurationMs())
                 || !knownIds.add(chart.getVideoId())) {
+                skipped++;
                 continue;
             }
             PlaylistEntry entry = PlaylistEntry.youtube(chart.getVideoId(), chart.getDurationMs(), playerName(player));
             if (!state.add(entry)) {
                 break;
             }
+            accepted++;
             broadcastDelta(PlaylistDeltaPacket.add(state.getQueueRevision(), toDeltaEntry(entry), state.size() - 1));
         }
+        sendChat(
+            player,
+            EnumChatFormatting.GRAY,
+            "[debug] Chart packet result accepted=" + accepted
+                + " skipped="
+                + skipped
+                + " queueAfter="
+                + state.size()
+                + " revision="
+                + state.getQueueRevision());
         if (!wasPlaying && state.size() > 0) {
             startNextFinite();
         }
@@ -457,9 +514,16 @@ public final class PlaylistManager {
     }
 
     private void startFiniteTrack(int index, PlaylistEntry entry) {
+        startFiniteTrack(index, entry, false);
+    }
+
+    private void startFiniteTrack(int index, PlaylistEntry entry, boolean needsExtendedPreparation) {
         cancelAdvancement();
         long generation = nextPlaybackGeneration();
-        long startAtMs = System.currentTimeMillis() + CLIENT_TRACK_START_DELAY_MS;
+        long startAtMs = System.currentTimeMillis()
+            + (needsExtendedPreparation || !finiteTrackStarted ? INITIAL_CLIENT_TRACK_START_DELAY_MS
+                : CLIENT_TRACK_START_DELAY_MS);
+        finiteTrackStarted = true;
         state.startFiniteTrack(index, entry.getSourceId(), entry.getDurationMs(), startAtMs);
         broadcastTrackSync(TrackSyncPacket.youtube(generation, entry.getSourceId(), 0L, startAtMs, false));
         scheduleAdvancement(generation, 0L, entry.getDurationMs(), startAtMs);

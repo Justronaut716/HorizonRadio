@@ -20,11 +20,23 @@ public final class ClientQueueState {
         if (revision < 0L || entries == null) {
             throw new IllegalArgumentException("invalid playlist snapshot");
         }
+        if (revision < this.revision || hasDuplicateSources(entries)) {
+            snapshotRequired = true;
+            return;
+        }
         this.revision = revision;
         this.shuffling = shuffling;
         this.looping = looping;
         this.entries = new ArrayList<PlaylistEntry>(entries);
         snapshotRequired = false;
+    }
+
+    public void reset() {
+        revision = 0L;
+        shuffling = false;
+        looping = false;
+        snapshotRequired = false;
+        entries = new ArrayList<PlaylistEntry>();
     }
 
     public boolean applyDelta(PlaylistDeltaPacket delta) {
@@ -39,7 +51,11 @@ public final class ClientQueueState {
                     if (delta.getIndex() < 0 || delta.getIndex() > candidate.size()) {
                         return rejectDelta();
                     }
-                    candidate.add(delta.getIndex(), toPlaylistEntry(delta.getEntry()));
+                    PlaylistEntry addition = toPlaylistEntry(delta.getEntry());
+                    if (containsSource(candidate, addition)) {
+                        return rejectDelta();
+                    }
+                    candidate.add(delta.getIndex(), addition);
                     break;
                 case REMOVE:
                     if (delta.getIndex() < 0 || delta.getIndex() >= candidate.size()) {
@@ -67,6 +83,9 @@ public final class ClientQueueState {
                     break;
                 default:
                     return rejectDelta();
+            }
+            if (hasDuplicateSources(candidate)) {
+                return rejectDelta();
             }
         } catch (RuntimeException exception) {
             return rejectDelta();
@@ -106,5 +125,34 @@ public final class ClientQueueState {
             throw new IllegalArgumentException("playlist delta entry is required");
         }
         return PlaylistEntry.of(entry.getSourceType(), entry.getSourceId(), 0L, entry.getAddedBy());
+    }
+
+    private static boolean containsSource(List<PlaylistEntry> entries, PlaylistEntry candidate) {
+        for (PlaylistEntry entry : entries) {
+            if (entry != null && entry.getSourceType() == candidate.getSourceType()
+                && entry.getSourceId()
+                    .equals(candidate.getSourceId())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean hasDuplicateSources(List<PlaylistEntry> entries) {
+        for (int index = 0; index < entries.size(); index++) {
+            PlaylistEntry entry = entries.get(index);
+            if (entry == null) {
+                return true;
+            }
+            for (int previous = 0; previous < index; previous++) {
+                PlaylistEntry previousEntry = entries.get(previous);
+                if (previousEntry != null && previousEntry.getSourceType() == entry.getSourceType()
+                    && previousEntry.getSourceId()
+                        .equals(entry.getSourceId())) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 }
