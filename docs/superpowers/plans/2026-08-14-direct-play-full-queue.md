@@ -63,8 +63,10 @@ public void selectingRadioEvictsFrontWhenFull() {
     PlaylistState state = new PlaylistState(2);
     state.add(PlaylistEntry.youtube("oldest", 1_000L, "Alice"));
     state.add(PlaylistEntry.youtube("queued", 1_000L, "Bob"));
+    PlaylistEntry station = PlaylistEntry.radio("station", "Carol");
 
-    assertTrue(state.selectRadioAtFront(PlaylistEntry.radio("station", "Carol")));
+    assertFalse(state.canSelectRadioAtFront(station));
+    assertTrue(state.selectRadioAtFront(station));
 
     assertEquals(2, state.size());
     assertEquals(MediaSourceType.RADIO, state.get(0).getSourceType());
@@ -114,8 +116,8 @@ private void evictFrontForImmediateSelection() {
 }
 ```
 2. In `prepareImmediatePlayback(...)`, run the helper after removing an existing selected entry and any non-selected current entry, immediately before `playlist.add(0, selected)`. When an active current entry was removed, the queue is already below capacity, so the helper is a no-op; when there is no current entry and the queue is full, it removes the old front.
-3. In `canSelectRadioAtFront(...)`, validate that the argument is a radio entry but do not reject solely because the queue is full; `selectRadioAtFront(...)` will evict the front when it is not replacing an existing front radio.
-4. In `selectRadioAtFront(...)`, call the helper before `playlist.add(0, station)` when the front is not already a radio. Preserve the existing front-radio replacement path and call `markQueueMutation()` exactly once.
+3. Keep `canSelectRadioAtFront(...)` as the non-mutating capacity query: it must continue to return `false` for a valid new station when the queue is full and the front is not already a radio. Add a private validity check if needed so the direct mutator does not use the capacity query as its admission decision.
+4. In `selectRadioAtFront(...)`, validate the station directly, call the helper before `playlist.add(0, station)` when the front is not already a radio, preserve the existing front-radio replacement path, and call `markQueueMutation()` exactly once. The direct mutator must be able to evict a full queue even though `canSelectRadioAtFront(...)` reports that a non-mutating capacity check would fail.
 
 Do not change `add(...)`, `addAtFront(...)`, packet classes, or playback broadcast code in this task.
 
@@ -214,7 +216,7 @@ Run:
 ./gradlew test --tests com.horizonradio.server.PlaylistManagerTest
 ```
 
-Expected: the new direct-song test fails with the current `The queue is full.` guard, and the updated full-radio test fails because `handleSelectRadio(...)` still rejects the full queue. Existing manager tests should compile and run around those expected failures.
+Expected: the new direct-song test fails with the current `The queue is full.` guard, and the updated full-radio test fails because `handleSelectRadio(...)` still rejects the full queue through `canSelectRadioAtFront(...)`. Existing manager tests should compile and run around those expected failures.
 
 - [ ] **Step 3: Remove only the direct-selection capacity guards**
 
