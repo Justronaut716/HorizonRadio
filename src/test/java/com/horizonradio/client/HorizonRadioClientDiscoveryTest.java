@@ -152,6 +152,82 @@ public class HorizonRadioClientDiscoveryTest {
     }
 
     @Test
+    public void startingReplacementPlaylistImportClearsVisibleRowsAndScrollButKeepsCachedResults() {
+        DeferredProvider provider = new DeferredProvider();
+        CompletableFuture<String> initial = provider.deferPlaylist();
+        provider.deferPlaylist();
+        HorizonRadioClient.setClientMediaService(new ClientMediaService(provider));
+        HorizonRadioScreen screen = new HorizonRadioScreen();
+        HorizonRadioScreen.setActiveScreen(screen);
+        try {
+            HorizonRadioClient.sendPlaylistImport("https://www.youtube.com/playlist?list=PLinitial");
+            initial.complete("{\"entries\":[{\"id\":\"cached-song\",\"title\":\"Cached\",\"duration\":60}]}");
+            setPlaylistScrollOffset(screen, 4);
+
+            HorizonRadioClient.sendPlaylistImport("https://www.youtube.com/playlist?list=PLreplacement");
+
+            assertTrue(playlistResults(screen).isEmpty());
+            assertEquals(0, playlistScrollOffset(screen));
+            assertEquals(
+                "cached-song",
+                HorizonRadioClient.getCachedPlaylistResults()
+                    .get(0).videoId);
+            assertTrue(isPlaylistLoading(screen));
+        } finally {
+            HorizonRadioScreen.clearActiveScreen(screen);
+        }
+    }
+
+    @Test
+    public void invalidPlaylistUrlClearsVisibleRowsAndScrollButKeepsCachedResults() {
+        DeferredProvider provider = new DeferredProvider();
+        CompletableFuture<String> initial = provider.deferPlaylist();
+        HorizonRadioClient.setClientMediaService(new ClientMediaService(provider));
+        HorizonRadioScreen screen = new HorizonRadioScreen();
+        HorizonRadioScreen.setActiveScreen(screen);
+        try {
+            HorizonRadioClient.sendPlaylistImport("https://www.youtube.com/playlist?list=PLinitial");
+            initial.complete("{\"entries\":[{\"id\":\"cached-song\",\"title\":\"Cached\",\"duration\":60}]}");
+            setPlaylistScrollOffset(screen, 4);
+
+            HorizonRadioClient.sendPlaylistImport("not a playlist");
+
+            assertTrue(playlistResults(screen).isEmpty());
+            assertEquals(0, playlistScrollOffset(screen));
+            assertEquals(
+                "cached-song",
+                HorizonRadioClient.getCachedPlaylistResults()
+                    .get(0).videoId);
+            assertEquals("Paste a valid YouTube playlist URL", playlistError(screen));
+        } finally {
+            HorizonRadioScreen.clearActiveScreen(screen);
+        }
+    }
+
+    @Test
+    public void invalidPlaylistSubmissionPreventsOlderCompletionFromPublishing() {
+        DeferredProvider provider = new DeferredProvider();
+        CompletableFuture<String> pendingImport = provider.deferPlaylist();
+        HorizonRadioClient.setClientMediaService(new ClientMediaService(provider));
+        HorizonRadioScreen screen = new HorizonRadioScreen();
+        HorizonRadioScreen.setActiveScreen(screen);
+        try {
+            HorizonRadioClient.sendPlaylistImport("https://www.youtube.com/playlist?list=PLpending");
+            HorizonRadioClient.sendPlaylistImport("not a playlist");
+            pendingImport.complete("{\"entries\":[{\"id\":\"stale-song\",\"title\":\"Stale\",\"duration\":60}]}");
+
+            assertTrue(
+                HorizonRadioClient.getCachedPlaylistResults()
+                    .isEmpty());
+            assertTrue(playlistResults(screen).isEmpty());
+            assertEquals("Paste a valid YouTube playlist URL", playlistError(screen));
+            assertEquals(1, provider.playlistImportCallCount);
+        } finally {
+            HorizonRadioScreen.clearActiveScreen(screen);
+        }
+    }
+
+    @Test
     public void closedPlaylistImportCannotPublishIntoReopenedScreen() {
         DeferredProvider provider = new DeferredProvider();
         CompletableFuture<String> pendingImport = provider.deferPlaylist();
@@ -295,6 +371,18 @@ public class HorizonRadioClientDiscoveryTest {
         HorizonRadioClient.sendPlaylistResultsToQueue(Arrays.asList(first, second));
 
         assertEquals(Arrays.asList("pl-one|60000", "pl-two|120000"), transport.chartSelections);
+        assertNull(transport.importPlaylistUrl);
+    }
+
+    @Test
+    public void playlistBulkRemovalUsesCompactQueueSelectionTransport() {
+        HorizonRadioScreen.SearchResult first = new HorizonRadioScreen.SearchResult("pl-one", "One", "", "1:00", "");
+        HorizonRadioScreen.SearchResult second = new HorizonRadioScreen.SearchResult("pl-two", "Two", "", "2:00", "");
+
+        HorizonRadioClient.sendPlaylistResultsToQueue(Arrays.asList(first, second), true);
+
+        assertEquals(Arrays.asList("pl-one|60000", "pl-two|120000"), transport.chartSelections);
+        assertEquals(Boolean.TRUE, transport.lastChartSelectionRemove);
         assertNull(transport.importPlaylistUrl);
     }
 
@@ -596,6 +684,26 @@ public class HorizonRadioClientDiscoveryTest {
         }
     }
 
+    private static int playlistScrollOffset(HorizonRadioScreen screen) {
+        try {
+            java.lang.reflect.Field field = HorizonRadioScreen.class.getDeclaredField("playlistScrollOffset");
+            field.setAccessible(true);
+            return field.getInt(screen);
+        } catch (ReflectiveOperationException exception) {
+            throw new AssertionError("playlist scroll offset was not available", exception);
+        }
+    }
+
+    private static void setPlaylistScrollOffset(HorizonRadioScreen screen, int offset) {
+        try {
+            java.lang.reflect.Field field = HorizonRadioScreen.class.getDeclaredField("playlistScrollOffset");
+            field.setAccessible(true);
+            field.setInt(screen, offset);
+        } catch (ReflectiveOperationException exception) {
+            throw new AssertionError("playlist scroll offset was not available", exception);
+        }
+    }
+
     private static List<String> chartVideoIds(HorizonRadioScreen screen) {
         List<String> videoIds = new ArrayList<String>();
         for (HorizonRadioScreen.SearchResult result : chartResults(screen)) {
@@ -725,6 +833,7 @@ public class HorizonRadioClientDiscoveryTest {
         private final List<String> chartSelections = new ArrayList<String>();
         private final List<String> playNowRequests = new ArrayList<String>();
         private String importPlaylistUrl;
+        private Boolean lastChartSelectionRemove;
 
         private HorizonRadioClient.ClientTransport asTransport() {
             return (HorizonRadioClient.ClientTransport) Proxy.newProxyInstance(
@@ -748,6 +857,7 @@ public class HorizonRadioClientDiscoveryTest {
             if ("sendAddChartSelections".equals(name) && arguments != null
                 && arguments.length > 0
                 && arguments[0] instanceof List<?>) {
+                lastChartSelectionRemove = arguments.length > 1 ? (Boolean) arguments[1] : null;
                 for (Object selection : (List<?>) arguments[0]) {
                     try {
                         java.lang.reflect.Field videoId = selection.getClass()

@@ -30,6 +30,7 @@ import net.minecraft.client.gui.GuiTextField;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
+import org.lwjgl.input.Keyboard;
 
 import com.horizonradio.client.media.ClientMediaService;
 import com.horizonradio.core.model.RadioStation;
@@ -391,6 +392,55 @@ public class GuiLayoutTest {
         assertTrue(
             screen.getPlaylistSnapshot()
                 .isEmpty());
+    }
+
+    @Test
+    public void playlistFirstRowQueueButtonCenterAddsOnlyTheFirstResult() {
+        TestScreen screen = initializedPlaylistScreen(
+            Arrays.asList(
+                new HorizonRadioScreen.SearchResult("playlist-one", "Playlist One", "", "1:00", ""),
+                new HorizonRadioScreen.SearchResult("playlist-two", "Playlist Two", "", "2:00", "")));
+
+        screen.click(280, screen.playlistFirstRowQueueButtonCenterY());
+
+        assertEquals(Collections.singletonList("playlist-one|60000"), transport.chartSelections);
+    }
+
+    @Test
+    public void playlistRowsCannotBeActedOnWhileTheirRevealIsPending() {
+        TestScreen screen = new TestScreen();
+        screen.setScreenSize(300, 285);
+        screen.initialize();
+        screen.selectPlaylistDiscoveryTab();
+        screen.beginPlaylistLoading();
+        screen.updatePlaylistResults(
+            Arrays.asList(
+                new HorizonRadioScreen.SearchResult("playlist-one", "Playlist One", "", "1:00", ""),
+                new HorizonRadioScreen.SearchResult("playlist-two", "Playlist Two", "", "2:00", "")));
+
+        assertTrue(screen.hasPlaylistResultsRevealPending());
+        screen.click(280, screen.playlistFirstRowQueueButtonCenterY());
+
+        assertTrue(transport.chartSelections.isEmpty());
+        assertNull(transport.playNowRequest);
+    }
+
+    @Test
+    public void playlistImportActionsAreIgnoredWhileLoadingForButtonAndEnter() {
+        PendingPlaylistImportProvider provider = new PendingPlaylistImportProvider(new CompletableFuture<String>());
+        HorizonRadioClient.setClientMediaService(new ClientMediaService(provider));
+        TestScreen screen = new TestScreen();
+        screen.setScreenSize(300, 285);
+        screen.initialize();
+        screen.selectPlaylistDiscoveryTab();
+        screen.setPlaylistUrlText("https://www.youtube.com/playlist?list=PLfirst");
+
+        screen.invokeSearchAction();
+        screen.setPlaylistUrlText("https://www.youtube.com/playlist?list=PLsecond");
+        screen.invokeSearchAction();
+        screen.invokePlaylistEnter();
+
+        assertEquals(1, provider.playlistImportCallCount);
     }
 
     @Test
@@ -1401,6 +1451,12 @@ public class GuiLayoutTest {
             }
         }
 
+        private void setPlaylistUrlText(String value) {
+            GuiTextField field = playlistUrlField();
+            field.setText(value);
+            field.setFocused(true);
+        }
+
         private List<SearchResult> chartResultsSnapshot() {
             try {
                 java.lang.reflect.Field field = HorizonRadioScreen.class.getDeclaredField("chartResults");
@@ -1423,6 +1479,10 @@ public class GuiLayoutTest {
 
         private void invokeSearchAction() {
             actionPerformed(new GuiButton(0, 0, 0, "Search"));
+        }
+
+        private void invokePlaylistEnter() {
+            keyTyped('\r', Keyboard.KEY_RETURN);
         }
 
         private void invokePlaybackAction() {
@@ -1514,6 +1574,34 @@ public class GuiLayoutTest {
                 ids.add(result.videoId);
             }
             return ids;
+        }
+
+        private boolean hasPlaylistResultsRevealPending() {
+            try {
+                java.lang.reflect.Field field = HorizonRadioScreen.class
+                    .getDeclaredField("playlistResultsRevealPending");
+                field.setAccessible(true);
+                return field.getBoolean(this);
+            } catch (ReflectiveOperationException exception) {
+                throw new AssertionError("Playlist result reveal state was not available", exception);
+            }
+        }
+
+        private int playlistFirstRowQueueButtonCenterY() {
+            try {
+                java.lang.reflect.Method listTopMethod = HorizonRadioScreen.class
+                    .getDeclaredMethod("playlistDiscoveryListTop", int.class);
+                java.lang.reflect.Method buttonTopMethod = HorizonRadioScreen.class
+                    .getDeclaredMethod("queueButtonTop", int.class);
+                listTopMethod.setAccessible(true);
+                buttonTopMethod.setAccessible(true);
+                int panelTop = (height - screenConstant("PANEL_HEIGHT")) / 2;
+                int listTop = ((Integer) listTopMethod.invoke(this, panelTop)).intValue();
+                int buttonTop = ((Integer) buttonTopMethod.invoke(this, listTop)).intValue();
+                return buttonTop + screenConstant("QUEUE_BUTTON_HEIGHT") / 2;
+            } catch (ReflectiveOperationException exception) {
+                throw new AssertionError("Playlist first-row queue button position was not available", exception);
+            }
         }
 
         private List<String> radioDisplayStationUuids() {
@@ -1725,6 +1813,7 @@ public class GuiLayoutTest {
     private static final class PendingPlaylistImportProvider implements ClientMediaService.RemoteProvider {
 
         private final CompletableFuture<String> playlistJson;
+        private int playlistImportCallCount;
 
         private PendingPlaylistImportProvider(CompletableFuture<String> playlistJson) {
             this.playlistJson = playlistJson;
@@ -1743,6 +1832,7 @@ public class GuiLayoutTest {
 
         @Override
         public CompletableFuture<String> extractPlaylistJson(String playlistUrl) {
+            playlistImportCallCount++;
             return playlistJson;
         }
 

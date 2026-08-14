@@ -821,14 +821,15 @@ public class HorizonRadioScreen extends GuiScreen {
                 return;
             }
         }
-        if (button == 0 && isSongResultTab(currentTab)) {
+        if (button == 0 && isSongResultTab(currentTab)
+            && !(currentTab == PLAYLIST_DISCOVERY_TAB && isPlaylistResultsLoading())) {
             boolean charts = currentTab == CHARTS_TAB;
             boolean playlistDiscovery = currentTab == PLAYLIST_DISCOVERY_TAB;
             if ((charts || playlistDiscovery) && isChartsBulkButtonAt(panelLeft(), panelTop(), mouseX, mouseY)) {
                 if (charts && areAllChartsInQueue()) {
                     HorizonRadioClient.sendAddChartsToPlaylist(toPlaylistSelections(chartResults), true);
                 } else if (playlistDiscovery && areAllPlaylistResultsInQueue()) {
-                    HorizonRadioClient.sendAddChartsToPlaylist(toPlaylistSelections(playlistResults), true);
+                    HorizonRadioClient.sendPlaylistResultsToQueue(toPlaylistSelections(playlistResults), true);
                 } else {
                     List<SearchResult> request = charts ? beginChartAdd(chartResults)
                         : beginPlaylistAdd(playlistResults);
@@ -1065,6 +1066,9 @@ public class HorizonRadioScreen extends GuiScreen {
     }
 
     private void performPlaylistImport() {
+        if (playlistLoading) {
+            return;
+        }
         HorizonRadioClient.sendPlaylistImport(playlistUrlField.getText());
     }
 
@@ -1295,6 +1299,8 @@ public class HorizonRadioScreen extends GuiScreen {
 
     public void beginPlaylistLoading() {
         playlistResultsRevealPending = false;
+        playlistResults.clear();
+        playlistScrollOffset = 0;
         playlistLoading = true;
         playlistError = "";
         playlistProgress = 0.02f;
@@ -1314,6 +1320,8 @@ public class HorizonRadioScreen extends GuiScreen {
     public void showPlaylistError(String message) {
         playlistLoading = false;
         playlistResultsRevealPending = false;
+        playlistResults.clear();
+        playlistScrollOffset = 0;
         playlistError = message == null ? "" : message;
         playlistProgress = 1.0f;
     }
@@ -2201,7 +2209,7 @@ public class HorizonRadioScreen extends GuiScreen {
     }
 
     private int playlistDiscoveryListTop(int top) {
-        return top + searchListTopOffset(isPlaylistResultsLoading());
+        return top + CONTENT_LIST_TOP_OFFSET;
     }
 
     private int resultListTop(int top) {

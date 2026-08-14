@@ -508,6 +508,8 @@ public final class HorizonRadioClient {
         String sanitizedUrl = playlistUrl == null ? "" : playlistUrl.trim();
         final HorizonRadioScreen originatingScreen = getOpenScreen();
         if (!PlaylistImportService.isPlaylistUrl(sanitizedUrl)) {
+            playlistImportGeneration++;
+            playlistImportScreen = null;
             if (originatingScreen != null) {
                 originatingScreen.showPlaylistError("Paste a valid YouTube playlist URL");
             }
@@ -671,7 +673,15 @@ public final class HorizonRadioClient {
     }
 
     public static synchronized void sendPlaylistResultsToQueue(List<?> selections) {
+        sendPlaylistResultsToQueue(selections, false);
+    }
+
+    public static synchronized void sendPlaylistResultsToQueue(List<?> selections, boolean remove) {
         if (selections == null || selections.isEmpty()) {
+            return;
+        }
+        if (remove) {
+            transport.sendAddChartSelections(toPlaylistSelections(selections), true);
             return;
         }
         resolveAndSendSelections(selections, QueueSelectionOrigin.PLAYLIST);
