@@ -74,12 +74,13 @@ public class HorizonRadioClientFavoritesTest {
     }
 
     @Test
-    public void stoppedSourceCannotBeFavorited() {
+    public void pausedRadioSourceRemainsFavoritable() {
         HorizonRadioClient.handleTrackSync(TrackSyncPacket.radio(5L, "station-id"));
         HorizonRadioClient.handleTrackSync(TrackSyncPacket.stop(6L));
 
-        assertFalse(HorizonRadioClient.hasCurrentFavoriteSource());
-        assertFalse(HorizonRadioClient.toggleCurrentFavorite());
+        assertTrue(HorizonRadioClient.hasCurrentFavoriteSource());
+        assertTrue(HorizonRadioClient.toggleCurrentFavorite());
+        assertTrue(HorizonRadioClient.isCurrentSourceFavorite());
     }
 
     @Test

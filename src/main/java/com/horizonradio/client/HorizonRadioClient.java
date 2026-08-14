@@ -1193,7 +1193,7 @@ public final class HorizonRadioClient {
         }
         AudioPlayer.getInstance()
             .stopRadio();
-        if (cachedRadioActive) {
+        if (cachedRadioActive || cachedRadioPresentation != null) {
             updateRadioPresentation(null);
         }
 
@@ -1397,6 +1397,18 @@ public final class HorizonRadioClient {
     }
 
     private static void stopLocalPlayback(long generation) {
+        boolean stoppingRadio = activeTrackSourceType == MediaSourceType.RADIO && activeTrackSourceId != null
+            && activeTrackSourceId.trim()
+                .length() > 0;
+        String stoppedRadioUuid = stoppingRadio ? activeTrackSourceId : null;
+        String stoppedRadioName = stoppedRadioUuid;
+        if (stoppingRadio && cachedRadioPresentation != null
+            && cachedRadioPresentation.getStationName() != null
+            && cachedRadioPresentation.getStationName()
+                .trim()
+                .length() > 0) {
+            stoppedRadioName = cachedRadioPresentation.getStationName();
+        }
         cancelActiveTrackDownload();
         if (clientRadioPlayback != null) {
             clientRadioPlayback.stop();
@@ -1405,14 +1417,19 @@ public final class HorizonRadioClient {
             .stop();
         AudioPlayer.getInstance()
             .stopRadio();
-        if (cachedRadioActive) {
+        if (stoppingRadio) {
+            updateRadioPresentation(
+                ClientRadioPresentation.inactive(generation, stoppedRadioUuid, stoppedRadioName, "", false));
+        } else if (cachedRadioActive || cachedRadioPresentation != null) {
             updateRadioPresentation(null);
         }
         clearCachedMusicState();
         HorizonRadioScreen screen = getOpenScreen();
         if (screen != null) {
-            screen.updateNowPlaying(null, 0.0f);
-            screen.updatePlaybackPaused(false);
+            if (!stoppingRadio) {
+                screen.updateNowPlaying(null, 0.0f);
+                screen.updatePlaybackPaused(false);
+            }
         }
         activeTrackSourceType = null;
         activeTrackSourceId = null;
@@ -1424,7 +1441,7 @@ public final class HorizonRadioClient {
     }
 
     private static void stopLocalRadioWhenAbsentFromQueue() {
-        if (!cachedRadioActive || cachedRadioPresentation == null) {
+        if (cachedRadioPresentation == null) {
             return;
         }
         for (PlaylistEntry entry : CLIENT_QUEUE.snapshot()) {
@@ -1433,7 +1450,7 @@ public final class HorizonRadioClient {
                 return;
             }
         }
-        if (clientRadioPlayback != null) {
+        if (cachedRadioActive && clientRadioPlayback != null) {
             clientRadioPlayback.stop();
         }
         updateRadioPresentation(null);
