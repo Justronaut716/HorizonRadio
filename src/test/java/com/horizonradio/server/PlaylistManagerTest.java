@@ -2,9 +2,7 @@ package com.horizonradio.server;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
 import java.io.File;
@@ -95,6 +93,34 @@ public class PlaylistManagerTest {
             assertTrue(
                 "direct-play preparation delay was unexpectedly long: " + preparationDelay,
                 preparationDelay <= 6_000L);
+        } finally {
+            manager.shutdown();
+        }
+    }
+
+    @Test
+    public void directPlayAtFullQueueEvictsTheFirstEntry() throws Exception {
+        PlaylistManager manager = manager();
+        try {
+            EntityPlayerMP player = testPlayer();
+            manager.handleAddToPlaylist(player, VIDEO_ID, 60_000L);
+            for (int index = 1; index < 50; index++) {
+                manager.handleAddToPlaylist(player, String.format("%011d", index), 60_000L);
+            }
+
+            manager.handlePlayNow(player, SECOND_VIDEO_ID, 60_000L);
+
+            assertEquals(50, playlist(manager).size());
+            assertEquals(SECOND_VIDEO_ID, current(manager).getSourceId());
+            assertEquals(
+                SECOND_VIDEO_ID,
+                playlist(manager).get(0)
+                    .getSourceId());
+            assertEquals(
+                "00000000001",
+                playlist(manager).get(1)
+                    .getSourceId());
+            assertEquals(-1, state(manager).findIndex(MediaSourceType.YOUTUBE, VIDEO_ID));
         } finally {
             manager.shutdown();
         }
@@ -310,23 +336,31 @@ public class PlaylistManagerTest {
     }
 
     @Test
-    public void rejectingRadioAtFullQueuePreservesFiniteTrackAdvancement() throws Exception {
+    public void selectingRadioAtFullQueueEvictsTheFirstEntry() throws Exception {
         PlaylistManager manager = manager();
         try {
             EntityPlayerMP player = testPlayer();
             manager.handleAddToPlaylist(player, VIDEO_ID, 60_000L);
             ScheduledFuture<?> scheduledAdvance = advanceFuture(manager);
-            assertNotNull(scheduledAdvance);
             for (int index = 1; index < 50; index++) {
                 manager.handleAddToPlaylist(player, String.format("%011d", index), 60_000L);
             }
 
             manager.handleSelectRadio(player, "station-id");
 
-            assertEquals(MediaSourceType.YOUTUBE, state(manager).getCurrentSourceType());
-            assertEquals(VIDEO_ID, state(manager).getCurrentSourceId());
-            assertSame(scheduledAdvance, advanceFuture(manager));
-            assertFalse(scheduledAdvance.isCancelled());
+            assertEquals(50, playlist(manager).size());
+            assertEquals(MediaSourceType.RADIO, current(manager).getSourceType());
+            assertEquals("station-id", current(manager).getSourceId());
+            assertEquals(
+                "station-id",
+                playlist(manager).get(0)
+                    .getSourceId());
+            assertEquals(
+                "00000000001",
+                playlist(manager).get(1)
+                    .getSourceId());
+            assertEquals(-1, state(manager).findIndex(MediaSourceType.YOUTUBE, VIDEO_ID));
+            assertTrue(scheduledAdvance.isCancelled());
         } finally {
             manager.shutdown();
         }

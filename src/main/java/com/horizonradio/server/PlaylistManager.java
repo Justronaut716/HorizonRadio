@@ -147,12 +147,6 @@ public final class PlaylistManager {
                 + state.getQueueRevision());
 
         int existingIndex = state.findIndex(MediaSourceType.YOUTUBE, videoId);
-        boolean replacesCurrent = state.getCurrentIndex() >= 0 && state.getCurrentIndex() < state.size();
-        if (existingIndex < 0 && state.size() >= maxPlaylistSize && !replacesCurrent) {
-            sendChat(player, EnumChatFormatting.YELLOW, "The queue is full.");
-            return;
-        }
-
         boolean replacedRadio = state.getCurrentSourceType() == MediaSourceType.RADIO;
         cancelAdvancement();
         PlaylistEntry requested = existingIndex >= 0 ? state.get(existingIndex)
@@ -204,10 +198,6 @@ public final class PlaylistManager {
         }
 
         PlaylistEntry station = PlaylistEntry.radio(stationUuid, playerName(player));
-        if (!state.canSelectRadioAtFront(station)) {
-            sendChat(player, EnumChatFormatting.YELLOW, "The queue is full.");
-            return;
-        }
         cancelAdvancement();
         if (!state.selectRadioAtFront(station)) {
             return;
