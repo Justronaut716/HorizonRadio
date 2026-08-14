@@ -117,7 +117,9 @@ public class PlaylistStateTest {
         state.add(PlaylistEntry.youtube("oldest", 1_000L, "Alice"));
         state.add(PlaylistEntry.youtube("queued", 1_000L, "Bob"));
 
-        assertTrue(state.selectRadioAtFront(PlaylistEntry.radio("station", "Carol")));
+        PlaylistEntry station = PlaylistEntry.radio("station", "Carol");
+        assertFalse(state.canSelectRadioAtFront(station));
+        assertTrue(state.selectRadioAtFront(station));
 
         assertEquals(2, state.size());
         assertEquals(MediaSourceType.RADIO, state.get(0).getSourceType());

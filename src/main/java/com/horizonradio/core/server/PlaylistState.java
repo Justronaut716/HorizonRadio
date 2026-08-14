@@ -178,7 +178,7 @@ public final class PlaylistState {
     }
 
     public boolean selectRadioAtFront(PlaylistEntry station) {
-        if (!canSelectRadioAtFront(station)) {
+        if (station == null || !station.isRadio()) {
             return false;
         }
 
@@ -199,7 +199,8 @@ public final class PlaylistState {
         if (station == null || !station.isRadio()) {
             return false;
         }
-        return true;
+        return (!playlist.isEmpty() && playlist.get(0)
+            .isRadio()) || playlist.size() < maxPlaylistSize;
     }
 
     private void evictFrontForImmediateSelection() {
