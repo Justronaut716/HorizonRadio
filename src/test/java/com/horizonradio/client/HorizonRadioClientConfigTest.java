@@ -6,9 +6,9 @@ import static org.junit.Assert.assertTrue;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
-import java.util.Collections;
 import java.nio.charset.Charset;
 import java.nio.file.Files;
+import java.util.Collections;
 
 import org.junit.Test;
 
@@ -92,8 +92,7 @@ public class HorizonRadioClientConfigTest {
             .toFile();
         try {
             ClientFavorites favorites = new ClientFavorites(
-                Collections.singletonList(
-                    new ClientFavorites.Song("song", "Song", "Channel", "2:00", "thumb")),
+                Collections.singletonList(new ClientFavorites.Song("song", "Song", "Channel", "2:00", "thumb")),
                 Collections.singletonList(new ClientFavorites.Radio("station", "Station")));
             HorizonRadioClientConfig config = HorizonRadioClientConfig.load(directory);
 
@@ -101,8 +100,14 @@ public class HorizonRadioClientConfigTest {
 
             HorizonRadioClientConfig loaded = HorizonRadioClientConfig.load(directory);
             assertEquals(0.35f, loaded.getVolume(), 0.0001f);
-            assertEquals(favorites.getSongs(), loaded.getFavorites().getSongs());
-            assertEquals(favorites.getRadios(), loaded.getFavorites().getRadios());
+            assertEquals(
+                favorites.getSongs(),
+                loaded.getFavorites()
+                    .getSongs());
+            assertEquals(
+                favorites.getRadios(),
+                loaded.getFavorites()
+                    .getRadios());
         } finally {
             deleteRecursively(directory);
         }
@@ -118,8 +123,14 @@ public class HorizonRadioClientConfigTest {
             HorizonRadioClientConfig loaded = HorizonRadioClientConfig.load(directory);
 
             assertEquals(0.5f, loaded.getVolume(), 0.0001f);
-            assertTrue(loaded.getFavorites().getSongs().isEmpty());
-            assertTrue(loaded.getFavorites().getRadios().isEmpty());
+            assertTrue(
+                loaded.getFavorites()
+                    .getSongs()
+                    .isEmpty());
+            assertTrue(
+                loaded.getFavorites()
+                    .getRadios()
+                    .isEmpty());
         } finally {
             deleteRecursively(directory);
         }
@@ -132,15 +143,22 @@ public class HorizonRadioClientConfigTest {
         try {
             write(
                 directory,
-                "{\"volume\":0.5,\"favoriteSongs\":["
-                    + "{\"videoId\":\"valid\",\"title\":\"Valid\"},"
+                "{\"volume\":0.5,\"favoriteSongs\":[" + "{\"videoId\":\"valid\",\"title\":\"Valid\"},"
                     + "{\"videoId\":\" \"},42],"
-                    + "\"favoriteRadios\":[{\"stationUuid\":\"station\",\"name\":\"Station\"},null]}" );
+                    + "\"favoriteRadios\":[{\"stationUuid\":\"station\",\"name\":\"Station\"},null]}");
 
             HorizonRadioClientConfig loaded = HorizonRadioClientConfig.load(directory);
 
-            assertEquals(Collections.singletonList("valid"), songIds(loaded.getFavorites().getSongs()));
-            assertEquals(Collections.singletonList("station"), radioIds(loaded.getFavorites().getRadios()));
+            assertEquals(
+                Collections.singletonList("valid"),
+                songIds(
+                    loaded.getFavorites()
+                        .getSongs()));
+            assertEquals(
+                Collections.singletonList("station"),
+                radioIds(
+                    loaded.getFavorites()
+                        .getRadios()));
         } finally {
             deleteRecursively(directory);
         }
@@ -160,9 +178,17 @@ public class HorizonRadioClientConfigTest {
 
             config.save(0.6f);
 
-            assertEquals(Collections.singletonList("song"), songIds(
-                HorizonRadioClientConfig.load(directory).getFavorites().getSongs()));
-            assertEquals(0.6f, HorizonRadioClientConfig.load(directory).getVolume(), 0.0001f);
+            assertEquals(
+                Collections.singletonList("song"),
+                songIds(
+                    HorizonRadioClientConfig.load(directory)
+                        .getFavorites()
+                        .getSongs()));
+            assertEquals(
+                0.6f,
+                HorizonRadioClientConfig.load(directory)
+                    .getVolume(),
+                0.0001f);
         } finally {
             deleteRecursively(directory);
         }

@@ -928,7 +928,9 @@ public class GuiLayoutTest {
 
         screen.invokeFavoriteAction();
 
-        assertTrue(HorizonRadioClient.getFavoriteSongs().isEmpty());
+        assertTrue(
+            HorizonRadioClient.getFavoriteSongs()
+                .isEmpty());
         assertFalse(HorizonRadioClient.isCurrentSourceFavorite());
     }
 
@@ -1323,8 +1325,7 @@ public class GuiLayoutTest {
         @SuppressWarnings("unchecked")
         private List<SearchResult> invokeDisplayedSearchResults() {
             try {
-                java.lang.reflect.Method method = HorizonRadioScreen.class
-                    .getDeclaredMethod("displayedSearchResults");
+                java.lang.reflect.Method method = HorizonRadioScreen.class.getDeclaredMethod("displayedSearchResults");
                 method.setAccessible(true);
                 return (List<SearchResult>) method.invoke(this);
             } catch (ReflectiveOperationException exception) {
@@ -1335,8 +1336,7 @@ public class GuiLayoutTest {
         @SuppressWarnings("unchecked")
         private List<RadioStationResult> invokeDisplayedRadioResults() {
             try {
-                java.lang.reflect.Method method = HorizonRadioScreen.class
-                    .getDeclaredMethod("displayedRadioResults");
+                java.lang.reflect.Method method = HorizonRadioScreen.class.getDeclaredMethod("displayedRadioResults");
                 method.setAccessible(true);
                 return (List<RadioStationResult>) method.invoke(this);
             } catch (ReflectiveOperationException exception) {

@@ -41,7 +41,11 @@ public class HorizonRadioClientFavoritesTest {
             assertTrue(HorizonRadioClient.isCurrentSourceFavorite());
 
             HorizonRadioClient.loadClientConfig(directory);
-            assertEquals("video-id", HorizonRadioClient.getFavoriteSongs().get(0).getVideoId());
+            assertEquals(
+                "video-id",
+                HorizonRadioClient.getFavoriteSongs()
+                    .get(0)
+                    .getVideoId());
         } finally {
             HorizonRadioClient.clearCache();
             HorizonRadioClient.loadClientConfig(null);
@@ -56,11 +60,17 @@ public class HorizonRadioClientFavoritesTest {
         assertTrue(HorizonRadioClient.hasCurrentFavoriteSource());
         assertTrue(HorizonRadioClient.toggleCurrentFavorite());
         assertTrue(HorizonRadioClient.isCurrentSourceFavorite());
-        assertEquals("station-id", HorizonRadioClient.getFavoriteRadios().get(0).getStationUuid());
+        assertEquals(
+            "station-id",
+            HorizonRadioClient.getFavoriteRadios()
+                .get(0)
+                .getStationUuid());
 
         assertFalse(HorizonRadioClient.toggleCurrentFavorite());
         assertFalse(HorizonRadioClient.isCurrentSourceFavorite());
-        assertTrue(HorizonRadioClient.getFavoriteRadios().isEmpty());
+        assertTrue(
+            HorizonRadioClient.getFavoriteRadios()
+                .isEmpty());
     }
 
     @Test
@@ -79,7 +89,11 @@ public class HorizonRadioClientFavoritesTest {
 
         HorizonRadioClient.clearCache();
 
-        assertEquals("video-id", HorizonRadioClient.getFavoriteSongs().get(0).getVideoId());
+        assertEquals(
+            "video-id",
+            HorizonRadioClient.getFavoriteSongs()
+                .get(0)
+                .getVideoId());
     }
 
     @Test
@@ -94,7 +108,11 @@ public class HorizonRadioClientFavoritesTest {
             HorizonRadioClient.setVolume(0.4f);
             HorizonRadioClient.loadClientConfig(directory);
 
-            assertEquals("video-id", HorizonRadioClient.getFavoriteSongs().get(0).getVideoId());
+            assertEquals(
+                "video-id",
+                HorizonRadioClient.getFavoriteSongs()
+                    .get(0)
+                    .getVideoId());
             assertEquals(0.4f, HorizonRadioClient.getVolume(), 0.0001f);
         } finally {
             HorizonRadioClient.clearCache();

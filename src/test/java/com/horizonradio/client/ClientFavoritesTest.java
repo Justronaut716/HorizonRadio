@@ -52,8 +52,16 @@ public class ClientFavoritesTest {
         favorites.updateSong(new ClientFavorites.Song("first", "Updated", "Channel", "2:00", "thumb"));
 
         assertEquals(Arrays.asList("first", "second"), songIds(favorites.getSongs()));
-        assertEquals("Updated", favorites.getSongs().get(0).getTitle());
-        assertEquals("Channel", favorites.getSongs().get(0).getChannel());
+        assertEquals(
+            "Updated",
+            favorites.getSongs()
+                .get(0)
+                .getTitle());
+        assertEquals(
+            "Channel",
+            favorites.getSongs()
+                .get(0)
+                .getChannel());
     }
 
     @Test

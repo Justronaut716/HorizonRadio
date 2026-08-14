@@ -13,8 +13,8 @@ public class FavoriteResultComposerTest {
 
     @Test
     public void songsPutFavoritesBeforeCachedChartsAndRemoveDuplicateChartRows() {
-        List<ClientFavorites.Song> favorites = Arrays.asList(
-            new ClientFavorites.Song("favorite", "Favorite", "", "2:00", ""));
+        List<ClientFavorites.Song> favorites = Arrays
+            .asList(new ClientFavorites.Song("favorite", "Favorite", "", "2:00", ""));
         List<HorizonRadioScreen.SearchResult> charts = Arrays.asList(
             new HorizonRadioScreen.SearchResult("favorite", "Chart copy", "", "2:00", ""),
             new HorizonRadioScreen.SearchResult("chart", "Chart", "", "3:00", ""));
@@ -31,14 +31,15 @@ public class FavoriteResultComposerTest {
             new HorizonRadioScreen.SearchResult("first", "First", "", "", ""),
             new HorizonRadioScreen.SearchResult("second", "Second", "", "", ""));
 
-        List<HorizonRadioScreen.SearchResult> composed = FavoriteResultComposer.composeSongs(
-            Collections.<ClientFavorites.Song>emptyList(),
-            charts);
+        List<HorizonRadioScreen.SearchResult> composed = FavoriteResultComposer
+            .composeSongs(Collections.<ClientFavorites.Song>emptyList(), charts);
 
         assertEquals(charts, composed);
-        assertEquals(charts, Arrays.asList(
-            new HorizonRadioScreen.SearchResult("first", "First", "", "", ""),
-            new HorizonRadioScreen.SearchResult("second", "Second", "", "", "")));
+        assertEquals(
+            charts,
+            Arrays.asList(
+                new HorizonRadioScreen.SearchResult("first", "First", "", "", ""),
+                new HorizonRadioScreen.SearchResult("second", "Second", "", "", "")));
     }
 
     @Test
@@ -53,8 +54,8 @@ public class FavoriteResultComposerTest {
 
     @Test
     public void radiosPutFavoritesBeforePopularStationsAndRemoveDuplicates() {
-        List<ClientFavorites.Radio> favorites = Arrays.asList(
-            new ClientFavorites.Radio("favorite", "Favorite Station"));
+        List<ClientFavorites.Radio> favorites = Arrays
+            .asList(new ClientFavorites.Radio("favorite", "Favorite Station"));
         List<HorizonRadioScreen.RadioStationResult> popular = Arrays.asList(
             new HorizonRadioScreen.RadioStationResult("favorite", "Duplicate Station"),
             new HorizonRadioScreen.RadioStationResult("popular", "Popular Station"));

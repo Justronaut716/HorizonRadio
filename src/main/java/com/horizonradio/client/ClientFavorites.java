@@ -44,7 +44,8 @@ public final class ClientFavorites {
     }
 
     public boolean toggleSong(Song song) {
-        if (song == null || song.getVideoId().length() == 0) {
+        if (song == null || song.getVideoId()
+            .length() == 0) {
             return false;
         }
         int index = findSongIndex(song.getVideoId());
@@ -57,7 +58,8 @@ public final class ClientFavorites {
     }
 
     public boolean toggleRadio(Radio radio) {
-        if (radio == null || radio.getStationUuid().length() == 0) {
+        if (radio == null || radio.getStationUuid()
+            .length() == 0) {
             return false;
         }
         int index = findRadioIndex(radio.getStationUuid());
@@ -70,7 +72,8 @@ public final class ClientFavorites {
     }
 
     public void updateSong(Song song) {
-        if (song == null || song.getVideoId().length() == 0) {
+        if (song == null || song.getVideoId()
+            .length() == 0) {
             return;
         }
         int index = findSongIndex(song.getVideoId());
@@ -80,7 +83,8 @@ public final class ClientFavorites {
     }
 
     public void updateRadio(Radio radio) {
-        if (radio == null || radio.getStationUuid().length() == 0) {
+        if (radio == null || radio.getStationUuid()
+            .length() == 0) {
             return;
         }
         int index = findRadioIndex(radio.getStationUuid());
@@ -90,20 +94,24 @@ public final class ClientFavorites {
     }
 
     private void addSongIfAbsent(Song song) {
-        if (song != null && song.getVideoId().length() > 0 && !isSongFavorite(song.getVideoId())) {
+        if (song != null && song.getVideoId()
+            .length() > 0 && !isSongFavorite(song.getVideoId())) {
             songs.add(song);
         }
     }
 
     private void addRadioIfAbsent(Radio radio) {
-        if (radio != null && radio.getStationUuid().length() > 0 && !isRadioFavorite(radio.getStationUuid())) {
+        if (radio != null && radio.getStationUuid()
+            .length() > 0 && !isRadioFavorite(radio.getStationUuid())) {
             radios.add(radio);
         }
     }
 
     private int findSongIndex(String videoId) {
         for (int index = 0; index < songs.size(); index++) {
-            if (songs.get(index).getVideoId().equals(videoId)) {
+            if (songs.get(index)
+                .getVideoId()
+                .equals(videoId)) {
                 return index;
             }
         }
@@ -112,7 +120,9 @@ public final class ClientFavorites {
 
     private int findRadioIndex(String stationUuid) {
         for (int index = 0; index < radios.size(); index++) {
-            if (radios.get(index).getStationUuid().equals(stationUuid)) {
+            if (radios.get(index)
+                .getStationUuid()
+                .equals(stationUuid)) {
                 return index;
             }
         }
@@ -173,7 +183,8 @@ public final class ClientFavorites {
             }
             Song that = (Song) other;
             return Objects.equals(videoId, that.videoId) && Objects.equals(title, that.title)
-                && Objects.equals(channel, that.channel) && Objects.equals(duration, that.duration)
+                && Objects.equals(channel, that.channel)
+                && Objects.equals(duration, that.duration)
                 && Objects.equals(thumbnail, that.thumbnail);
         }
 
