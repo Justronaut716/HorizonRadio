@@ -2,6 +2,8 @@ package com.horizonradio.network;
 
 import java.nio.charset.Charset;
 
+import com.horizonradio.core.protocol.ProtocolLimits;
+
 import cpw.mods.fml.common.network.ByteBufUtils;
 import io.netty.buffer.ByteBuf;
 
@@ -9,7 +11,7 @@ import io.netty.buffer.ByteBuf;
 public final class PacketBufferUtil {
 
     public static final int MAX_STRING_BYTES = 16383;
-    public static final int MAX_COLLECTION_SIZE = 1024;
+    public static final int MAX_COLLECTION_SIZE = ProtocolLimits.MAX_COLLECTION_SIZE;
     public static final int MAX_BYTE_ARRAY_BYTES = 30 * 1024;
 
     private static final Charset UTF_8 = Charset.forName("UTF-8");

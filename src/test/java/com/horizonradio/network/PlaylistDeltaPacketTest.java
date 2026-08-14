@@ -9,6 +9,7 @@ import org.junit.Test;
 import com.horizonradio.core.model.MediaSourceType;
 import com.horizonradio.network.packets.PlaylistDeltaPacket;
 
+import cpw.mods.fml.common.network.ByteBufUtils;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 
@@ -56,7 +57,7 @@ public class PlaylistDeltaPacketTest {
         ByteBuf buffer = Unpooled.buffer();
         buffer.writeLong(1L);
         buffer.writeByte(PlaylistDeltaPacket.Operation.REPLACE.getWireValue());
-        PacketBufferUtil.writeCount(buffer, PacketBufferUtil.MAX_COLLECTION_SIZE);
+        ByteBufUtils.writeVarInt(buffer, PacketBufferUtil.MAX_COLLECTION_SIZE + 1, 5);
         new PlaylistDeltaPacket().fromBytes(buffer);
     }
 

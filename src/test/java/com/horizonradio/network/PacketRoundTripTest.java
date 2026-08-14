@@ -9,12 +9,14 @@ import java.io.IOException;
 import java.nio.charset.Charset;
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
 import org.junit.Test;
 
+import com.horizonradio.core.config.HorizonRadioConfig;
 import com.horizonradio.core.model.MediaSourceType;
 import com.horizonradio.network.packets.AddChartsToPlaylistPacket;
 import com.horizonradio.network.packets.AddToPlaylistPacket;
@@ -174,6 +176,23 @@ public class PacketRoundTripTest {
         TrackSyncPacket.radio(18L, "station-id")
             .toBytes(radioBytes);
         assertEquals(20, radioBytes.readableBytes());
+    }
+
+    @Test
+    public void roundTripsPlaylistSnapshotsAboveTheDefaultWithinTheWireLimit() {
+        List<PlaylistSyncPacket.Entry> entries = new ArrayList<PlaylistSyncPacket.Entry>();
+        for (int index = 0; index <= HorizonRadioConfig.DEFAULT_MAX_PLAYLIST_SIZE; index++) {
+            entries.add(new PlaylistSyncPacket.Entry(MediaSourceType.YOUTUBE, "video-" + index, "Alice"));
+        }
+
+        PlaylistSyncPacket decoded = roundTrip(
+            new PlaylistSyncPacket(19L, false, false, entries),
+            new PlaylistSyncPacket());
+
+        assertEquals(
+            HorizonRadioConfig.DEFAULT_MAX_PLAYLIST_SIZE + 1,
+            decoded.getEntries()
+                .size());
     }
 
     @Test

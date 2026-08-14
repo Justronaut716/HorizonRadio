@@ -5,7 +5,6 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 
-import com.horizonradio.core.config.HorizonRadioConfig;
 import com.horizonradio.core.model.MediaSourceType;
 import com.horizonradio.network.PacketBufferUtil;
 
@@ -15,7 +14,7 @@ import io.netty.buffer.ByteBuf;
 /** Compact authoritative playlist snapshot without display or stream metadata. */
 public class PlaylistSyncPacket implements IMessage {
 
-    static final int MAX_ENTRIES = HorizonRadioConfig.DEFAULT_MAX_PLAYLIST_SIZE;
+    static final int MAX_ENTRIES = PacketBufferUtil.MAX_COLLECTION_SIZE;
     static final int MAX_SOURCE_ID_BYTES = 128;
     static final int MAX_ADDED_BY_BYTES = 64;
 

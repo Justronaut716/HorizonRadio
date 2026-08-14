@@ -11,11 +11,13 @@ import java.nio.charset.Charset;
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParseException;
+import com.horizonradio.core.protocol.ProtocolLimits;
 
 /** The preserved JSON configuration for HorizonRadio. */
 public final class HorizonRadioConfig {
 
     public static final int DEFAULT_MAX_PLAYLIST_SIZE = 50;
+    public static final int MAX_PLAYLIST_SIZE = ProtocolLimits.MAX_COLLECTION_SIZE;
     public static final int DEFAULT_MAX_TRACK_DURATION_MINUTES = 15;
     public static final String DEFAULT_DOWNLOAD_DIR = "./horizonradio-downloads";
     public static final String DEFAULT_YOUTUBE_COOKIES_FROM_BROWSER = "";
@@ -82,8 +84,11 @@ public final class HorizonRadioConfig {
             if (object != null) {
                 if (object.has("maxPlaylistSize") && !object.get("maxPlaylistSize")
                     .isJsonNull()) {
-                    maxPlaylistSize = object.get("maxPlaylistSize")
+                    int configuredSize = object.get("maxPlaylistSize")
                         .getAsInt();
+                    if (configuredSize > 0) {
+                        maxPlaylistSize = Math.min(configuredSize, MAX_PLAYLIST_SIZE);
+                    }
                 }
                 if (object.has("maxTrackDurationMinutes") && !object.get("maxTrackDurationMinutes")
                     .isJsonNull()) {

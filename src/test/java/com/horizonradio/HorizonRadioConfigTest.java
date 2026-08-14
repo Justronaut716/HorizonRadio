@@ -15,6 +15,7 @@ import org.junit.Test;
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import com.horizonradio.core.config.HorizonRadioConfig;
+import com.horizonradio.network.PacketBufferUtil;
 
 public class HorizonRadioConfigTest {
 
@@ -37,6 +38,21 @@ public class HorizonRadioConfigTest {
             assertEquals("chrome", config.getYoutubeCookiesFromBrowser());
             assertEquals("D:/cookies.txt", config.getYoutubeCookiesFile());
             assertTrue(config.isServerDebugChat());
+        } finally {
+            deleteRecursively(configDirectory);
+        }
+    }
+
+    @Test
+    public void clampsPlaylistSizeToTheWireCollectionLimit() throws IOException {
+        File configDirectory = Files.createTempDirectory("horizonradio-config-playlist-limit")
+            .toFile();
+        try {
+            writeConfig(configDirectory, "{\"maxPlaylistSize\":" + (PacketBufferUtil.MAX_COLLECTION_SIZE + 1) + "}");
+
+            HorizonRadioConfig config = HorizonRadioConfig.load(configDirectory);
+
+            assertEquals(PacketBufferUtil.MAX_COLLECTION_SIZE, config.getMaxPlaylistSize());
         } finally {
             deleteRecursively(configDirectory);
         }
