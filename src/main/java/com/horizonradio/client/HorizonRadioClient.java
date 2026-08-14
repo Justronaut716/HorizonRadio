@@ -377,6 +377,7 @@ public final class HorizonRadioClient {
             return;
         }
 
+        playbackMode = mode;
         localPlaybackGeneration++;
         serverClockOffsetMs = 0L;
         AudioPlayer.getInstance()
@@ -387,7 +388,6 @@ public final class HorizonRadioClient {
         pendingAddResolutionResyncRequested = false;
 
         if (mode == PlaybackMode.PRIVATE) {
-            playbackMode = PlaybackMode.PRIVATE;
             updatePrivateLooping(LOCAL_QUEUE.isLooping());
             updatePrivateShuffling(LOCAL_QUEUE.isShuffling());
             refreshCachedPlaylistFromActiveQueue();
@@ -397,7 +397,6 @@ public final class HorizonRadioClient {
 
         CLIENT_QUEUE.reset();
         playlistResyncRequested = false;
-        playbackMode = PlaybackMode.SERVER;
         updateLooping(false);
         updateShuffling(false);
         refreshCachedPlaylistFromActiveQueue();
@@ -1395,6 +1394,7 @@ public final class HorizonRadioClient {
         }
 
         if (packet.isStop()) {
+            localPlaybackGeneration++;
             stopLocalPlayback(packet.getGeneration());
             return;
         }
@@ -1460,6 +1460,7 @@ public final class HorizonRadioClient {
         }
 
         final long generation = packet.getGeneration();
+        final long clientPlaybackGeneration = localPlaybackGeneration;
         final String videoId = packet.getVideoId();
         final long startAtMs = packet.getStartAtMs();
         CompletableFuture<Path> download;
@@ -1483,7 +1484,8 @@ public final class HorizonRadioClient {
                     @Override
                     public void run() {
                         synchronized (HorizonRadioClient.class) {
-                            if (activeTrackSourceType != MediaSourceType.YOUTUBE
+                            if (localPlaybackGeneration != clientPlaybackGeneration
+                                || activeTrackSourceType != MediaSourceType.YOUTUBE
                                 || !shouldAcceptServerAudioCompletion(
                                     playbackMode,
                                     activeTrackGeneration,

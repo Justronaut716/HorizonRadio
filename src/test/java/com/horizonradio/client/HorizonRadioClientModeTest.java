@@ -376,6 +376,69 @@ public class HorizonRadioClientModeTest {
     }
 
     @Test
+    public void modeTransitionPublishesTheNewModeBeforeCancellingServerDownload() {
+        HorizonRadioClient.handleTrackSync(TrackSyncPacket.youtube(1L, "song", 0L, 0L, false));
+
+        HorizonRadioClient.setPlaybackMode(PlaybackMode.PRIVATE);
+
+        assertSame(PlaybackMode.PRIVATE, audioDownloads.modeDuringCancel());
+    }
+
+    @Test
+    public void clearCacheInvalidatesServerGenerationBeforeSynchronousSuccessfulCancellationCallback() throws Exception {
+        AudioPlayer originalPlayer = AudioPlayer.getInstance();
+        CountingExecutorService audioExecutor = new CountingExecutorService();
+        AudioPlayer controlledPlayer = new AudioPlayer(new AudioPlayer.SourceLineFactory() {
+
+            @Override
+            public javax.sound.sampled.SourceDataLine create(javax.sound.sampled.AudioFormat format) {
+                throw new AssertionError("finite callback must not open a radio line");
+            }
+        }, audioExecutor);
+        setAudioPlayerInstance(controlledPlayer);
+        try {
+            HorizonRadioClient.handleTrackSync(TrackSyncPacket.youtube(1L, "song", 0L, 0L, false));
+            int tasksBeforeClear = audioExecutor.executeCount();
+            Path completed = Files.createFile(audioDirectory.resolve("completed.wav"));
+            audioDownloads.completeDownloadOnCancel(completed);
+
+            HorizonRadioClient.clearCache();
+
+            assertEquals(tasksBeforeClear + 1, audioExecutor.executeCount());
+        } finally {
+            setAudioPlayerInstance(originalPlayer);
+            controlledPlayer.shutdown();
+        }
+    }
+
+    @Test
+    public void serverStopInvalidatesGenerationBeforeSynchronousDownloadCancellationCallback() throws Exception {
+        AudioPlayer originalPlayer = AudioPlayer.getInstance();
+        CountingExecutorService audioExecutor = new CountingExecutorService();
+        AudioPlayer controlledPlayer = new AudioPlayer(new AudioPlayer.SourceLineFactory() {
+
+            @Override
+            public javax.sound.sampled.SourceDataLine create(javax.sound.sampled.AudioFormat format) {
+                throw new AssertionError("finite callback must not open a radio line");
+            }
+        }, audioExecutor);
+        setAudioPlayerInstance(controlledPlayer);
+        try {
+            HorizonRadioClient.handleTrackSync(TrackSyncPacket.youtube(1L, "song", 0L, 0L, false));
+            int tasksBeforeStop = audioExecutor.executeCount();
+            Path completed = Files.createFile(audioDirectory.resolve("completed.wav"));
+            audioDownloads.completeDownloadOnCancel(completed);
+
+            HorizonRadioClient.handleTrackSync(TrackSyncPacket.stop(2L));
+
+            assertEquals(tasksBeforeStop + 1, audioExecutor.executeCount());
+        } finally {
+            setAudioPlayerInstance(originalPlayer);
+            controlledPlayer.shutdown();
+        }
+    }
+
+    @Test
     public void clearCacheInvalidatesPrivateGenerationBeforeSynchronousCancellationCallback() {
         HorizonRadioClient.setPlaybackMode(PlaybackMode.PRIVATE);
         HorizonRadioClient.sendPlayNow("song", 1_000L);
@@ -660,6 +723,8 @@ public class HorizonRadioClientModeTest {
             new java.util.HashMap<String, CompletableFuture<Path>>();
         private boolean detachDownloadOnCancel;
         private boolean failDownloadOnCancel;
+        private Path completionOnCancel;
+        private PlaybackMode modeDuringCancel;
 
         private ControlledAudioDownloadService(Path directory) throws java.io.IOException {
             super(directory);
@@ -678,11 +743,15 @@ public class HorizonRadioClientModeTest {
         @Override
         public synchronized void cancelDownload(String videoId) {
             CompletableFuture<Path> future = futures.get(videoId);
+            modeDuringCancel = HorizonRadioClient.getPlaybackMode();
             if (detachDownloadOnCancel) {
                 futures.remove(videoId);
             }
             if (failDownloadOnCancel && future != null) {
                 future.completeExceptionally(new IllegalStateException("cancelled during clear"));
+            }
+            if (completionOnCancel != null && future != null) {
+                future.complete(completionOnCancel);
             }
             // Futures remain completable to simulate callbacks racing cancellation.
         }
@@ -693,6 +762,14 @@ public class HorizonRadioClientModeTest {
 
         private synchronized void failDownloadOnCancel() {
             failDownloadOnCancel = true;
+        }
+
+        private synchronized void completeDownloadOnCancel(Path path) {
+            completionOnCancel = path;
+        }
+
+        private synchronized PlaybackMode modeDuringCancel() {
+            return modeDuringCancel;
         }
 
         private synchronized boolean hasDownload(String videoId) {
