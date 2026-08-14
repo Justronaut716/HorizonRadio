@@ -82,6 +82,7 @@ public final class HorizonRadioClient {
     private static final Set<String> requestedStationMetadata = new HashSet<String>();
     private static final ClientQueueState CLIENT_QUEUE = new ClientQueueState();
     private static boolean playlistResyncRequested;
+    private static boolean pendingAddResolutionResyncRequested;
     private static long searchTabDiscoveryGeneration;
     private static long chartGeneration;
     private static long playlistImportGeneration;
@@ -1011,6 +1012,7 @@ public final class HorizonRadioClient {
         cachedLooping = CLIENT_QUEUE.isLooping();
         stopLocalRadioWhenAbsentFromQueue();
         refreshCachedPlaylistFromQueue();
+        completePendingAddResolutionFromSnapshot();
         updateShuffling(cachedShuffling);
         updateLooping(cachedLooping);
     }
@@ -1064,6 +1066,36 @@ public final class HorizonRadioClient {
             } else {
                 screen.completeChartAdds(videoIds);
             }
+        }
+    }
+
+    private static void awaitPendingAddResolution(QueueSelectionOrigin origin, List<PlaylistSelection> selections) {
+        HorizonRadioScreen screen = getOpenScreen();
+        if (screen == null || selections == null || selections.isEmpty()) {
+            return;
+        }
+        List<String> videoIds = new ArrayList<String>();
+        for (PlaylistSelection selection : selections) {
+            if (selection != null && selection.videoId != null) {
+                videoIds.add(selection.videoId);
+            }
+        }
+        if (screen.awaitPendingAddResolution(origin == QueueSelectionOrigin.PLAYLIST, videoIds)
+            && !pendingAddResolutionResyncRequested) {
+            pendingAddResolutionResyncRequested = true;
+            transport.sendPlaylistResync(CLIENT_QUEUE.getRevision());
+        }
+    }
+
+    private static void completePendingAddResolutionFromSnapshot() {
+        if (!pendingAddResolutionResyncRequested) {
+            return;
+        }
+        pendingAddResolutionResyncRequested = false;
+        HorizonRadioScreen screen = getOpenScreen();
+        if (screen != null && screen.completeNextPendingAddResolution()) {
+            pendingAddResolutionResyncRequested = true;
+            transport.sendPlaylistResync(CLIENT_QUEUE.getRevision());
         }
     }
 
@@ -1322,6 +1354,7 @@ public final class HorizonRadioClient {
         cachedRadioPresentation = null;
         CLIENT_QUEUE.reset();
         playlistResyncRequested = false;
+        pendingAddResolutionResyncRequested = false;
         searchTabDiscoveryGeneration++;
         chartGeneration++;
         playlistImportGeneration++;
@@ -1955,6 +1988,7 @@ public final class HorizonRadioClient {
                                 clearPendingAdds(origin, failedIds);
                                 if (!mapped.isEmpty()) {
                                     transport.sendAddChartSelections(mapped, false);
+                                    awaitPendingAddResolution(origin, mapped);
                                     debugChat(addSuccessMessage(origin, mapped.size()));
                                 }
                             }

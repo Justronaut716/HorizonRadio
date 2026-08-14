@@ -24,9 +24,11 @@ import org.junit.Before;
 import org.junit.Test;
 
 import com.horizonradio.client.media.ClientMediaService;
+import com.horizonradio.core.model.MediaSourceType;
 import com.horizonradio.core.model.RadioStation;
 import com.horizonradio.core.model.SearchResult;
 import com.horizonradio.core.server.ChartRegion;
+import com.horizonradio.network.packets.PlaylistSyncPacket;
 
 public class HorizonRadioClientDiscoveryTest {
 
@@ -598,6 +600,80 @@ public class HorizonRadioClientDiscoveryTest {
     }
 
     @Test
+    public void authoritativeResyncClearsACompletelyRejectedChartAdd() {
+        HorizonRadioScreen screen = new HorizonRadioScreen();
+        HorizonRadioScreen.setActiveScreen(screen);
+        try {
+            HorizonRadioScreen.SearchResult result = chartWithDuration("rejected-chart", "2:00");
+            assertEquals(Collections.singletonList(result), screen.beginChartAdd(Collections.singletonList(result)));
+
+            HorizonRadioClient.sendAddChartsToPlaylist(Collections.singletonList(result));
+
+            assertTrue(screen.isChartAddPending("rejected-chart"));
+            assertEquals(Collections.singletonList(0L), transport.resyncRevisions);
+
+            HorizonRadioClient.handlePlaylistSnapshot(snapshot(0L, "already-queued"));
+
+            assertFalse(screen.isChartAddPending("rejected-chart"));
+            assertEquals(Collections.singletonList(result), screen.beginChartAdd(Collections.singletonList(result)));
+        } finally {
+            HorizonRadioScreen.clearActiveScreen(screen);
+        }
+    }
+
+    @Test
+    public void authoritativeResyncClearsOnlyUnacceptedIdsFromPartialPlaylistBulkAdd() {
+        HorizonRadioScreen screen = new HorizonRadioScreen();
+        HorizonRadioScreen.setActiveScreen(screen);
+        try {
+            List<HorizonRadioScreen.SearchResult> results = Arrays.asList(
+                chartWithDuration("accepted-playlist", "2:00"),
+                chartWithDuration("rejected-playlist-one", "2:00"),
+                chartWithDuration("rejected-playlist-two", "2:00"));
+            assertEquals(results, screen.beginPlaylistAdd(results));
+
+            HorizonRadioClient.sendPlaylistResultsToQueue(results);
+
+            assertEquals(Collections.singletonList(0L), transport.resyncRevisions);
+            HorizonRadioClient.handlePlaylistSnapshot(snapshot(1L, "accepted-playlist"));
+
+            assertFalse(screen.isPlaylistAddPending("accepted-playlist"));
+            assertFalse(screen.isPlaylistAddPending("rejected-playlist-one"));
+            assertFalse(screen.isPlaylistAddPending("rejected-playlist-two"));
+            assertEquals(Arrays.asList(results.get(1), results.get(2)), screen.beginPlaylistAdd(results));
+        } finally {
+            HorizonRadioScreen.clearActiveScreen(screen);
+        }
+    }
+
+    @Test
+    public void snapshotBeforeMetadataResolutionDoesNotClearAnUnsentChartAdd() {
+        DeferredProvider provider = new DeferredProvider();
+        HorizonRadioClient.setClientMediaService(new ClientMediaService(provider));
+        HorizonRadioScreen screen = new HorizonRadioScreen();
+        HorizonRadioScreen.setActiveScreen(screen);
+        try {
+            HorizonRadioScreen.SearchResult result = chart("dQw4w9WgXcQ");
+            assertEquals(Collections.singletonList(result), screen.beginChartAdd(Collections.singletonList(result)));
+            CompletableFuture<String> metadata = provider.deferVideo("dQw4w9WgXcQ");
+
+            HorizonRadioClient.sendAddChartsToPlaylist(Collections.singletonList(result));
+            HorizonRadioClient.handlePlaylistSnapshot(snapshot(0L, "already-queued"));
+
+            assertTrue(screen.isChartAddPending("dQw4w9WgXcQ"));
+            assertTrue(transport.resyncRevisions.isEmpty());
+
+            metadata.complete("{\"id\":\"dQw4w9WgXcQ\",\"title\":\"Delayed\",\"duration\":120}");
+
+            assertEquals(Collections.singletonList(0L), transport.resyncRevisions);
+            HorizonRadioClient.handlePlaylistSnapshot(snapshot(0L, "already-queued"));
+            assertFalse(screen.isChartAddPending("dQw4w9WgXcQ"));
+        } finally {
+            HorizonRadioScreen.clearActiveScreen(screen);
+        }
+    }
+
+    @Test
     public void bulkChartAddDoesNotResendEntriesWhileTheyAwaitQueueUpdate() {
         HorizonRadioScreen screen = new HorizonRadioScreen();
         HorizonRadioScreen.setActiveScreen(screen);
@@ -629,6 +705,14 @@ public class HorizonRadioClientDiscoveryTest {
 
     private static HorizonRadioScreen.SearchResult chartWithDuration(String videoId, String duration) {
         return new HorizonRadioScreen.SearchResult(videoId, videoId, "", duration, "");
+    }
+
+    private static PlaylistSyncPacket snapshot(long revision, String... videoIds) {
+        List<PlaylistSyncPacket.Entry> entries = new ArrayList<PlaylistSyncPacket.Entry>();
+        for (String videoId : videoIds) {
+            entries.add(new PlaylistSyncPacket.Entry(MediaSourceType.YOUTUBE, videoId, "tester"));
+        }
+        return new PlaylistSyncPacket(revision, false, false, entries);
     }
 
     private static List<HorizonRadioScreen.SearchResult> searchResults(HorizonRadioScreen screen) {
@@ -832,6 +916,7 @@ public class HorizonRadioClientDiscoveryTest {
         private int discoveryCallCount;
         private final List<String> chartSelections = new ArrayList<String>();
         private final List<String> playNowRequests = new ArrayList<String>();
+        private final List<Long> resyncRevisions = new ArrayList<Long>();
         private String importPlaylistUrl;
         private Boolean lastChartSelectionRemove;
 
@@ -876,6 +961,9 @@ public class HorizonRadioClientDiscoveryTest {
                 && arguments.length == 2
                 && arguments[1] instanceof Long) {
                 playNowRequests.add(arguments[0] + "|" + arguments[1]);
+            }
+            if ("sendPlaylistResync".equals(name) && arguments != null && arguments.length == 1) {
+                resyncRevisions.add((Long) arguments[0]);
             }
             return null;
         }

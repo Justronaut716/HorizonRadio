@@ -98,8 +98,11 @@ public final class PlaylistImportService {
             }
             JsonArray entries = entriesElement.getAsJsonArray();
             for (JsonElement element : entries) {
-                if (results.size() >= MAX_IMPORT_ENTRIES || !element.isJsonObject()) {
+                if (results.size() >= MAX_IMPORT_ENTRIES) {
                     break;
+                }
+                if (element == null || !element.isJsonObject()) {
+                    continue;
                 }
                 JsonObject entry = element.getAsJsonObject();
                 String videoId = getString(entry, "id");

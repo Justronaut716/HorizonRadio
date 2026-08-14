@@ -1113,6 +1113,32 @@ public class GuiLayoutTest {
     }
 
     @Test
+    public void clearingSharedSearchQueryClampsSearchAndRadioScrollOffsets() {
+        TestScreen screen = new TestScreen();
+        screen.setScreenSize(300, 285);
+        screen.initialize();
+        screen.selectSearchTab();
+        screen.setSearchText("q");
+        screen.updateSearchResults(searchResults(12));
+        screen.setSearchScrollOffset(6);
+
+        screen.setSearchText("");
+        screen.applySharedSearchTextChange();
+
+        assertEquals(0, screen.searchScrollOffset());
+
+        screen.selectRadioTab();
+        screen.setSearchText("q");
+        screen.updateRadioResults(radioStations(12));
+        screen.setRadioScrollOffset(6);
+
+        screen.setSearchText("");
+        screen.applySharedSearchTextChange();
+
+        assertEquals(0, screen.radioScrollOffset());
+    }
+
+    @Test
     public void emptyRadioSearchShowsFavoritesBeforePopularStations() {
         HorizonRadioClient.handleTrackSync(TrackSyncPacket.radio(5L, "favorite-radio"));
         HorizonRadioClient.toggleCurrentFavorite();
@@ -1301,6 +1327,14 @@ public class GuiLayoutTest {
         return results;
     }
 
+    private static List<HorizonRadioScreen.SearchResult> searchResults(int count) {
+        List<HorizonRadioScreen.SearchResult> results = new ArrayList<HorizonRadioScreen.SearchResult>();
+        for (int index = 0; index < count; index++) {
+            results.add(new HorizonRadioScreen.SearchResult("video-" + index, "Song " + index, "", "2:00", ""));
+        }
+        return results;
+    }
+
     private static List<HorizonRadioScreen.RadioStationResult> singleRadioStation() {
         List<HorizonRadioScreen.RadioStationResult> results = new ArrayList<HorizonRadioScreen.RadioStationResult>();
         results.add(new HorizonRadioScreen.RadioStationResult("radio-uuid", "Station"));
@@ -1448,6 +1482,53 @@ public class GuiLayoutTest {
                 ((GuiTextField) field.get(this)).setText(value);
             } catch (ReflectiveOperationException exception) {
                 throw new AssertionError("Search field was not initialized", exception);
+            }
+        }
+
+        private void applySharedSearchTextChange() {
+            try {
+                java.lang.reflect.Method method = HorizonRadioScreen.class
+                    .getDeclaredMethod("clampSharedSearchResultScrollOffsets");
+                method.setAccessible(true);
+                method.invoke(this);
+            } catch (ReflectiveOperationException exception) {
+                throw new AssertionError("Shared search scroll clamping was not available", exception);
+            }
+        }
+
+        private void setSearchScrollOffset(int offset) {
+            setScrollOffset("searchScrollOffset", offset);
+        }
+
+        private int searchScrollOffset() {
+            return scrollOffset("searchScrollOffset");
+        }
+
+        private void setRadioScrollOffset(int offset) {
+            setScrollOffset("radioScrollOffset", offset);
+        }
+
+        private int radioScrollOffset() {
+            return scrollOffset("radioScrollOffset");
+        }
+
+        private void setScrollOffset(String fieldName, int offset) {
+            try {
+                java.lang.reflect.Field field = HorizonRadioScreen.class.getDeclaredField(fieldName);
+                field.setAccessible(true);
+                field.setInt(this, offset);
+            } catch (ReflectiveOperationException exception) {
+                throw new AssertionError("Result scroll offset was not available", exception);
+            }
+        }
+
+        private int scrollOffset(String fieldName) {
+            try {
+                java.lang.reflect.Field field = HorizonRadioScreen.class.getDeclaredField(fieldName);
+                field.setAccessible(true);
+                return field.getInt(this);
+            } catch (ReflectiveOperationException exception) {
+                throw new AssertionError("Result scroll offset was not available", exception);
             }
         }
 

@@ -94,6 +94,37 @@ public class YouTubeParserTest {
                 .get("chart01"));
     }
 
+    @Test
+    public void playlistImportSkipsMalformedElementsAndCapsAtFiftyValidResults() {
+        StringBuilder json = new StringBuilder("{\"entries\":[null,7,\"unavailable\",");
+        json.append("{\"id\":\"duplicate\",\"title\":\"First duplicate\",\"duration\":60},");
+        json.append("{\"id\":\"duplicate\",\"title\":\"Second duplicate\",\"duration\":60},");
+        json.append("{\"id\":\"missing-title\",\"duration\":60},");
+        for (int index = 1; index <= 51; index++) {
+            if (index > 1) {
+                json.append(',');
+            }
+            json.append("{\"id\":\"valid-")
+                .append(index)
+                .append("\",\"title\":\"Valid ")
+                .append(index)
+                .append("\",\"duration\":60}");
+        }
+        json.append("]}");
+
+        List<SearchResult> results = PlaylistImportService.parse(json.toString());
+
+        assertEquals(50, results.size());
+        assertEquals(
+            "duplicate",
+            results.get(0)
+                .getVideoId());
+        assertEquals(
+            "valid-49",
+            results.get(49)
+                .getVideoId());
+    }
+
     private String readFixture() throws Exception {
         InputStream stream = getClass().getResourceAsStream("/com/horizonradio/server/youtube-search-response.json");
         if (stream == null) {
