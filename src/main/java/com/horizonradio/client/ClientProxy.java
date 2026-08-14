@@ -25,6 +25,7 @@ import com.horizonradio.server.AudioDownloadService;
 import com.horizonradio.server.RadioBrowserService;
 import com.horizonradio.server.YouTubeService;
 import com.horizonradio.server.media.RadioInputSession;
+import com.horizonradio.server.media.YouTubeMediaModels;
 
 import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.event.FMLInitializationEvent;
@@ -69,6 +70,7 @@ public class ClientProxy extends CommonProxy {
 
     @Override
     public void preInit(FMLPreInitializationEvent event) {
+        YouTubeMediaModels.preferIpv6ForClientMedia();
         super.preInit(event);
         File configDirectory = event.getSuggestedConfigurationFile()
             .getParentFile();

@@ -16,6 +16,24 @@ import org.junit.Test;
 public class YouTubeMediaModelsTest {
 
     @Test
+    public void letsClientMediaUseIpv6WhenMinecraftForcesIpv4Stack() {
+        String previousPreferIpv4Stack = System.getProperty("java.net.preferIPv4Stack");
+        String previousPreferIpv6Addresses = System.getProperty("java.net.preferIPv6Addresses");
+        try {
+            System.setProperty("java.net.preferIPv4Stack", "true");
+            System.setProperty("java.net.preferIPv6Addresses", "false");
+
+            YouTubeMediaModels.preferIpv6ForClientMedia();
+
+            assertEquals("false", System.getProperty("java.net.preferIPv4Stack"));
+            assertEquals("true", System.getProperty("java.net.preferIPv6Addresses"));
+        } finally {
+            restoreSystemProperty("java.net.preferIPv4Stack", previousPreferIpv4Stack);
+            restoreSystemProperty("java.net.preferIPv6Addresses", previousPreferIpv6Addresses);
+        }
+    }
+
+    @Test
     public void acceptsUnknownLengthInnerTubeResponsesWhenTheBodyStaysWithinTheLimit() throws Exception {
         URL source = new URL("https://www.youtube.com/youtubei/v1/player");
         UnknownLengthConnection connection = new UnknownLengthConnection(source, new byte[] { '{', '}' });
@@ -153,6 +171,14 @@ public class YouTubeMediaModelsTest {
         @Override
         public InputStream getInputStream() {
             return input;
+        }
+    }
+
+    private static void restoreSystemProperty(String name, String value) {
+        if (value == null) {
+            System.clearProperty(name);
+        } else {
+            System.setProperty(name, value);
         }
     }
 }

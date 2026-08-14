@@ -154,6 +154,32 @@ public class JavaAudioDownloadBackendTest {
     }
 
     @Test
+    public void retriesForbiddenMediaWithIpv6Preference() throws Exception {
+        String previousPreferIpv4Stack = System.getProperty("java.net.preferIPv4Stack");
+        String previousPreferIpv6Addresses = System.getProperty("java.net.preferIPv6Addresses");
+        System.setProperty("java.net.preferIPv4Stack", "true");
+        System.setProperty("java.net.preferIPv6Addresses", "false");
+        AddressFamilyFallbackHttp http = new AddressFamilyFallbackHttp();
+        JavaAudioDownloadBackend backend = new JavaAudioDownloadBackend(
+            new YouTubeStreamResolver(http, new AudioDecoderRegistry(), () -> 1000000L),
+            http,
+            new AudioDecoderRegistry(),
+            1024L);
+        Path directory = Files.createTempDirectory("horizonradio-download-ipv6-fallback");
+        Path destination = directory.resolve("dQw4w9WgXcQ.wav");
+        try {
+            assertEquals(destination, backend.download("dQw4w9WgXcQ", destination, () -> false));
+            assertTrue(http.ipv4AudioRequests > 0);
+            assertTrue(http.ipv6AudioRequests > 0);
+        } finally {
+            restoreSystemProperty("java.net.preferIPv4Stack", previousPreferIpv4Stack);
+            restoreSystemProperty("java.net.preferIPv6Addresses", previousPreferIpv6Addresses);
+            Files.deleteIfExists(destination);
+            Files.deleteIfExists(directory);
+        }
+    }
+
+    @Test
     public void downloadsAudioThroughABoundedRangeRequest() throws Exception {
         byte[] audio = wave(new byte[] { 1, 0, 2, 0, 3, 0, 4, 0 });
         RangeFallbackHttp http = new RangeFallbackHttp(audio);
@@ -506,6 +532,56 @@ public class JavaAudioDownloadBackendTest {
         }
     }
 
+    private static final class AddressFamilyFallbackHttp implements YouTubeMediaModels.HttpRequester {
+
+        private final byte[] audio = wave(new byte[] { 1, 0, 2, 0, 3, 0, 4, 0 });
+        private int ipv4AudioRequests;
+        private int ipv6AudioRequests;
+
+        @Override
+        public YouTubeMediaModels.HttpResponse post(URL url, Map<String, String> headers, byte[] body,
+            int timeoutMillis, long maximumBytes) {
+            String json = "{\"streamingData\":{\"adaptiveFormats\":["
+                + "{\"mimeType\":\"audio/wav; codecs=\\\"1\\\"\",\"bitrate\":128000,"
+                + "\"url\":\"https://r1.googlevideo.com/videoplayback?expire=2000000000&ip=2001%3Adb8%3A%3A1\"}]}}";
+            byte[] response = json.getBytes(StandardCharsets.UTF_8);
+            return new YouTubeMediaModels.HttpResponse(
+                url,
+                200,
+                "application/json",
+                response.length,
+                new ByteArrayInputStream(response));
+        }
+
+        @Override
+        public YouTubeMediaModels.HttpResponse get(URL url, Map<String, String> headers, int timeoutMillis,
+            long maximumBytes) throws java.io.IOException {
+            if ("/watch".equals(url.getPath())) {
+                byte[] visitor = "{\"VISITOR_DATA\":\"test-visitor\"}".getBytes(StandardCharsets.UTF_8);
+                return new YouTubeMediaModels.HttpResponse(
+                    url,
+                    200,
+                    "text/html",
+                    visitor.length,
+                    new ByteArrayInputStream(visitor));
+            }
+            boolean ipv6 = "true".equalsIgnoreCase(System.getProperty("java.net.preferIPv6Addresses"))
+                && !"true".equalsIgnoreCase(System.getProperty("java.net.preferIPv4Stack"));
+            if (ipv6) {
+                ipv6AudioRequests++;
+            } else {
+                ipv4AudioRequests++;
+                throw new MediaException("HTTP request failed with status 403");
+            }
+            return new YouTubeMediaModels.HttpResponse(
+                url,
+                200,
+                "audio/wav",
+                audio.length,
+                new ByteArrayInputStream(audio));
+        }
+    }
+
     private static final class CancelThenSucceedHttp implements YouTubeMediaModels.HttpRequester {
 
         private final byte[] first;
@@ -673,5 +749,13 @@ public class JavaAudioDownloadBackendTest {
 
     private static void leInt(byte[] bytes, int offset, int value) {
         for (int i = 0; i < 4; i++) bytes[offset + i] = (byte) (value >>> (i * 8));
+    }
+
+    private static void restoreSystemProperty(String name, String value) {
+        if (value == null) {
+            System.clearProperty(name);
+        } else {
+            System.setProperty(name, value);
+        }
     }
 }

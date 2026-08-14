@@ -21,6 +21,7 @@ public final class JavaAudioDownloadBackend implements YouTubeMediaModels.AudioD
     private static final long RANGE_CHUNK_BYTES = 1024L * 1024L;
     private static final long DEFAULT_MAXIMUM_BYTES = 128L * 1024L * 1024L;
     private static final String MEDIA_USER_AGENT = "com.google.android.apps.youtube.vr.oculus/1.65.10 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip";
+    private static final Object IPV6_FALLBACK_LOCK = new Object();
     private static final ConcurrentMap<Path, Object> DESTINATION_LOCKS = new ConcurrentHashMap<Path, Object>();
     private final YouTubeStreamResolver resolver;
     private final YouTubeMediaModels.HttpRequester requester;
@@ -65,6 +66,18 @@ public final class JavaAudioDownloadBackend implements YouTubeMediaModels.AudioD
     }
 
     private Path downloadLocked(String videoId, Path destination, YouTubeMediaModels.CancellationToken token)
+        throws IOException {
+        try {
+            return downloadLockedOnce(videoId, destination, token);
+        } catch (IOException failure) {
+            if (!containsHttp403(failure) || cancellationRequested(token)) {
+                throw failure;
+            }
+            return retryWithIpv6Preference(videoId, destination, token, failure);
+        }
+    }
+
+    private Path downloadLockedOnce(String videoId, Path destination, YouTubeMediaModels.CancellationToken token)
         throws IOException {
         checkCancelled(token);
         YouTubeStreamResolver.ResolvedAudioCandidates resolved = resolver.resolveAudioCandidates(videoId);
@@ -113,6 +126,52 @@ public final class JavaAudioDownloadBackend implements YouTubeMediaModels.AudioD
         result = tryCandidates(destination, token, alternatives, attemptedUrls, failures, transportFailures, true);
         if (result != null) return result;
         throw aggregateFailure(videoId, failures);
+    }
+
+    private Path retryWithIpv6Preference(String videoId, Path destination, YouTubeMediaModels.CancellationToken token,
+        IOException initialFailure) throws IOException {
+        synchronized (IPV6_FALLBACK_LOCK) {
+            String previousPreferIpv4Stack = System.getProperty("java.net.preferIPv4Stack");
+            String previousPreferIpv6Addresses = System.getProperty("java.net.preferIPv6Addresses");
+            try {
+                System.setProperty("java.net.preferIPv4Stack", "false");
+                System.setProperty("java.net.preferIPv6Addresses", "true");
+                return downloadLockedOnce(videoId, destination, token);
+            } catch (IOException retryFailure) {
+                retryFailure.addSuppressed(initialFailure);
+                throw retryFailure;
+            } finally {
+                restoreSystemProperty("java.net.preferIPv4Stack", previousPreferIpv4Stack);
+                restoreSystemProperty("java.net.preferIPv6Addresses", previousPreferIpv6Addresses);
+            }
+        }
+    }
+
+    private static boolean containsHttp403(Throwable failure) {
+        if (failure == null) {
+            return false;
+        }
+        if (failure.getMessage() != null && failure.getMessage()
+            .contains("status 403")) {
+            return true;
+        }
+        if (containsHttp403(failure.getCause())) {
+            return true;
+        }
+        for (Throwable suppressed : failure.getSuppressed()) {
+            if (containsHttp403(suppressed)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static void restoreSystemProperty(String name, String value) {
+        if (value == null) {
+            System.clearProperty(name);
+        } else {
+            System.setProperty(name, value);
+        }
     }
 
     private Path tryCandidates(Path destination, YouTubeMediaModels.CancellationToken token,

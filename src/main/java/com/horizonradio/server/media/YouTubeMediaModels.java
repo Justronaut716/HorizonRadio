@@ -18,6 +18,14 @@ public final class YouTubeMediaModels {
 
     private YouTubeMediaModels() {}
 
+    /** Allows IP-bound YouTube media URLs to use the same dual-stack route as player resolution. */
+    public static void preferIpv6ForClientMedia() {
+        if ("true".equalsIgnoreCase(System.getProperty("java.net.preferIPv4Stack"))) {
+            System.setProperty("java.net.preferIPv4Stack", "false");
+            System.setProperty("java.net.preferIPv6Addresses", "true");
+        }
+    }
+
     public interface CancellationToken {
 
         boolean isCancelled();
