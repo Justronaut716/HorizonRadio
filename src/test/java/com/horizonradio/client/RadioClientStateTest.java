@@ -30,11 +30,10 @@ import org.junit.Before;
 import org.junit.Test;
 
 import com.horizonradio.client.audio.AudioPlayer;
+import com.horizonradio.core.model.RadioStation;
 import com.horizonradio.network.packets.AudioChunkPacket;
 import com.horizonradio.network.packets.RadioAudioChunkPacket;
 import com.horizonradio.network.packets.RadioAudioStartPacket;
-import com.horizonradio.network.packets.RadioSearchResultsPacket;
-import com.horizonradio.network.packets.RadioStatePacket;
 
 public class RadioClientStateTest {
 
@@ -55,9 +54,9 @@ public class RadioClientStateTest {
 
     @Test
     public void radioStateIsClearedOnDisconnectCacheReset() {
-        HorizonRadioClient.updateRadioSearchResults(
-            new RadioSearchResultsPacket(Arrays.asList(new RadioSearchResultsPacket.Entry("uuid", "Station"))));
-        HorizonRadioClient.updateRadioState(new RadioStatePacket(true, 3L, "uuid", "Station", "LIVE"));
+        HorizonRadioClient
+            .updateRadioSearchResults(Arrays.asList(new RadioStation("uuid", "Station", "", true, false)));
+        HorizonRadioClient.updateRadioPresentation(ClientRadioPresentation.active(3L, "uuid", "Station", "LIVE"));
 
         HorizonRadioClient.clearCache();
 
@@ -99,10 +98,10 @@ public class RadioClientStateTest {
 
     @Test
     public void radioResultsCacheReturnsDefensiveCopies() {
-        HorizonRadioClient.updateRadioSearchResults(
-            new RadioSearchResultsPacket(Arrays.asList(new RadioSearchResultsPacket.Entry("uuid", "Station"))));
+        HorizonRadioClient
+            .updateRadioSearchResults(Arrays.asList(new RadioStation("uuid", "Station", "", true, false)));
 
-        List<RadioSearchResultsPacket.Entry> results = HorizonRadioClient.getCachedRadioResults();
+        List<RadioStation> results = HorizonRadioClient.getCachedRadioResults();
         results.clear();
 
         assertEquals(
@@ -117,12 +116,12 @@ public class RadioClientStateTest {
     }
 
     @Test
-    public void radioActionsDelegateToConfiguredTransport() {
+    public void onlyRadioPlaybackActionsDelegateToConfiguredTransport() {
         HorizonRadioClient.sendRadioSearch("ambient");
         HorizonRadioClient.sendSelectRadio("station-uuid");
         HorizonRadioClient.sendStopRadio();
 
-        assertEquals("ambient", transport.radioSearchQuery);
+        assertNull(transport.radioSearchQuery);
         assertEquals("station-uuid", transport.selectedRadioUuid);
         assertTrue(transport.stopRadio);
     }
@@ -137,28 +136,28 @@ public class RadioClientStateTest {
     }
 
     @Test
-    public void disconnectResetRunsAfterQueuedRadioCallbacksOnClientThread() throws Exception {
+    public void disconnectResetClearsLocalRadioPresentationOnClientThread() throws Exception {
         QueueClientTaskScheduler scheduler = new QueueClientTaskScheduler();
-        ClientProxy proxy = new ClientProxy(scheduler);
         ClientProxy.ClientEvents events = new ClientProxy.ClientEvents(scheduler);
 
-        proxy.handleRadioState(new RadioStatePacket(true, 12L, "uuid", "Station", "LIVE"));
+        HorizonRadioClient.updateRadioPresentation(ClientRadioPresentation.active(12L, "uuid", "Station", "LIVE"));
         events.onDisconnect(null);
 
-        assertEquals(2, scheduler.pendingCount());
-        assertFalse(HorizonRadioClient.isRadioActive());
+        assertEquals(1, scheduler.pendingCount());
+        assertTrue(HorizonRadioClient.isRadioActive());
 
         scheduler.runAllOnClientThread();
 
         assertFalse(HorizonRadioClient.isRadioActive());
-        assertEquals(Arrays.asList("Test-Minecraft-Client", "Test-Minecraft-Client"), scheduler.executionThreads());
+        assertEquals(Arrays.asList("Test-Minecraft-Client"), scheduler.executionThreads());
     }
 
     @Test
     public void radioTransitionClearsMusicNowPlayingAndIgnoresStaleMusicUpdates() {
         HorizonRadioClient.updateNowPlaying("Old song", 0.75f);
 
-        HorizonRadioClient.updateRadioState(new RadioStatePacket(true, 20L, "uuid", "Station", "Playing Station"));
+        HorizonRadioClient
+            .updateRadioPresentation(ClientRadioPresentation.active(20L, "uuid", "Station", "Playing Station"));
         HorizonRadioClient.updateNowPlaying("Stale song", 0.5f);
 
         assertNull(HorizonRadioClient.getCachedNowPlaying());
@@ -168,33 +167,18 @@ public class RadioClientStateTest {
     @Test
     public void inactiveRadioFailureRemainsCachedWithoutRestoringMusic() {
         HorizonRadioClient.updateNowPlaying("Old song", 0.75f);
-        HorizonRadioClient.updateRadioState(new RadioStatePacket(true, 20L, "uuid", "Station", "Playing Station"));
+        HorizonRadioClient
+            .updateRadioPresentation(ClientRadioPresentation.active(20L, "uuid", "Station", "Playing Station"));
 
         HorizonRadioClient
-            .updateRadioState(new RadioStatePacket(false, 20L, "", "", "Radio stream stopped producing PCM data"));
+            .updateRadioPresentation(ClientRadioPresentation.stopped(20L, "Radio stream stopped producing PCM data"));
 
         assertFalse(HorizonRadioClient.isRadioActive());
         assertNull(HorizonRadioClient.getCachedNowPlaying());
         assertEquals(
             "Radio stream stopped producing PCM data",
-            HorizonRadioClient.getCachedRadioState()
+            HorizonRadioClient.getCachedRadioPresentation()
                 .getStatus());
-    }
-
-    @Test
-    public void radioAudioStartsRequireMatchingActiveAuthoritativeState() {
-        RadioAudioStartPacket generationSeven = new RadioAudioStartPacket(7L, 0L, 44100, 2, 16, false);
-        RadioAudioStartPacket generationEight = new RadioAudioStartPacket(8L, 0L, 44100, 2, 16, false);
-        RadioAudioStartPacket generationNine = new RadioAudioStartPacket(9L, 0L, 44100, 2, 16, false);
-
-        assertFalse(HorizonRadioClient.handleRadioAudioStart(generationSeven));
-        HorizonRadioClient.updateRadioState(new RadioStatePacket(true, 8L, "uuid", "Station", "LIVE"));
-        assertFalse(HorizonRadioClient.handleRadioAudioStart(generationSeven));
-        assertTrue(HorizonRadioClient.handleRadioAudioStart(generationEight));
-        assertFalse(HorizonRadioClient.handleRadioAudioStart(generationEight));
-
-        HorizonRadioClient.updateRadioState(new RadioStatePacket(true, 9L, "uuid-2", "Station 2", "LIVE"));
-        assertTrue(HorizonRadioClient.handleRadioAudioStart(generationNine));
     }
 
     @Test
@@ -539,18 +523,6 @@ public class RadioClientStateTest {
         private boolean stopRadio;
 
         @Override
-        public void sendSearch(String query) {}
-
-        @Override
-        public void sendChartsRequest(boolean forceRefresh) {}
-
-        @Override
-        public void sendImportPlaylist(String playlistUrl) {}
-
-        @Override
-        public void sendImportVideo(String videoUrl) {}
-
-        @Override
         public void sendAdd(String videoId, String title, String duration) {}
 
         @Override
@@ -564,9 +536,6 @@ public class RadioClientStateTest {
 
         @Override
         public void sendClearPlaylist() {}
-
-        @Override
-        public void sendReady(String videoId) {}
 
         @Override
         public void sendReorder(int fromIndex, int targetIndex) {}
@@ -588,11 +557,6 @@ public class RadioClientStateTest {
 
         @Override
         public void sendToggleShuffle() {}
-
-        @Override
-        public void sendRadioSearch(String query) {
-            radioSearchQuery = query;
-        }
 
         @Override
         public void sendSelectRadio(String stationUuid) {

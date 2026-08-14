@@ -28,8 +28,6 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
-import com.horizonradio.network.packets.RadioStatePacket;
-
 public class GuiLayoutTest {
 
     private final RecordingTransport transport = new RecordingTransport();
@@ -290,7 +288,7 @@ public class GuiLayoutTest {
     }
 
     @Test
-    public void chartsSearchSendsCanonicalRegionForGermanAlias() {
+    public void chartsSearchUsesCanonicalRegionWithoutDiscoveryTransport() {
         TestScreen screen = new TestScreen();
         screen.setScreenSize(300, 285);
         try {
@@ -300,8 +298,9 @@ public class GuiLayoutTest {
 
             screen.invokeSearchAction();
 
-            assertEquals("DE", transport.chartRegionCode);
-            assertTrue(HorizonRadioClient.isChartRequestPending());
+            assertEquals("DE", screen.getChartRegionCode());
+            assertFalse(HorizonRadioClient.isChartRequestPending());
+            assertEquals(0, transport.chartRequestCount);
         } finally {
             HorizonRadioScreen.clearActiveScreen(screen);
         }
@@ -368,7 +367,7 @@ public class GuiLayoutTest {
     }
 
     @Test
-    public void refreshButtonSendsOneForceRequestWhilePendingAndReenablesOnResults() {
+    public void unavailableChartRefreshDoesNotUseDiscoveryTransport() {
         TestScreen screen = new TestScreen();
         screen.setScreenSize(300, 285);
         try {
@@ -378,20 +377,16 @@ public class GuiLayoutTest {
             assertEquals(0, transport.forceChartsRequestCount);
             screen.setSearchText("Germany");
             screen.invokeSearchAction();
-            assertEquals(1, transport.chartRequestCount);
-            assertFalse(screen.refreshButton().enabled);
-
-            HorizonRadioClient.updateChartResults(new ArrayList<HorizonRadioScreen.SearchResult>(), "DE");
             assertFalse(HorizonRadioClient.isChartRequestPending());
             assertTrue(screen.refreshButton().enabled);
 
             screen.invokeRefreshAction();
             screen.invokeRefreshAction();
 
-            assertEquals(2, transport.chartRequestCount);
-            assertEquals(1, transport.forceChartsRequestCount);
-            assertTrue(HorizonRadioClient.isChartRequestPending());
-            assertFalse(screen.refreshButton().enabled);
+            assertEquals(0, transport.chartRequestCount);
+            assertEquals(0, transport.forceChartsRequestCount);
+            assertFalse(HorizonRadioClient.isChartRequestPending());
+            assertTrue(screen.refreshButton().enabled);
 
             HorizonRadioClient.updateChartResults(new ArrayList<HorizonRadioScreen.SearchResult>());
             assertFalse(HorizonRadioClient.isChartRequestPending());
@@ -433,18 +428,13 @@ public class GuiLayoutTest {
     }
 
     @Test
-    public void chartRequestRemainsPendingUntilTerminalResultsArrive() {
+    public void unavailableChartRequestCompletesWithoutTransport() {
         HorizonRadioClient.sendChartsRequest(true);
-
-        assertTrue(HorizonRadioClient.isChartRequestPending());
-        assertFalse(
-            HorizonRadioScreen.shouldEnableChartRefreshButton(false, HorizonRadioClient.isChartRequestPending()));
-
-        HorizonRadioClient.updateChartResults(new ArrayList<HorizonRadioScreen.SearchResult>());
 
         assertFalse(HorizonRadioClient.isChartRequestPending());
         assertTrue(
             HorizonRadioScreen.shouldEnableChartRefreshButton(false, HorizonRadioClient.isChartRequestPending()));
+        assertEquals(0, transport.chartRequestCount);
     }
 
     @Test
@@ -506,18 +496,12 @@ public class GuiLayoutTest {
     }
 
     @Test
-    public void clientTransportExposesAllTemporaryNoopOperations() {
-        HorizonRadioClient.sendSearch("lofi");
-        HorizonRadioClient.sendChartsRequest();
-        HorizonRadioClient.sendChartsRequest(true);
+    public void clientTransportExposesOnlyServerBoundOperations() {
         HorizonRadioClient.sendAddChartsToPlaylist(new ArrayList<HorizonRadioScreen.SearchResult>());
-        HorizonRadioClient.sendImportPlaylist("https://youtu.be/video?list=PLtest");
-        HorizonRadioClient.sendImportVideo("https://youtu.be/video");
         HorizonRadioClient.sendAdd("abc", "Song", "3:21");
         HorizonRadioClient.sendPlayNow("abc", "Song", "3:21");
         HorizonRadioClient.sendRemove("abc");
         HorizonRadioClient.sendClearPlaylist();
-        HorizonRadioClient.sendReady("abc");
         HorizonRadioClient.sendReorder(2, 1);
         HorizonRadioClient.sendSeek(0.75f);
         HorizonRadioClient.sendTogglePlayback();
@@ -526,17 +510,16 @@ public class GuiLayoutTest {
         HorizonRadioClient.sendToggleLoop();
         HorizonRadioClient.sendToggleShuffle();
 
-        assertEquals("lofi", transport.searchQuery);
-        assertTrue(transport.chartsRequest);
-        assertTrue(transport.forceChartsRequest);
-        assertEquals("https://youtu.be/video?list=PLtest", transport.importPlaylistUrl);
-        assertEquals("https://youtu.be/video", transport.importVideoUrl);
+        assertNull(transport.searchQuery);
+        assertFalse(transport.chartsRequest);
+        assertFalse(transport.forceChartsRequest);
+        assertNull(transport.importPlaylistUrl);
+        assertNull(transport.importVideoUrl);
         assertEquals("abc|Song|3:21", transport.addRequest);
         assertEquals("abc|Song|3:21", transport.playNowRequest);
         assertTrue(transport.addChartsRequest);
         assertEquals("abc", transport.removedVideoId);
         assertTrue(transport.clearPlaylist);
-        assertEquals("abc", transport.readyVideoId);
         assertEquals("2|1", transport.reorderRequest);
         assertEquals(0.75f, transport.seekProgress, 0.0001f);
         assertTrue(transport.togglePlayback);
@@ -544,6 +527,19 @@ public class GuiLayoutTest {
         assertTrue(transport.previousTrack);
         assertTrue(transport.toggleLoop);
         assertTrue(transport.toggleShuffle);
+    }
+
+    @Test
+    public void chartSelectionsSkipUnknownAndZeroDurationsBeforeConstructingPackets() {
+        List<HorizonRadioClient.PlaylistSelection> selections = HorizonRadioScreen.toPlaylistSelections(
+            Arrays.asList(
+                new HorizonRadioScreen.SearchResult("unknown", "Unknown", "", "", ""),
+                new HorizonRadioScreen.SearchResult("zero", "Zero", "", "0:00", ""),
+                new HorizonRadioScreen.SearchResult("valid", "Valid", "", "2:00", "")));
+
+        assertEquals(1, selections.size());
+        assertEquals("valid", selections.get(0).videoId);
+        assertEquals(120_000L, selections.get(0).durationMs);
     }
 
     @Test
@@ -608,12 +604,12 @@ public class GuiLayoutTest {
 
     @Test
     public void directChartClickPlaysNowAndSwitchesToPlaylist() {
-        HorizonRadioClient.updateRadioState(new RadioStatePacket(true, 1L, "radio-uuid", "Station", "LIVE"));
+        HorizonRadioClient.updateRadioPresentation(ClientRadioPresentation.active(1L, "radio-uuid", "Station", "LIVE"));
         TestScreen screen = resultScreen();
 
         screen.click(50, 77);
 
-        assertEquals("video|Song|2:00", transport.playNowRequest);
+        assertEquals("video|120000", transport.playNowRequest);
         assertTrue(screen.isPlaylistTab());
         assertNull(transport.addRequest);
         assertFalse(transport.addChartsRequest);
@@ -622,7 +618,7 @@ public class GuiLayoutTest {
 
     @Test
     public void directSearchClickPlaysNowAndSwitchesToPlaylist() {
-        HorizonRadioClient.updateRadioState(new RadioStatePacket(true, 1L, "radio-uuid", "Station", "LIVE"));
+        HorizonRadioClient.updateRadioPresentation(ClientRadioPresentation.active(1L, "radio-uuid", "Station", "LIVE"));
         TestScreen screen = new TestScreen();
         screen.setScreenSize(300, 285);
         screen.selectSearchTab();
@@ -630,14 +626,14 @@ public class GuiLayoutTest {
 
         screen.click(50, 75);
 
-        assertEquals("video|Song|2:00", transport.playNowRequest);
+        assertEquals("video|120000", transport.playNowRequest);
         assertTrue(screen.isPlaylistTab());
         assertFalse(transport.stopRadio);
     }
 
     @Test
     public void queueRowClickSendsPlayNowOnlyOnRelease() {
-        HorizonRadioClient.updateRadioState(new RadioStatePacket(true, 1L, "radio-uuid", "Station", "LIVE"));
+        HorizonRadioClient.updateRadioPresentation(ClientRadioPresentation.active(1L, "radio-uuid", "Station", "LIVE"));
         TestScreen screen = new TestScreen();
         screen.setScreenSize(300, 285);
         screen.selectPlaylistTab();
@@ -651,7 +647,7 @@ public class GuiLayoutTest {
 
         screen.release(50, 52);
 
-        assertEquals("video|Song|2:00", transport.playNowRequest);
+        assertEquals("video|120000", transport.playNowRequest);
         assertNull(transport.removedVideoId);
         assertNull(transport.reorderRequest);
         assertFalse(transport.stopRadio);
@@ -689,7 +685,7 @@ public class GuiLayoutTest {
         screen.click(50, 52);
         screen.release(50, 52);
 
-        assertEquals("current|Current|2:00", transport.playNowRequest);
+        assertEquals("current|120000", transport.playNowRequest);
         assertNull(transport.reorderRequest);
 
         transport.playNowRequest = null;
@@ -709,15 +705,15 @@ public class GuiLayoutTest {
         screen.selectRadioTab();
 
         assertTrue(screen.isRadioTab());
-        assertEquals("", transport.radioSearchQuery);
+        assertNull(transport.radioSearchQuery);
 
         screen.initialize();
         screen.selectRadioTab();
         screen.setSearchText("jazz");
         screen.invokeSearchAction();
 
-        assertEquals("jazz", transport.radioSearchQuery);
-        assertTrue(screen.isRadioLoading());
+        assertNull(transport.radioSearchQuery);
+        assertFalse(screen.isRadioLoading());
     }
 
     @Test
@@ -737,7 +733,7 @@ public class GuiLayoutTest {
 
     @Test
     public void radioActiveStationUsesRadioStateForRowAndNowPlaying() {
-        HorizonRadioClient.updateRadioState(new RadioStatePacket(true, 1L, "radio-uuid", "Station", "LIVE"));
+        HorizonRadioClient.updateRadioPresentation(ClientRadioPresentation.active(1L, "radio-uuid", "Station", "LIVE"));
         TestScreen screen = new TestScreen();
         screen.setScreenSize(300, 285);
         screen.initialize();
@@ -769,9 +765,10 @@ public class GuiLayoutTest {
     @Test
     public void inactiveRadioFailureIsShownWithoutResurrectingStoppedMusic() {
         HorizonRadioClient.updateNowPlaying("Old song", 0.5f);
-        HorizonRadioClient.updateRadioState(new RadioStatePacket(true, 1L, "radio-uuid", "Station", "Playing Station"));
         HorizonRadioClient
-            .updateRadioState(new RadioStatePacket(false, 1L, "", "", "Radio stream stopped producing PCM data"));
+            .updateRadioPresentation(ClientRadioPresentation.active(1L, "radio-uuid", "Station", "Playing Station"));
+        HorizonRadioClient
+            .updateRadioPresentation(ClientRadioPresentation.stopped(1L, "Radio stream stopped producing PCM data"));
         TestScreen screen = new TestScreen();
         screen.setScreenSize(300, 285);
 
@@ -818,7 +815,7 @@ public class GuiLayoutTest {
 
     @Test
     public void radioUsesMusicControlCenterAndMiddleButtonStopsRadio() {
-        HorizonRadioClient.updateRadioState(new RadioStatePacket(true, 1L, "radio-uuid", "Station", "LIVE"));
+        HorizonRadioClient.updateRadioPresentation(ClientRadioPresentation.active(1L, "radio-uuid", "Station", "LIVE"));
         TestScreen screen = new TestScreen();
         screen.setScreenSize(300, 285);
         screen.initialize();
@@ -844,12 +841,13 @@ public class GuiLayoutTest {
 
     @Test
     public void radioPlayButtonResumesTheLastStationAfterStopping() {
-        HorizonRadioClient.updateRadioState(new RadioStatePacket(false, 1L, "radio-uuid", "Station", ""));
+        HorizonRadioClient
+            .updateRadioPresentation(ClientRadioPresentation.inactive(1L, "radio-uuid", "Station", "", false));
         TestScreen screen = new TestScreen();
         screen.setScreenSize(300, 285);
         screen.initialize();
         screen.selectRadioTab();
-        screen.updateRadioState(new RadioStatePacket(false, 1L, "radio-uuid", "Station", ""));
+        screen.updateRadioPresentation(ClientRadioPresentation.inactive(1L, "radio-uuid", "Station", "", false));
 
         assertFalse(screen.controlButton(4).enabled);
         assertFalse(screen.controlButton(5).enabled);
@@ -868,7 +866,8 @@ public class GuiLayoutTest {
     @Test
     public void pausedRadioDoesNotReplaceCurrentlyPlayingMusic() {
         HorizonRadioClient.updateNowPlaying("Song", 0.5f);
-        HorizonRadioClient.updateRadioState(new RadioStatePacket(false, 1L, "radio-uuid", "Station", ""));
+        HorizonRadioClient
+            .updateRadioPresentation(ClientRadioPresentation.inactive(1L, "radio-uuid", "Station", "", false));
         TestScreen screen = new TestScreen();
         screen.setScreenSize(300, 285);
 
@@ -879,7 +878,8 @@ public class GuiLayoutTest {
 
     @Test
     public void musicModeDoesNotDisplayTheRememberedRadioStation() {
-        HorizonRadioClient.updateRadioState(new RadioStatePacket(false, 1L, "radio-uuid", "Station", "", true));
+        HorizonRadioClient
+            .updateRadioPresentation(ClientRadioPresentation.inactive(1L, "radio-uuid", "Station", "", true));
         TestScreen screen = new TestScreen();
         screen.setScreenSize(300, 285);
 
@@ -896,14 +896,14 @@ public class GuiLayoutTest {
     }
 
     @Test
-    public void musicModeIsDistinguishedFromPausedRadioState() throws IOException {
-        String packet = readSource("src/main/java/com/horizonradio/network/packets/RadioStatePacket.java");
+    public void radioPlaybackUsesSourceAwareTrackSynchronization() throws IOException {
+        String packet = readSource("src/main/java/com/horizonradio/network/packets/TrackSyncPacket.java");
         String manager = readSource("src/main/java/com/horizonradio/server/PlaylistManager.java");
-        String screen = readSource("src/main/java/com/horizonradio/client/HorizonRadioScreen.java");
 
-        assertTrue(packet.contains("isMusicMode"));
-        assertTrue(manager.contains("RadioPlaybackState.Mode.MUSIC"));
-        assertTrue(screen.contains("isMusicMode()"));
+        assertTrue(packet.contains("MediaSourceType.RADIO"));
+        assertTrue(packet.contains("radio track synchronization cannot carry finite timing"));
+        assertTrue(manager.contains("TrackSyncPacket.radio"));
+        assertFalse(manager.contains("RadioPlaybackState"));
     }
 
     @Test
@@ -1257,48 +1257,23 @@ public class GuiLayoutTest {
         private boolean stopRadio;
 
         @Override
-        public void sendSearch(String query) {
-            searchQuery = query;
-        }
-
-        @Override
-        public void sendChartsRequest(boolean forceRefresh) {
-            recordChartsRequest("GLOBAL", forceRefresh);
-        }
-
-        @Override
-        public void sendChartsRequest(String regionCode, boolean forceRefresh) {
-            recordChartsRequest(regionCode, forceRefresh);
-        }
-
-        private void recordChartsRequest(String regionCode, boolean forceRefresh) {
-            chartsRequest = true;
-            forceChartsRequest = forceRefresh;
-            chartRegionCode = regionCode;
-            chartRequestCount++;
-            if (forceRefresh) {
-                forceChartsRequestCount++;
-            }
-        }
-
-        @Override
-        public void sendImportPlaylist(String playlistUrl) {
-            importPlaylistUrl = playlistUrl;
-        }
-
-        @Override
-        public void sendImportVideo(String videoUrl) {
-            importVideoUrl = videoUrl;
-        }
-
-        @Override
         public void sendAdd(String videoId, String title, String duration) {
             addRequest = videoId + "|" + title + "|" + duration;
         }
 
         @Override
+        public void sendAdd(String videoId, long durationMs) {
+            addRequest = videoId + "|" + durationMs;
+        }
+
+        @Override
         public void sendPlayNow(String videoId, String title, String duration) {
             playNowRequest = videoId + "|" + title + "|" + duration;
+        }
+
+        @Override
+        public void sendPlayNow(String videoId, long durationMs) {
+            playNowRequest = videoId + "|" + durationMs;
         }
 
         @Override
@@ -1314,11 +1289,6 @@ public class GuiLayoutTest {
         @Override
         public void sendClearPlaylist() {
             clearPlaylist = true;
-        }
-
-        @Override
-        public void sendReady(String videoId) {
-            readyVideoId = videoId;
         }
 
         @Override
@@ -1354,11 +1324,6 @@ public class GuiLayoutTest {
         @Override
         public void sendToggleShuffle() {
             toggleShuffle = true;
-        }
-
-        @Override
-        public void sendRadioSearch(String query) {
-            radioSearchQuery = query;
         }
 
         @Override

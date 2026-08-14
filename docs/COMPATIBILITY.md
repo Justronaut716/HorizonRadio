@@ -72,12 +72,14 @@ build result does not prove Java 8 or Java 17+ game-launch compatibility.
 - Static common/server/network scope scan: PASS. No modern Java HTTP,
   modern text, client GUI, LWJGL, or Java Sound imports appear in common,
   server, or network code.
-- Network source audit: the current source registers 32 messages, IDs 0-31,
-  once from common code; IDs 0-3, 10-15, 17, and 19-27 use `Side.SERVER`, IDs
-  4-9, 16, 18, and 28-31 use `Side.CLIENT`, and S2C handlers forward only
-  through the sided proxy. Chart request ID 21 now carries a canonical region
-  and force-refresh flag; chart result ID 4 carries chart-region metadata.
-  Packet IDs remain unchanged, so no new discriminator is required.
+- Network source audit: the current source registers 36 messages, IDs 0-35,
+  once from common code;
+  IDs 0-3, 10-15, 17, 19-27, and 33 use `Side.SERVER`, IDs 4-9, 16, 18,
+  28-32, 34, and 35 use `Side.CLIENT`, and S2C handlers forward only through
+  the sided proxy. Chart request ID 21 carries a canonical region and
+  force-refresh flag; chart result ID 4 carries chart-region metadata;
+  `TrackSyncPacket` ID 35 carries only finite-track ID/timing, never audio
+  bytes.
 - `git diff --check`: PASS for the implementation changes.
 
 ## Chart region compatibility
@@ -191,15 +193,18 @@ server.
 
 ## Embedded media and audio
 
-The downloaded WAV cache is named `<videoId>.wav` in the configured
-`downloadDir`. Finite YouTube audio and metadata are handled by the embedded
-Java backend, while direct radio uses the same Java decoder pipeline and a
-bounded PCM relay. No separate media installation is part of the runtime.
+The client-local downloaded WAV cache is named `<videoId>.wav` below
+`config/horizonradio-audio`. Finite YouTube audio and metadata are handled by
+the embedded Java backend, while direct radio uses the same Java decoder
+pipeline and a bounded PCM relay. No separate media installation is part of
+the runtime.
 
 Java Sound is client-local and depends on an available `Clip`/audio line. A
 headless client or an unavailable `MASTER_GAIN` control is handled without
-crashing the client, but it cannot produce audible playback. The server still
-uses the late-join timeout if a client never sends readiness.
+crashing the client, but it cannot produce audible playback. The server starts
+finite tracks after the fixed three-second preparation window and does not
+wait for client readiness; slow clients catch up locally after their download
+finishes.
 
 ## Configuration and filesystem
 
@@ -211,7 +216,8 @@ The preserved JSON file is `config/horizonradio.json`:
   "maxTrackDurationMinutes": 15,
   "downloadDir": "./horizonradio-downloads",
   "youtubeCookiesFromBrowser": "",
-  "youtubeCookiesFile": ""
+  "youtubeCookiesFile": "",
+  "serverDebugChat": false
 }
 ```
 

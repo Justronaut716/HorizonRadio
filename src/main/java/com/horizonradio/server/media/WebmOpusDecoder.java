@@ -14,6 +14,7 @@ public final class WebmOpusDecoder implements AudioDecoder {
 
     private static final int MAX_INPUT_BYTES = 16 * 1024 * 1024;
     private static final int MAX_ELEMENT_SIZE = 4 * 1024 * 1024;
+    private static final int MAX_SEGMENT_SIZE = MAX_INPUT_BYTES;
     private static final int MAX_PACKET_SIZE = 512 * 1024;
     private static final int MAX_DEPTH = 8;
     private static final long MAX_CLUSTER_TIMECODE_SPAN = 60 * 1000L;
@@ -134,7 +135,7 @@ public final class WebmOpusDecoder implements AudioDecoder {
             if (ebml.end >= bytes.length) {
                 throw new MediaException("Missing WebM Segment after EBML header");
             }
-            Element segment = readElement(ebml.end, bytes.length);
+            Element segment = readElement(ebml.end, bytes.length, MAX_SEGMENT_SIZE);
             if (segment.id != ID_SEGMENT) {
                 throw new MediaException("Missing WebM Segment after EBML header");
             }
@@ -430,9 +431,13 @@ public final class WebmOpusDecoder implements AudioDecoder {
         }
 
         private Element readElement(int offset, int limit) throws IOException {
+            return readElement(offset, limit, MAX_ELEMENT_SIZE);
+        }
+
+        private Element readElement(int offset, int limit, int maximumSize) throws IOException {
             Vint id = readVint(offset, limit, true, maxElementIdLength);
             Vint size = readVint(offset + id.length, limit, false, maxElementSizeLength);
-            if (size.unknown || size.value > MAX_ELEMENT_SIZE) {
+            if (size.unknown || size.value > maximumSize) {
                 throw new MediaException("WebM unknown or oversized EBML element");
             }
             long end = (long) offset + id.length + size.length + size.value;

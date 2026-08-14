@@ -15,4 +15,15 @@ public final class PlaybackClock {
     public static long clientTimeForServerTime(long serverTimeMs, long serverClockOffsetMs) {
         return serverTimeMs - serverClockOffsetMs;
     }
+
+    /** Calculates a finite track position using server timing without depending on an audio source. */
+    public static long finiteTrackPositionMs(long positionMs, long serverStartAtMs, long serverClockOffsetMs,
+        long clientNowMs) {
+        long safePositionMs = Math.max(0L, positionMs);
+        if (serverStartAtMs <= 0L) {
+            return safePositionMs;
+        }
+        long localStartAtMs = clientTimeForServerTime(serverStartAtMs, serverClockOffsetMs);
+        return safePositionMs + Math.max(0L, clientNowMs - localStartAtMs);
+    }
 }

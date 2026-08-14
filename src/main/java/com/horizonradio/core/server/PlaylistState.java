@@ -9,6 +9,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
 
+import com.horizonradio.core.model.MediaSourceType;
 import com.horizonradio.core.model.PlaylistEntry;
 
 /**
@@ -30,7 +31,9 @@ public final class PlaylistState {
     private boolean shuffling;
     private boolean previousRestarted;
     private PlaylistEntry lastTrack;
-    private String currentVideoId;
+    private MediaSourceType currentSourceType;
+    private String currentSourceId;
+    private long queueRevision;
     private long playbackStartTime;
     private long currentTrackDurationMs;
 
@@ -43,10 +46,11 @@ public final class PlaylistState {
     }
 
     public boolean add(PlaylistEntry entry) {
-        if (entry == null || playlist.size() >= maxPlaylistSize) {
+        if (entry == null || playlist.size() >= maxPlaylistSize || (entry.isFinite() && entry.getDurationMs() <= 0L)) {
             return false;
         }
         playlist.add(entry);
+        markQueueMutation();
         return true;
     }
 
@@ -68,7 +72,7 @@ public final class PlaylistState {
         }
         for (int index = 0; index < playlist.size(); index++) {
             PlaylistEntry entry = playlist.get(index);
-            if (videoId.equals(entry.getVideoId()) && playerName.equals(entry.getAddedBy())) {
+            if (entry.isFinite() && videoId.equals(entry.getSourceId()) && playerName.equals(entry.getAddedBy())) {
                 return index;
             }
         }
@@ -76,13 +80,18 @@ public final class PlaylistState {
     }
 
     public int findIndex(String videoId) {
-        if (videoId == null) {
+        return findIndex(MediaSourceType.YOUTUBE, videoId);
+    }
+
+    public int findIndex(MediaSourceType sourceType, String sourceId) {
+        if (sourceType == null || sourceId == null) {
             return -1;
         }
         for (int index = 0; index < playlist.size(); index++) {
-            if (videoId.equals(
-                playlist.get(index)
-                    .getVideoId())) {
+            if (sourceType == playlist.get(index)
+                .getSourceType() && sourceId.equals(
+                    playlist.get(index)
+                        .getSourceId())) {
                 return index;
             }
         }
@@ -103,6 +112,7 @@ public final class PlaylistState {
             return -1;
         }
         PlaylistEntry removed = playlist.remove(index);
+        markQueueMutation();
         if (index < currentIndex) {
             currentIndex--;
         } else if (index == currentIndex) {
@@ -110,7 +120,8 @@ public final class PlaylistState {
             playing = false;
             paused = false;
             lastTrack = removed;
-            currentVideoId = null;
+            currentSourceType = null;
+            currentSourceId = null;
             playbackStartTime = 0L;
             currentTrackDurationMs = 0L;
         }
@@ -122,11 +133,13 @@ public final class PlaylistState {
             return null;
         }
         PlaylistEntry removed = playlist.remove(currentIndex);
+        markQueueMutation();
         lastTrack = removed;
         currentIndex--;
         playing = false;
         paused = false;
-        currentVideoId = null;
+        currentSourceType = null;
+        currentSourceId = null;
         playbackStartTime = 0L;
         currentTrackDurationMs = 0L;
         return removed;
@@ -136,8 +149,9 @@ public final class PlaylistState {
         if (requested == null) {
             return null;
         }
+        validateServerQueueEntry(requested);
 
-        int selectedIndex = findIndex(requested.getVideoId());
+        int selectedIndex = findIndex(requested.getSourceType(), requested.getSourceId());
         PlaylistEntry selected = selectedIndex >= 0 ? playlist.get(selectedIndex) : requested;
         boolean selectedCurrent = selectedIndex == currentIndex;
 
@@ -153,9 +167,38 @@ public final class PlaylistState {
             currentIndex--;
         }
 
-        addAtFront(selected);
+        playlist.add(0, selected);
+        if (currentIndex >= 0) {
+            currentIndex++;
+        }
+        markQueueMutation();
         resetPlayback();
         return selected;
+    }
+
+    public boolean selectRadioAtFront(PlaylistEntry station) {
+        if (!canSelectRadioAtFront(station)) {
+            return false;
+        }
+
+        boolean replacesFrontRadio = !playlist.isEmpty() && playlist.get(0)
+            .isRadio();
+        if (replacesFrontRadio) {
+            playlist.set(0, station);
+        } else {
+            playlist.add(0, station);
+        }
+        markQueueMutation();
+        startRadioTrack(0, station.getSourceId());
+        return true;
+    }
+
+    public boolean canSelectRadioAtFront(PlaylistEntry station) {
+        if (station == null || !station.isRadio()) {
+            return false;
+        }
+        return (!playlist.isEmpty() && playlist.get(0)
+            .isRadio()) || playlist.size() < maxPlaylistSize;
     }
 
     public boolean moveQueued(int fromIndex, int targetIndex) {
@@ -171,6 +214,7 @@ public final class PlaylistState {
 
         PlaylistEntry entry = playlist.remove(fromIndex);
         playlist.add(targetIndex, entry);
+        markQueueMutation();
         return true;
     }
 
@@ -181,12 +225,20 @@ public final class PlaylistState {
             return null;
         }
 
+        PlaylistEntry next = playlist.get(currentIndex);
+        if (next.isFinite() && durationMs <= 0L) {
+            currentIndex--;
+            throw new IllegalArgumentException("finite track duration must be positive");
+        }
+
         playing = true;
         paused = false;
         previousRestarted = false;
-        currentVideoId = null;
+        PlaylistEntry current = next;
+        currentSourceType = current.getSourceType();
+        currentSourceId = current.getSourceId();
         playbackStartTime = 0L;
-        currentTrackDurationMs = durationMs;
+        currentTrackDurationMs = current.isFinite() ? durationMs : 0L;
         return playlist.get(currentIndex);
     }
 
@@ -196,23 +248,50 @@ public final class PlaylistState {
         }
     }
 
-    public void startTrack(int index, String videoId, long durationMs, long startTimeMs) {
+    public void startFiniteTrack(int index, String sourceId, long durationMs, long startAtMs) {
+        if (durationMs <= 0L) {
+            throw new IllegalArgumentException("finite track duration must be positive");
+        }
+        requireEntry(index, MediaSourceType.YOUTUBE, sourceId);
         currentIndex = index;
         playing = true;
         paused = false;
         previousRestarted = false;
-        currentVideoId = videoId;
+        currentSourceType = MediaSourceType.YOUTUBE;
+        currentSourceId = sourceId;
         currentTrackDurationMs = durationMs;
-        playbackStartTime = startTimeMs;
+        playbackStartTime = startAtMs;
+    }
+
+    public void startRadioTrack(int index, String stationUuid) {
+        requireEntry(index, MediaSourceType.RADIO, stationUuid);
+        currentIndex = index;
+        playing = true;
+        paused = false;
+        previousRestarted = false;
+        currentSourceType = MediaSourceType.RADIO;
+        currentSourceId = stationUuid;
+        currentTrackDurationMs = 0L;
+        playbackStartTime = 0L;
+    }
+
+    @Deprecated
+    public void startTrack(int index, String videoId, long durationMs, long startTimeMs) {
+        startFiniteTrack(index, videoId, durationMs, startTimeMs);
     }
 
     public void markLoaded(String videoId, long startTimeMs) {
-        currentVideoId = videoId;
+        if (currentSourceType != MediaSourceType.YOUTUBE) {
+            return;
+        }
+        currentSourceId = videoId;
         playbackStartTime = startTimeMs;
     }
 
     public long pausePlayback(long positionMs, long nowMs) {
-        if (!playing || currentVideoId == null || currentTrackDurationMs <= 0L) {
+        if (!playing || currentSourceType != MediaSourceType.YOUTUBE
+            || currentSourceId == null
+            || currentTrackDurationMs <= 0L) {
             return -1L;
         }
         long maximumPosition = Math.max(0L, currentTrackDurationMs - 1L);
@@ -234,7 +313,9 @@ public final class PlaylistState {
     }
 
     public long seek(long positionMs, long nowMs) {
-        if (!playing || currentVideoId == null || currentTrackDurationMs <= 0L) {
+        if (!playing || currentSourceType != MediaSourceType.YOUTUBE
+            || currentSourceId == null
+            || currentTrackDurationMs <= 0L) {
             return -1L;
         }
         long maximumPosition = Math.max(0L, currentTrackDurationMs - 1L);
@@ -253,7 +334,15 @@ public final class PlaylistState {
     }
 
     public String getCurrentVideoId() {
-        return currentVideoId;
+        return currentSourceType == MediaSourceType.YOUTUBE ? currentSourceId : null;
+    }
+
+    public MediaSourceType getCurrentSourceType() {
+        return currentSourceType;
+    }
+
+    public String getCurrentSourceId() {
+        return currentSourceId;
     }
 
     public boolean isPlaying() {
@@ -295,6 +384,7 @@ public final class PlaylistState {
         for (int index = 0; index < queued.size(); index++) {
             playlist.set(firstQueuedIndex + index, queued.get(index));
         }
+        markQueueMutation();
     }
 
     public boolean wasPreviousRestarted() {
@@ -309,7 +399,9 @@ public final class PlaylistState {
         if (entry == null) {
             return;
         }
+        validateServerQueueEntry(entry);
         playlist.add(0, entry);
+        markQueueMutation();
         if (currentIndex >= 0) {
             currentIndex++;
         }
@@ -338,7 +430,8 @@ public final class PlaylistState {
         playing = false;
         paused = false;
         previousRestarted = false;
-        currentVideoId = null;
+        currentSourceType = null;
+        currentSourceId = null;
         playbackStartTime = 0L;
         currentTrackDurationMs = 0L;
     }
@@ -353,7 +446,7 @@ public final class PlaylistState {
     }
 
     public boolean beginLateJoin(UUID playerUuid, long elapsedMs, long nowMs) {
-        if (playerUuid == null || !playing || currentVideoId == null) {
+        if (playerUuid == null || !playing || currentSourceType != MediaSourceType.YOUTUBE || currentSourceId == null) {
             return false;
         }
 
@@ -370,8 +463,9 @@ public final class PlaylistState {
     public boolean ready(UUID playerUuid, String videoId) {
         if (!syncing || playerUuid == null
             || videoId == null
-            || currentVideoId == null
-            || !currentVideoId.equals(videoId)) {
+            || currentSourceType != MediaSourceType.YOUTUBE
+            || currentSourceId == null
+            || !currentSourceId.equals(videoId)) {
             return false;
         }
         return pendingPlayers.remove(playerUuid) && pendingPlayers.isEmpty();
@@ -423,6 +517,16 @@ public final class PlaylistState {
         return pauseStartTime;
     }
 
+    public long getQueueRevision() {
+        return queueRevision;
+    }
+
+    public void markQueueMutation() {
+        if (queueRevision < Long.MAX_VALUE) {
+            queueRevision++;
+        }
+    }
+
     public int getPendingPlayerCount() {
         return pendingPlayers.size();
     }
@@ -465,6 +569,9 @@ public final class PlaylistState {
     }
 
     public void clear() {
+        if (!playlist.isEmpty()) {
+            markQueueMutation();
+        }
         playlist.clear();
         pendingPlayers.clear();
         lastTrack = null;
@@ -472,5 +579,23 @@ public final class PlaylistState {
         shuffling = false;
         syncing = false;
         resetPlayback();
+    }
+
+    private void requireEntry(int index, MediaSourceType sourceType, String sourceId) {
+        if (index < 0 || index >= playlist.size()
+            || sourceType != playlist.get(index)
+                .getSourceType()
+            || sourceId == null
+            || !sourceId.equals(
+                playlist.get(index)
+                    .getSourceId())) {
+            throw new IllegalArgumentException("current source does not match playlist entry");
+        }
+    }
+
+    private void validateServerQueueEntry(PlaylistEntry entry) {
+        if (entry.isFinite() && entry.getDurationMs() <= 0L) {
+            throw new IllegalArgumentException("finite queue entry duration must be positive");
+        }
     }
 }

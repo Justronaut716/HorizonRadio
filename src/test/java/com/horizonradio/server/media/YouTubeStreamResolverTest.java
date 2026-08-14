@@ -161,6 +161,43 @@ public class YouTubeStreamResolverTest {
     }
 
     @Test
+    public void fallsBackToIosPlayerWhenAndroidPlayerIsUnavailable() throws Exception {
+        FakeHttp http = new FakeHttp(
+            "{\"playabilityStatus\":{\"status\":\"LOGIN_REQUIRED\",\"reason\":\"Sign in to confirm you are not a bot\"}}");
+        http.iosResponse = "{\"streamingData\":{\"adaptiveFormats\":["
+            + "{\"mimeType\":\"audio/mp4; codecs=\\\"mp4a.40.2\\\"\",\"bitrate\":128000,"
+            + "\"url\":\"https://r1.googlevideo.com/videoplayback?expire=2000\"}]}}";
+
+        YouTubeMediaModels.ResolvedAudioStream stream = new YouTubeStreamResolver(
+            http,
+            new AudioDecoderRegistry(),
+            () -> 1000000L).resolveAudio("dQw4w9WgXcQ");
+
+        assertEquals(MediaFormat.M4A, stream.getFormat());
+        assertEquals(2, http.playerRequests);
+        assertEquals("IOS", http.lastClientName);
+    }
+
+    @Test
+    public void fallsBackToIosPlayerWhenVisitorPageIsBlocked() throws Exception {
+        FakeHttp http = new FakeHttp(
+            "{\"playabilityStatus\":{\"status\":\"LOGIN_REQUIRED\",\"reason\":\"Sign in to confirm you are not a bot\"}}");
+        http.failVisitorPage = true;
+        http.iosResponse = "{\"streamingData\":{\"adaptiveFormats\":["
+            + "{\"mimeType\":\"audio/mp4; codecs=\\\"mp4a.40.2\\\"\",\"bitrate\":128000,"
+            + "\"url\":\"https://r1.googlevideo.com/videoplayback?expire=2000\"}]}}";
+
+        YouTubeMediaModels.ResolvedAudioStream stream = new YouTubeStreamResolver(
+            http,
+            new AudioDecoderRegistry(),
+            () -> 1000000L).resolveAudio("dQw4w9WgXcQ");
+
+        assertEquals(MediaFormat.M4A, stream.getFormat());
+        assertEquals(2, http.playerRequests);
+        assertEquals("IOS", http.lastClientName);
+    }
+
+    @Test
     public void deciphersSignatureAndNParametersFromBoundedFixtureTransforms() throws Exception {
         String cipher = "url=https%3A%2F%2Fr1.googlevideo.com%2Fvideoplayback%3Fexpire%3D2000%26n%3Dold%26%256e%3Dabc%26sig%3Dold%26%2573ig%3Dolder"
             + "&s=abcdef&sp=sig";
@@ -405,7 +442,11 @@ public class YouTubeStreamResolverTest {
         private final byte[] response;
         private final long declaredLength;
         private String visitorPage = "{\"VISITOR_DATA\":\"test-visitor\"}";
+        private String iosResponse;
+        private boolean failVisitorPage;
         private int watchRequests;
+        private int playerRequests;
+        private String lastClientName = "";
         private String requestBody = "";
         private Map<String, String> requestHeaders = new HashMap<String, String>();
         private CloseTrackingInputStream lastPlayerInput;
@@ -423,15 +464,27 @@ public class YouTubeStreamResolverTest {
         public YouTubeMediaModels.HttpResponse post(URL url, Map<String, String> headers, byte[] body,
             int timeoutMillis, long maximumBytes) {
             requestBody = new String(body, StandardCharsets.UTF_8);
+            playerRequests++;
             requestHeaders = headers == null ? new HashMap<String, String>() : new HashMap<String, String>(headers);
-            lastPlayerInput = new CloseTrackingInputStream(response);
-            return new YouTubeMediaModels.HttpResponse(url, 200, "application/json", declaredLength, lastPlayerInput);
+            JsonObject request = new Gson().fromJson(requestBody, JsonObject.class);
+            lastClientName = request.getAsJsonObject("context")
+                .getAsJsonObject("client")
+                .get("clientName")
+                .getAsString();
+            byte[] playerResponse = "IOS".equals(lastClientName) && iosResponse != null
+                ? iosResponse.getBytes(StandardCharsets.UTF_8)
+                : response;
+            long responseLength = "IOS".equals(lastClientName) && iosResponse != null ? playerResponse.length
+                : declaredLength;
+            lastPlayerInput = new CloseTrackingInputStream(playerResponse);
+            return new YouTubeMediaModels.HttpResponse(url, 200, "application/json", responseLength, lastPlayerInput);
         }
 
         @Override
         public YouTubeMediaModels.HttpResponse get(URL url, Map<String, String> headers, int timeoutMillis,
-            long maximumBytes) {
+            long maximumBytes) throws java.io.IOException {
             watchRequests++;
+            if (failVisitorPage) throw new MediaException("YouTube watch page is blocked");
             byte[] page = visitorPage.getBytes(StandardCharsets.UTF_8);
             return new YouTubeMediaModels.HttpResponse(
                 url,

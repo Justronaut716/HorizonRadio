@@ -15,6 +15,8 @@ import java.util.function.Supplier;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+import com.horizonradio.core.model.SearchResult;
+import com.horizonradio.core.server.PlaylistImportService;
 import com.horizonradio.server.media.JavaAudioDownloadBackend;
 import com.horizonradio.server.media.MediaException;
 import com.horizonradio.server.media.PcmSink;
@@ -177,6 +179,29 @@ public class AudioDownloadService {
                 return metadataResolver.resolveVideoJson(videoUrl);
             }
         }, "video");
+    }
+
+    /** Resolves one validated YouTube video ID to local presentation metadata. */
+    public CompletableFuture<SearchResult> resolveVideoMetadata(String videoId) {
+        try {
+            String safeVideoId = com.horizonradio.server.media.YouTubeUrlParser.requireVideoId(videoId);
+            return extractVideoJson("https://www.youtube.com/watch?v=" + safeVideoId)
+                .thenApply(new java.util.function.Function<String, SearchResult>() {
+
+                    @Override
+                    public SearchResult apply(String json) {
+                        SearchResult result = PlaylistImportService.parseVideo(json);
+                        if (result == null) {
+                            throw new IllegalStateException("YouTube video metadata could not be resolved");
+                        }
+                        return result;
+                    }
+                });
+        } catch (MediaException exception) {
+            CompletableFuture<SearchResult> failed = new CompletableFuture<SearchResult>();
+            failed.completeExceptionally(exception);
+            return failed;
+        }
     }
 
     public CompletableFuture<String> extractVideoDurationOutput(final List<String> videoIds) {

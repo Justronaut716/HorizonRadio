@@ -1,11 +1,7 @@
 package com.horizonradio;
 
 import java.io.File;
-import java.io.IOException;
-import java.nio.file.Paths;
 import java.util.List;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
 import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.server.MinecraftServer;
@@ -13,23 +9,13 @@ import net.minecraft.server.MinecraftServer;
 import com.horizonradio.core.config.HorizonRadioConfig;
 import com.horizonradio.network.ServerMessageHandlers;
 import com.horizonradio.network.packets.AddChartsToPlaylistPacket;
-import com.horizonradio.network.packets.AudioChunkPacket;
-import com.horizonradio.network.packets.ChartAddCompletionPacket;
 import com.horizonradio.network.packets.ClockSyncResponsePacket;
-import com.horizonradio.network.packets.NowPlayingPacket;
 import com.horizonradio.network.packets.PausePacket;
+import com.horizonradio.network.packets.PlaylistDeltaPacket;
 import com.horizonradio.network.packets.PlaylistSyncPacket;
-import com.horizonradio.network.packets.RadioAudioChunkPacket;
-import com.horizonradio.network.packets.RadioAudioStartPacket;
-import com.horizonradio.network.packets.RadioSearchResultsPacket;
-import com.horizonradio.network.packets.RadioStatePacket;
 import com.horizonradio.network.packets.ResumePacket;
-import com.horizonradio.network.packets.SearchResultsPacket;
-import com.horizonradio.server.AudioDownloadService;
+import com.horizonradio.network.packets.TrackSyncPacket;
 import com.horizonradio.server.PlaylistManager;
-import com.horizonradio.server.RadioBrowserService;
-import com.horizonradio.server.RadioStreamService;
-import com.horizonradio.server.YouTubeService;
 
 import cpw.mods.fml.common.event.FMLInitializationEvent;
 import cpw.mods.fml.common.event.FMLPostInitializationEvent;
@@ -37,13 +23,7 @@ import cpw.mods.fml.common.event.FMLPreInitializationEvent;
 
 public class CommonProxy {
 
-    private static final Logger LOGGER = Logger.getLogger(CommonProxy.class.getName());
-
     private PlaylistManager playlistManager;
-    private YouTubeService youTubeService;
-    private AudioDownloadService audioDownloadService;
-    private RadioBrowserService radioBrowserService;
-    private RadioStreamService radioStreamService;
     private File configDirectory;
 
     public void preInit(FMLPreInitializationEvent event) {
@@ -65,63 +45,18 @@ public class CommonProxy {
             HorizonRadio.setConfig(HorizonRadioConfig.load(null));
         }
 
-        youTubeService = new YouTubeService();
-        try {
-            audioDownloadService = new AudioDownloadService(
-                Paths.get(
-                    HorizonRadio.getConfig()
-                        .getDownloadDir()),
-                HorizonRadio.getConfig()
-                    .getYoutubeCookiesFromBrowser(),
-                HorizonRadio.getConfig()
-                    .getYoutubeCookiesFile());
-        } catch (IOException exception) {
-            LOGGER.log(Level.WARNING, "HorizonRadio: Failed to initialise audio download service", exception);
-            youTubeService = null;
-            audioDownloadService = null;
-            return;
-        }
-
-        radioBrowserService = new RadioBrowserService();
-        radioStreamService = new RadioStreamService();
-        playlistManager = new PlaylistManager(
-            server,
-            youTubeService,
-            audioDownloadService,
-            configDirectory,
-            radioBrowserService,
-            radioStreamService);
+        playlistManager = new PlaylistManager(server, configDirectory);
         final PlaylistManager manager = playlistManager;
         ServerMessageHandlers.setHook(new ServerMessageHandlers.ServerPacketHook() {
 
             @Override
-            public void handleSearch(EntityPlayerMP player, String query) {
-                manager.handleSearch(player, query);
+            public void handleAdd(EntityPlayerMP player, String videoId, long durationMs) {
+                manager.handleAddToPlaylist(player, videoId, durationMs);
             }
 
             @Override
-            public void handleImportPlaylist(EntityPlayerMP player, String playlistUrl) {
-                manager.handleImportPlaylist(player, playlistUrl);
-            }
-
-            @Override
-            public void handleImportVideo(EntityPlayerMP player, String videoUrl) {
-                manager.handleImportVideo(player, videoUrl);
-            }
-
-            @Override
-            public void handleRequestCharts(EntityPlayerMP player, String regionCode, boolean forceRefresh) {
-                manager.handleRequestCharts(player, regionCode, forceRefresh);
-            }
-
-            @Override
-            public void handleAdd(EntityPlayerMP player, String videoId, String title, String duration) {
-                manager.handleAddToPlaylist(player, videoId, title, duration);
-            }
-
-            @Override
-            public void handlePlayNow(EntityPlayerMP player, String videoId, String title, String duration) {
-                manager.handlePlayNow(player, videoId, title, duration);
+            public void handlePlayNow(EntityPlayerMP player, String videoId, long durationMs) {
+                manager.handlePlayNow(player, videoId, durationMs);
             }
 
             @Override
@@ -138,11 +73,6 @@ public class CommonProxy {
             @Override
             public void handleClearPlaylist(EntityPlayerMP player) {
                 manager.handleClearPlaylist(player);
-            }
-
-            @Override
-            public void handleReady(EntityPlayerMP player, String videoId) {
-                manager.onPlayerReady(player, videoId);
             }
 
             @Override
@@ -181,11 +111,6 @@ public class CommonProxy {
             }
 
             @Override
-            public void handleRadioSearch(EntityPlayerMP player, String query) {
-                manager.handleRadioSearch(player, query);
-            }
-
-            @Override
             public void handleSelectRadio(EntityPlayerMP player, String stationUuid) {
                 manager.handleSelectRadio(player, stationUuid);
             }
@@ -193,6 +118,11 @@ public class CommonProxy {
             @Override
             public void handleStopRadio(EntityPlayerMP player) {
                 manager.handleStopRadio(player);
+            }
+
+            @Override
+            public void handlePlaylistResyncRequest(EntityPlayerMP player, long knownRevision) {
+                manager.syncToPlayer(player);
             }
         });
     }
@@ -202,16 +132,7 @@ public class CommonProxy {
         playlistManager = null;
         if (manager != null) {
             manager.shutdown();
-        } else if (radioStreamService != null) {
-            radioStreamService.shutdown();
         }
-        radioStreamService = null;
-        radioBrowserService = null;
-        if (audioDownloadService != null) {
-            audioDownloadService.shutdown();
-        }
-        audioDownloadService = null;
-        youTubeService = null;
         ServerMessageHandlers.setHook(null);
     }
 
@@ -221,25 +142,15 @@ public class CommonProxy {
         }
     }
 
-    public void onPlayerLoggedOut(EntityPlayerMP player) {
-        if (playlistManager != null) {
-            playlistManager.handleDisconnect(player);
-        }
-    }
-
-    public void handleSearchResults(SearchResultsPacket packet) {}
-
-    public void handleChartResults(SearchResultsPacket packet) {}
+    public void onPlayerLoggedOut(EntityPlayerMP player) {}
 
     public void handlePlaylistSync(PlaylistSyncPacket packet) {}
 
-    public void handleChartAddCompletion(ChartAddCompletionPacket packet) {}
+    public void handlePlaylistDelta(PlaylistDeltaPacket packet) {}
 
     public void handleClockSync(ClockSyncResponsePacket packet) {}
 
-    public void handleAudioChunk(AudioChunkPacket packet) {}
-
-    public void handleNowPlaying(NowPlayingPacket packet) {}
+    public void handleTrackSync(TrackSyncPacket packet) {}
 
     public void handlePause(PausePacket packet) {}
 
@@ -249,11 +160,4 @@ public class CommonProxy {
 
     public void handleShuffleState(boolean shuffling) {}
 
-    public void handleRadioSearchResults(RadioSearchResultsPacket packet) {}
-
-    public void handleRadioState(RadioStatePacket packet) {}
-
-    public void handleRadioAudioStart(RadioAudioStartPacket packet) {}
-
-    public void handleRadioAudioChunk(RadioAudioChunkPacket packet) {}
 }

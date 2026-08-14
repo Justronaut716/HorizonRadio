@@ -42,6 +42,38 @@ public class JavaAudioDownloadBackendTest {
     }
 
     @Test
+    public void defaultDownloadBudgetCoversConfiguredSevenMinuteTracks() throws Exception {
+        JavaAudioDownloadBackend backend = new JavaAudioDownloadBackend();
+        java.lang.reflect.Field budget = JavaAudioDownloadBackend.class.getDeclaredField("maximumBytes");
+        budget.setAccessible(true);
+
+        long normalizedSevenMinuteWaveBytes = 44L + 176400L * 7L * 60L;
+        assertTrue(
+            "default media budget is too small for a seven-minute normalized track",
+            budget.getLong(backend) >= normalizedSevenMinuteWaveBytes);
+    }
+
+    @Test
+    public void retriesATransientInitialMediaFailureBeforeRejectingTheTrack() throws Exception {
+        FakeHttp http = new FakeHttp(wave(new byte[] { 1, 0, 2, 0, 3, 0, 4, 0 }), true);
+        JavaAudioDownloadBackend backend = new JavaAudioDownloadBackend(
+            new YouTubeStreamResolver(http, new AudioDecoderRegistry(), () -> 1000000L),
+            http,
+            new AudioDecoderRegistry(),
+            1024L);
+        Path directory = Files.createTempDirectory("horizonradio-download-retry");
+        Path destination = directory.resolve("dQw4w9WgXcQ.wav");
+        try {
+            assertEquals(destination, backend.download("dQw4w9WgXcQ", destination, () -> false));
+            assertEquals(2, http.audioRequests);
+            assertEquals(1, http.rangedAudioRequests);
+        } finally {
+            Files.deleteIfExists(destination);
+            Files.deleteIfExists(directory);
+        }
+    }
+
+    @Test
     public void downloadsAudioThroughABoundedRangeRequest() throws Exception {
         byte[] audio = wave(new byte[] { 1, 0, 2, 0, 3, 0, 4, 0 });
         RangeFallbackHttp http = new RangeFallbackHttp(audio);
@@ -204,7 +236,9 @@ public class JavaAudioDownloadBackendTest {
         private final byte[] audio;
         private final URL audioResponseUrl;
         private final long declaredAudioLength;
+        private boolean failFirstAudioRequest;
         private int audioRequests;
+        private int rangedAudioRequests;
 
         private FakeHttp(byte[] audio) {
             this(audio, null, audio.length);
@@ -214,10 +248,19 @@ public class JavaAudioDownloadBackendTest {
             this(audio, audioResponseUrl, audio.length);
         }
 
+        private FakeHttp(byte[] audio, boolean failFirstAudioRequest) {
+            this(audio, null, audio.length, failFirstAudioRequest);
+        }
+
         private FakeHttp(byte[] audio, URL audioResponseUrl, long declaredAudioLength) {
+            this(audio, audioResponseUrl, declaredAudioLength, false);
+        }
+
+        private FakeHttp(byte[] audio, URL audioResponseUrl, long declaredAudioLength, boolean failFirstAudioRequest) {
             this.audio = audio;
             this.audioResponseUrl = audioResponseUrl;
             this.declaredAudioLength = declaredAudioLength;
+            this.failFirstAudioRequest = failFirstAudioRequest;
         }
 
         @Override
@@ -235,7 +278,7 @@ public class JavaAudioDownloadBackendTest {
 
         @Override
         public YouTubeMediaModels.HttpResponse get(URL url, Map<String, String> headers, int timeoutMillis,
-            long maximumBytes) {
+            long maximumBytes) throws java.io.IOException {
             if ("/watch".equals(url.getPath())) {
                 byte[] visitor = "{\"VISITOR_DATA\":\"test-visitor\"}".getBytes(StandardCharsets.UTF_8);
                 return new YouTubeMediaModels.HttpResponse(
@@ -246,6 +289,13 @@ public class JavaAudioDownloadBackendTest {
                     new ByteArrayInputStream(visitor));
             }
             audioRequests++;
+            if (headers != null && headers.get("Range") != null) {
+                rangedAudioRequests++;
+            }
+            if (failFirstAudioRequest && headers != null && headers.get("Range") != null) {
+                failFirstAudioRequest = false;
+                throw new MediaException("HTTP request failed with status 403");
+            }
             return new YouTubeMediaModels.HttpResponse(
                 audioResponseUrl == null ? url : audioResponseUrl,
                 200,

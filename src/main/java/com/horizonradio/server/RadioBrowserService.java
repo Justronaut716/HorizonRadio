@@ -26,8 +26,6 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.horizonradio.core.model.RadioStation;
 import com.horizonradio.network.PacketBufferUtil;
-import com.horizonradio.network.packets.RadioSearchResultsPacket;
-import com.horizonradio.network.packets.RadioStatePacket;
 import com.horizonradio.network.packets.SelectRadioStationPacket;
 
 /**
@@ -42,10 +40,12 @@ public class RadioBrowserService {
     private static final int READ_TIMEOUT_MILLIS = 15000;
     private static final int MAX_RESULTS = 50;
     private static final int MAX_QUERY_LENGTH = 100;
+    private static final int MAX_STATION_NAME_BYTES = 200;
+    private static final int MAX_RADIO_STATUS_BYTES = 160;
     private static final String PLAYING_STATUS_PREFIX = "Playing ";
     private static final int MAX_PUBLICATION_NAME_BYTES = Math.min(
-        RadioSearchResultsPacket.MAX_STATION_NAME_BYTES,
-        RadioStatePacket.MAX_STATUS_BYTES - PLAYING_STATUS_PREFIX.getBytes(StandardCharsets.UTF_8).length);
+        MAX_STATION_NAME_BYTES,
+        MAX_RADIO_STATUS_BYTES - PLAYING_STATUS_PREFIX.getBytes(StandardCharsets.UTF_8).length);
     private static final Logger LOGGER = Logger.getLogger(RadioBrowserService.class.getName());
 
     public CompletableFuture<List<RadioStation>> search(final String query) {
@@ -183,7 +183,7 @@ public class RadioBrowserService {
         return null;
     }
 
-    static RadioStation sanitizeForPublication(RadioStation station) {
+    public static RadioStation sanitizeForPublication(RadioStation station) {
         if (station == null) {
             return null;
         }

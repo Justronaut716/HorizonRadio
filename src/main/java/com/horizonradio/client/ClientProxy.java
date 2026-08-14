@@ -1,24 +1,30 @@
 package com.horizonradio.client;
 
 import java.io.File;
-import java.util.ArrayList;
-import java.util.List;
+import java.io.IOException;
+import java.util.concurrent.CompletableFuture;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 import net.minecraft.client.Minecraft;
+import net.minecraft.util.ChatComponentText;
+import net.minecraft.util.EnumChatFormatting;
 
 import com.horizonradio.CommonProxy;
-import com.horizonradio.network.packets.AudioChunkPacket;
-import com.horizonradio.network.packets.ChartAddCompletionPacket;
+import com.horizonradio.client.audio.AudioPlayer;
+import com.horizonradio.client.audio.ClientRadioPlayback;
+import com.horizonradio.client.media.ClientMediaService;
+import com.horizonradio.core.model.RadioStation;
 import com.horizonradio.network.packets.ClockSyncResponsePacket;
-import com.horizonradio.network.packets.NowPlayingPacket;
 import com.horizonradio.network.packets.PausePacket;
+import com.horizonradio.network.packets.PlaylistDeltaPacket;
 import com.horizonradio.network.packets.PlaylistSyncPacket;
-import com.horizonradio.network.packets.RadioAudioChunkPacket;
-import com.horizonradio.network.packets.RadioAudioStartPacket;
-import com.horizonradio.network.packets.RadioSearchResultsPacket;
-import com.horizonradio.network.packets.RadioStatePacket;
 import com.horizonradio.network.packets.ResumePacket;
-import com.horizonradio.network.packets.SearchResultsPacket;
+import com.horizonradio.network.packets.TrackSyncPacket;
+import com.horizonradio.server.AudioDownloadService;
+import com.horizonradio.server.RadioBrowserService;
+import com.horizonradio.server.YouTubeService;
+import com.horizonradio.server.media.RadioInputSession;
 
 import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.event.FMLInitializationEvent;
@@ -29,6 +35,8 @@ import cpw.mods.fml.common.gameevent.TickEvent;
 import cpw.mods.fml.common.network.FMLNetworkEvent;
 
 public class ClientProxy extends CommonProxy {
+
+    private static final Logger LOGGER = Logger.getLogger(ClientProxy.class.getName());
 
     interface ClientTaskScheduler {
 
@@ -45,6 +53,7 @@ public class ClientProxy extends CommonProxy {
     }
 
     private final ClientTaskScheduler clientTaskScheduler;
+    private static volatile ClientTaskScheduler activeClientTaskScheduler;
 
     public ClientProxy() {
         this(new MinecraftClientTaskScheduler());
@@ -55,6 +64,7 @@ public class ClientProxy extends CommonProxy {
             throw new IllegalArgumentException("client task scheduler is required");
         }
         this.clientTaskScheduler = clientTaskScheduler;
+        activeClientTaskScheduler = clientTaskScheduler;
     }
 
     @Override
@@ -63,6 +73,78 @@ public class ClientProxy extends CommonProxy {
         File configDirectory = event.getSuggestedConfigurationFile()
             .getParentFile();
         HorizonRadioClient.loadClientConfig(configDirectory);
+        try {
+            File audioDirectory = new File(
+                configDirectory == null ? new File(".") : configDirectory,
+                "horizonradio-audio");
+            AudioDownloadService audioDownloadService = new AudioDownloadService(audioDirectory.toPath());
+            HorizonRadioClient.setClientAudioDownloadService(audioDownloadService);
+            final ClientMediaService mediaService = new ClientMediaService(
+                new YouTubeService(),
+                audioDownloadService,
+                new RadioBrowserService());
+            HorizonRadioClient.setClientMediaService(mediaService);
+            HorizonRadioClient
+                .setClientRadioPlayback(new ClientRadioPlayback(new ClientRadioPlayback.StationResolver() {
+
+                    @Override
+                    public CompletableFuture<RadioStation> lookup(String stationUuid) {
+                        return mediaService.lookupRadio(stationUuid);
+                    }
+                }, new ClientRadioPlayback.SessionFactory() {
+
+                    @Override
+                    public RadioInputSession create(String streamUrl, RadioInputSession.RadioPcmListener listener) {
+                        return new RadioInputSession(streamUrl, listener);
+                    }
+                }, new ClientRadioPlayback.AudioSink() {
+
+                    @Override
+                    public boolean beginLocalRadioPcm(long generation) {
+                        return AudioPlayer.getInstance()
+                            .beginLocalRadioPcm(generation);
+                    }
+
+                    @Override
+                    public void bufferLocalRadioPcm(long generation, byte[] pcm) {
+                        AudioPlayer.getInstance()
+                            .bufferLocalRadioPcm(generation, pcm);
+                    }
+
+                    @Override
+                    public void stopLocalRadioPcm() {
+                        AudioPlayer.getInstance()
+                            .stopRadio();
+                    }
+                }, new ClientRadioPlayback.StatusListener() {
+
+                    @Override
+                    public void onStarted(final long generation, final String stationUuid, final String stationName) {
+                        scheduleOnClientThread(new Runnable() {
+
+                            @Override
+                            public void run() {
+                                HorizonRadioClient.handleLocalRadioStarted(generation, stationUuid, stationName);
+                            }
+                        });
+                    }
+
+                    @Override
+                    public void onFailure(final long generation, final String stationUuid, final String message) {
+                        scheduleOnClientThread(new Runnable() {
+
+                            @Override
+                            public void run() {
+                                HorizonRadioClient.handleLocalRadioFailure(generation, stationUuid, message);
+                            }
+                        });
+                    }
+                }));
+        } catch (IOException exception) {
+            HorizonRadioClient.setClientMediaService(null);
+            HorizonRadioClient.setClientRadioPlayback(null);
+            LOGGER.log(Level.WARNING, "HorizonRadio: Failed to initialise client audio cache", exception);
+        }
         HorizonRadioClient.setTransport(new HorizonRadioClient.ForgeClientTransport());
     }
 
@@ -81,74 +163,23 @@ public class ClientProxy extends CommonProxy {
     }
 
     @Override
-    public void handleSearchResults(final SearchResultsPacket packet) {
-        schedule(new Runnable() {
-
-            @Override
-            public void run() {
-                List<HorizonRadioScreen.SearchResult> results = new ArrayList<HorizonRadioScreen.SearchResult>();
-                for (SearchResultsPacket.Entry entry : packet.getResults()) {
-                    results.add(
-                        new HorizonRadioScreen.SearchResult(
-                            entry.getVideoId(),
-                            entry.getTitle(),
-                            entry.getChannel(),
-                            entry.getDuration(),
-                            entry.getThumbnail()));
-                }
-                HorizonRadioClient.updateSearchResults(results);
-            }
-        });
-    }
-
-    @Override
-    public void handleChartResults(final SearchResultsPacket packet) {
-        schedule(new Runnable() {
-
-            @Override
-            public void run() {
-                List<HorizonRadioScreen.SearchResult> results = new ArrayList<HorizonRadioScreen.SearchResult>();
-                for (SearchResultsPacket.Entry entry : packet.getResults()) {
-                    results.add(
-                        new HorizonRadioScreen.SearchResult(
-                            entry.getVideoId(),
-                            entry.getTitle(),
-                            entry.getChannel(),
-                            entry.getDuration(),
-                            entry.getThumbnail()));
-                }
-                HorizonRadioClient.updateChartResults(results, packet.getChartRegionCode());
-            }
-        });
-    }
-
-    @Override
     public void handlePlaylistSync(final PlaylistSyncPacket packet) {
         schedule(new Runnable() {
 
             @Override
             public void run() {
-                List<HorizonRadioScreen.PlaylistEntry> entries = new ArrayList<HorizonRadioScreen.PlaylistEntry>();
-                for (PlaylistSyncPacket.Entry entry : packet.getEntries()) {
-                    entries.add(
-                        new HorizonRadioScreen.PlaylistEntry(
-                            entry.getVideoId(),
-                            entry.getTitle(),
-                            entry.getDuration(),
-                            entry.getAddedBy()));
-                }
-                HorizonRadioClient.updatePlaylist(entries);
+                HorizonRadioClient.handlePlaylistSnapshot(packet);
             }
         });
     }
 
     @Override
-    public void handleChartAddCompletion(final ChartAddCompletionPacket packet) {
+    public void handlePlaylistDelta(final PlaylistDeltaPacket packet) {
         schedule(new Runnable() {
 
             @Override
             public void run() {
-                HorizonRadioClient.completeChartAdds(packet.getCompletedVideoIds());
+                HorizonRadioClient.handlePlaylistDelta(packet);
             }
         });
     }
@@ -166,23 +197,12 @@ public class ClientProxy extends CommonProxy {
     }
 
     @Override
-    public void handleAudioChunk(final AudioChunkPacket packet) {
+    public void handleTrackSync(final TrackSyncPacket packet) {
         schedule(new Runnable() {
 
             @Override
             public void run() {
-                HorizonRadioClient.handleAudioChunk(packet);
-            }
-        });
-    }
-
-    @Override
-    public void handleNowPlaying(final NowPlayingPacket packet) {
-        schedule(new Runnable() {
-
-            @Override
-            public void run() {
-                HorizonRadioClient.updateNowPlaying(packet.getTitle(), packet.getProgress());
+                HorizonRadioClient.handleTrackSync(packet);
             }
         });
     }
@@ -231,52 +251,27 @@ public class ClientProxy extends CommonProxy {
         });
     }
 
-    @Override
-    public void handleRadioSearchResults(final RadioSearchResultsPacket packet) {
-        schedule(new Runnable() {
-
-            @Override
-            public void run() {
-                HorizonRadioClient.updateRadioSearchResults(packet);
-            }
-        });
-    }
-
-    @Override
-    public void handleRadioState(final RadioStatePacket packet) {
-        schedule(new Runnable() {
-
-            @Override
-            public void run() {
-                HorizonRadioClient.updateRadioState(packet);
-            }
-        });
-    }
-
-    @Override
-    public void handleRadioAudioStart(final RadioAudioStartPacket packet) {
-        schedule(new Runnable() {
-
-            @Override
-            public void run() {
-                HorizonRadioClient.handleRadioAudioStart(packet);
-            }
-        });
-    }
-
-    @Override
-    public void handleRadioAudioChunk(final RadioAudioChunkPacket packet) {
-        schedule(new Runnable() {
-
-            @Override
-            public void run() {
-                HorizonRadioClient.handleRadioAudioChunk(packet);
-            }
-        });
-    }
-
     private void schedule(Runnable task) {
         clientTaskScheduler.schedule(task);
+    }
+
+    static void sendDebugChat(String message) {
+        Minecraft minecraft = Minecraft.getMinecraft();
+        if (minecraft == null || minecraft.thePlayer == null) {
+            return;
+        }
+        minecraft.thePlayer.addChatMessage(
+            new ChatComponentText(
+                EnumChatFormatting.GRAY + "[HorizonRadio][Client] " + (message == null ? "" : message)));
+    }
+
+    static void scheduleOnClientThread(Runnable task) {
+        ClientTaskScheduler scheduler = activeClientTaskScheduler;
+        if (scheduler == null) {
+            task.run();
+        } else {
+            scheduler.schedule(task);
+        }
     }
 
     public static final class ClientEvents {
@@ -298,6 +293,7 @@ public class ClientProxy extends CommonProxy {
         public void onClientTick(TickEvent.ClientTickEvent event) {
             if (event.phase == TickEvent.Phase.END) {
                 HorizonRadioKeybinds.onClientTick();
+                HorizonRadioClient.onClientTick();
             }
         }
 
