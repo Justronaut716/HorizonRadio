@@ -602,12 +602,15 @@ public final class YouTubeStreamResolver {
         public synchronized List<YouTubeMediaModels.ResolvedAudioStream> resolveAlternativeCandidates()
             throws IOException {
             if (alternativeResolved) return alternativeCandidates;
-            alternativeResolved = true;
-            if (alternativeResolver == null) return alternativeCandidates;
+            if (alternativeResolver == null) {
+                alternativeResolved = true;
+                return alternativeCandidates;
+            }
             List<YouTubeMediaModels.ResolvedAudioStream> resolved = alternativeResolver.resolve();
             alternativeCandidates = resolved == null || resolved.isEmpty()
                 ? Collections.<YouTubeMediaModels.ResolvedAudioStream>emptyList()
                 : Collections.unmodifiableList(new ArrayList<YouTubeMediaModels.ResolvedAudioStream>(resolved));
+            alternativeResolved = true;
             return alternativeCandidates;
         }
     }

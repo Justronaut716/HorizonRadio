@@ -102,6 +102,36 @@ public class YouTubeStreamResolverTest {
     }
 
     @Test
+    public void retriesLazyAlternativeResolutionAfterTransientFailure() throws Exception {
+        FakeHttp http = new FakeHttp(
+            "{\"streamingData\":{\"adaptiveFormats\":["
+                + "{\"mimeType\":\"audio/mp4; codecs=\\\"mp4a.40.2\\\"\",\"bitrate\":128000,"
+                + "\"url\":\"https://r1.googlevideo.com/videoplayback?expire=2000\"}]}}");
+        http.iosResponse = "{\"playabilityStatus\":{\"status\":\"LOGIN_REQUIRED\"}}";
+        YouTubeStreamResolver resolver = new YouTubeStreamResolver(http, new AudioDecoderRegistry(), () -> 1000000L);
+
+        YouTubeStreamResolver.ResolvedAudioCandidates resolved = resolver.resolveAudioCandidates("dQw4w9WgXcQ");
+
+        try {
+            resolved.resolveAlternativeCandidates();
+            fail("Expected the first alternative resolution to fail");
+        } catch (MediaException expected) {
+            // A failed lazy lookup must remain retryable.
+        }
+        assertEquals(2, http.playerRequests);
+
+        http.iosResponse = "{\"streamingData\":{\"adaptiveFormats\":["
+            + "{\"mimeType\":\"audio/webm; codecs=\\\"opus\\\"\",\"bitrate\":160000,"
+            + "\"url\":\"https://r2.googlevideo.com/videoplayback?expire=2000\"}]}}";
+
+        assertEquals(
+            1,
+            resolved.resolveAlternativeCandidates()
+                .size());
+        assertEquals(3, http.playerRequests);
+    }
+
+    @Test
     public void sendsCompleteAndroidPlayerContextAndClientHeaders() throws Exception {
         FakeHttp http = new FakeHttp(
             "{\"streamingData\":{\"adaptiveFormats\":["
