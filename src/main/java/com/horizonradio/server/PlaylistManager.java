@@ -125,7 +125,7 @@ public final class PlaylistManager {
         }
         int addedIndex = state.size() - 1;
         broadcastDelta(PlaylistDeltaPacket.add(state.getQueueRevision(), toDeltaEntry(entry), addedIndex));
-        if (!state.isPlaying()) {
+        if (!state.isPlaying() && state.getCurrentSourceType() != MediaSourceType.RADIO) {
             startNextFinite();
         }
     }
@@ -147,12 +147,6 @@ public final class PlaylistManager {
                 + state.getQueueRevision());
 
         int existingIndex = state.findIndex(MediaSourceType.YOUTUBE, videoId);
-        boolean replacesCurrent = state.getCurrentIndex() >= 0 && state.getCurrentIndex() < state.size();
-        if (existingIndex < 0 && state.size() >= maxPlaylistSize && !replacesCurrent) {
-            sendChat(player, EnumChatFormatting.YELLOW, "The queue is full.");
-            return;
-        }
-
         boolean replacedRadio = state.getCurrentSourceType() == MediaSourceType.RADIO;
         cancelAdvancement();
         PlaylistEntry requested = existingIndex >= 0 ? state.get(existingIndex)
@@ -204,10 +198,6 @@ public final class PlaylistManager {
         }
 
         PlaylistEntry station = PlaylistEntry.radio(stationUuid, playerName(player));
-        if (!state.canSelectRadioAtFront(station)) {
-            sendChat(player, EnumChatFormatting.YELLOW, "The queue is full.");
-            return;
-        }
         cancelAdvancement();
         if (!state.selectRadioAtFront(station)) {
             return;
@@ -224,10 +214,9 @@ public final class PlaylistManager {
         }
 
         cancelAdvancement();
-        state.removeCurrent();
-        state.takeLastTrack();
-        broadcastDelta(PlaylistDeltaPacket.remove(state.getQueueRevision(), 0));
-        startNextFinite();
+        if (state.pauseRadioPlayback()) {
+            broadcastTrackSync(TrackSyncPacket.stop(nextPlaybackGeneration()));
+        }
     }
 
     public void handleRemoveFromPlaylist(EntityPlayerMP player, String videoId) {
@@ -316,14 +305,22 @@ public final class PlaylistManager {
     }
 
     public void handleSkipTrack(EntityPlayerMP player) {
-        if (!acceptsPlayer(player) || !state.isPlaying()) {
+        if (!acceptsPlayer(player)) {
             return;
         }
         if (state.getCurrentSourceType() == MediaSourceType.RADIO) {
-            handleStopRadio(player);
+            if (state.getCurrentIndex() != 0) {
+                return;
+            }
+            cancelAdvancement();
+            int index = state.getCurrentIndex();
+            state.removeCurrent();
+            state.takeLastTrack();
+            broadcastDelta(PlaylistDeltaPacket.remove(state.getQueueRevision(), index));
+            startNextFinite();
             return;
         }
-        if (state.getCurrentSourceType() != MediaSourceType.YOUTUBE) {
+        if (!state.isPlaying() || state.getCurrentSourceType() != MediaSourceType.YOUTUBE) {
             return;
         }
 
@@ -333,7 +330,25 @@ public final class PlaylistManager {
     }
 
     public void handlePreviousTrack(EntityPlayerMP player) {
-        if (!acceptsPlayer(player) || state.getCurrentSourceType() != MediaSourceType.YOUTUBE || !state.isPlaying()) {
+        if (!acceptsPlayer(player)) {
+            return;
+        }
+        if (state.getCurrentSourceType() == MediaSourceType.RADIO) {
+            if (state.getCurrentIndex() != 0) {
+                return;
+            }
+            PlaylistEntry previous = state.takeLastTrack();
+            if (previous == null || !previous.isFinite()) {
+                return;
+            }
+            cancelAdvancement();
+            PlaylistEntry selected = state.prepareImmediatePlayback(previous);
+            state.takeLastTrack();
+            broadcastReplace();
+            startFiniteTrack(0, selected);
+            return;
+        }
+        if (state.getCurrentSourceType() != MediaSourceType.YOUTUBE || !state.isPlaying()) {
             return;
         }
         long positionMs = state.isPaused() ? state.getPausedPositionMs()
@@ -450,7 +465,7 @@ public final class PlaylistManager {
                 + state.size()
                 + " revision="
                 + state.getQueueRevision());
-        if (!wasPlaying && state.size() > 0) {
+        if (!wasPlaying && state.getCurrentSourceType() != MediaSourceType.RADIO && state.size() > 0) {
             startNextFinite();
         }
     }

@@ -11,9 +11,11 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.LongSupplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -108,6 +110,11 @@ public final class YouTubeStreamResolver {
     }
 
     public YouTubeMediaModels.ResolvedAudioStream resolveAudio(String videoId) throws IOException {
+        return resolveAudioCandidates(videoId).getPrimaryCandidates()
+            .get(0);
+    }
+
+    public ResolvedAudioCandidates resolveAudioCandidates(String videoId) throws IOException {
         String safeVideoId = YouTubeUrlParser.requireVideoId(videoId);
         String visitorData = "";
         IOException visitorFailure = null;
@@ -118,12 +125,23 @@ public final class YouTubeStreamResolver {
         }
         IOException androidFailure;
         try {
-            return resolveAudioWithClient(safeVideoId, visitorData, ANDROID_VR_CLIENT);
+            final String resolvedVisitorData = visitorData;
+            final List<YouTubeMediaModels.ResolvedAudioStream> primary = resolveAudioWithClient(
+                safeVideoId,
+                resolvedVisitorData,
+                ANDROID_VR_CLIENT);
+            return new ResolvedAudioCandidates(primary, new AlternativeResolver() {
+
+                @Override
+                public List<YouTubeMediaModels.ResolvedAudioStream> resolve() throws IOException {
+                    return resolveAudioWithClient(safeVideoId, resolvedVisitorData, IOS_CLIENT);
+                }
+            });
         } catch (ClientUnavailableException exception) {
             androidFailure = exception;
         }
         try {
-            return resolveAudioWithClient(safeVideoId, visitorData, IOS_CLIENT);
+            return new ResolvedAudioCandidates(resolveAudioWithClient(safeVideoId, visitorData, IOS_CLIENT), null);
         } catch (IOException fallbackFailure) {
             fallbackFailure.addSuppressed(androidFailure);
             if (visitorFailure != null) fallbackFailure.addSuppressed(visitorFailure);
@@ -131,7 +149,7 @@ public final class YouTubeStreamResolver {
         }
     }
 
-    private YouTubeMediaModels.ResolvedAudioStream resolveAudioWithClient(String videoId, String visitorData,
+    private List<YouTubeMediaModels.ResolvedAudioStream> resolveAudioWithClient(String videoId, String visitorData,
         ClientProfile client) throws IOException {
         byte[] body = buildRequestBody(videoId, client).getBytes(StandardCharsets.UTF_8);
         Map<String, String> headers = new HashMap<String, String>();
@@ -237,7 +255,7 @@ public final class YouTubeStreamResolver {
         return transformed;
     }
 
-    private YouTubeMediaModels.ResolvedAudioStream select(JsonObject root, TransformPlans transformPlans,
+    private List<YouTubeMediaModels.ResolvedAudioStream> select(JsonObject root, TransformPlans transformPlans,
         String visitorData) throws IOException {
         JsonObject streaming = object(root, "streamingData");
         JsonArray formats = streaming == null ? null : streaming.getAsJsonArray("adaptiveFormats");
@@ -260,14 +278,21 @@ public final class YouTubeStreamResolver {
                 return preference != 0 ? preference : right.bitrate - left.bitrate;
             }
         });
-        Candidate selected = candidates.get(0);
-        if (selected.expiresAtMillis <= clock.getAsLong()) throw new MediaException("YouTube stream URL has expired");
-        return new YouTubeMediaModels.ResolvedAudioStream(
-            selected.url,
-            selected.format,
-            selected.bitrate,
-            selected.expiresAtMillis,
-            visitorData);
+        long now = clock.getAsLong();
+        List<YouTubeMediaModels.ResolvedAudioStream> resolved = new ArrayList<YouTubeMediaModels.ResolvedAudioStream>();
+        Set<String> seenUrls = new HashSet<String>();
+        for (Candidate candidate : candidates) {
+            if (candidate.expiresAtMillis <= now || !seenUrls.add(candidate.url.toExternalForm())) continue;
+            resolved.add(
+                new YouTubeMediaModels.ResolvedAudioStream(
+                    candidate.url,
+                    candidate.format,
+                    candidate.bitrate,
+                    candidate.expiresAtMillis,
+                    visitorData));
+        }
+        if (resolved.isEmpty()) throw new MediaException("YouTube stream URLs have expired");
+        return Collections.unmodifiableList(resolved);
     }
 
     private Candidate candidate(JsonObject format, long rootExpiry, TransformPlans transformPlans) throws IOException {
@@ -551,6 +576,48 @@ public final class YouTubeStreamResolver {
         query.append('=');
         query.append(URLEncoder.encode(value, "UTF-8"));
         return new URL(url.getProtocol(), url.getHost(), url.getPort(), url.getPath() + "?" + query);
+    }
+
+    public static final class ResolvedAudioCandidates {
+
+        private final List<YouTubeMediaModels.ResolvedAudioStream> primaryCandidates;
+        private final AlternativeResolver alternativeResolver;
+        private boolean alternativeResolved;
+        private List<YouTubeMediaModels.ResolvedAudioStream> alternativeCandidates = Collections.emptyList();
+
+        private ResolvedAudioCandidates(List<YouTubeMediaModels.ResolvedAudioStream> primaryCandidates,
+            AlternativeResolver alternativeResolver) {
+            if (primaryCandidates == null || primaryCandidates.isEmpty()) {
+                throw new IllegalArgumentException("At least one audio candidate is required");
+            }
+            this.primaryCandidates = Collections
+                .unmodifiableList(new ArrayList<YouTubeMediaModels.ResolvedAudioStream>(primaryCandidates));
+            this.alternativeResolver = alternativeResolver;
+        }
+
+        public List<YouTubeMediaModels.ResolvedAudioStream> getPrimaryCandidates() {
+            return primaryCandidates;
+        }
+
+        public synchronized List<YouTubeMediaModels.ResolvedAudioStream> resolveAlternativeCandidates()
+            throws IOException {
+            if (alternativeResolved) return alternativeCandidates;
+            if (alternativeResolver == null) {
+                alternativeResolved = true;
+                return alternativeCandidates;
+            }
+            List<YouTubeMediaModels.ResolvedAudioStream> resolved = alternativeResolver.resolve();
+            alternativeCandidates = resolved == null || resolved.isEmpty()
+                ? Collections.<YouTubeMediaModels.ResolvedAudioStream>emptyList()
+                : Collections.unmodifiableList(new ArrayList<YouTubeMediaModels.ResolvedAudioStream>(resolved));
+            alternativeResolved = true;
+            return alternativeCandidates;
+        }
+    }
+
+    private interface AlternativeResolver {
+
+        List<YouTubeMediaModels.ResolvedAudioStream> resolve() throws IOException;
     }
 
     private static final class ClientProfile {

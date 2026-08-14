@@ -4,8 +4,12 @@ import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
@@ -63,52 +67,116 @@ public final class JavaAudioDownloadBackend implements YouTubeMediaModels.AudioD
     private Path downloadLocked(String videoId, Path destination, YouTubeMediaModels.CancellationToken token)
         throws IOException {
         checkCancelled(token);
-        YouTubeMediaModels.ResolvedAudioStream stream = resolver.resolveAudio(videoId);
+        YouTubeStreamResolver.ResolvedAudioCandidates resolved = resolver.resolveAudioCandidates(videoId);
         checkCancelled(token);
-        if (stream.getExpiresAtMillis() <= System.currentTimeMillis())
-            throw new MediaException("YouTube stream URL expired before download");
+        Set<String> attemptedUrls = new HashSet<String>();
+        List<IOException> failures = new ArrayList<IOException>();
+        List<IOException> transportFailures = new ArrayList<IOException>();
+        Path result = tryCandidates(
+            destination,
+            token,
+            resolved.getPrimaryCandidates(),
+            attemptedUrls,
+            failures,
+            transportFailures,
+            true);
+        if (result != null) return result;
+
+        if (!transportFailures.isEmpty()) {
+            checkCancelled(token);
+            try {
+                resolved = resolver.resolveAudioCandidates(videoId);
+            } catch (IOException refreshFailure) {
+                failures.add(refreshFailure);
+                throw aggregateFailure(videoId, failures);
+            }
+            attemptedUrls.clear();
+            transportFailures.clear();
+            result = tryCandidates(
+                destination,
+                token,
+                resolved.getPrimaryCandidates(),
+                attemptedUrls,
+                failures,
+                transportFailures,
+                false);
+            if (result != null) return result;
+        }
+
+        List<YouTubeMediaModels.ResolvedAudioStream> alternatives;
+        try {
+            alternatives = resolved.resolveAlternativeCandidates();
+        } catch (IOException alternativeFailure) {
+            failures.add(alternativeFailure);
+            throw aggregateFailure(videoId, failures);
+        }
+        result = tryCandidates(destination, token, alternatives, attemptedUrls, failures, transportFailures, true);
+        if (result != null) return result;
+        throw aggregateFailure(videoId, failures);
+    }
+
+    private Path tryCandidates(Path destination, YouTubeMediaModels.CancellationToken token,
+        List<YouTubeMediaModels.ResolvedAudioStream> candidates, Set<String> attemptedUrls, List<IOException> failures,
+        List<IOException> transportFailures, boolean ranged) throws IOException {
+        for (YouTubeMediaModels.ResolvedAudioStream stream : candidates) {
+            checkCancelled(token);
+            if (!attemptedUrls.add(
+                stream.getUrl()
+                    .toExternalForm()))
+                continue;
+            try {
+                return downloadCandidate(stream, destination, token, ranged);
+            } catch (CandidateTransportFailure failure) {
+                failures.add(failure);
+                transportFailures.add(failure);
+            } catch (CandidateDecodeFailure failure) {
+                failures.add(failure);
+            }
+        }
+        return null;
+    }
+
+    private Path downloadCandidate(YouTubeMediaModels.ResolvedAudioStream stream, Path destination,
+        YouTubeMediaModels.CancellationToken token, boolean ranged) throws IOException {
+        checkCancelled(token);
+        if (stream.getExpiresAtMillis() <= System.currentTimeMillis()) {
+            throw new CandidateDecodeFailure("YouTube stream URL expired before download");
+        }
         WavFileSink sink = null;
         MediaRangeInputStream rangeInput = null;
         long chunkBytes = Math.min(RANGE_CHUNK_BYTES, maximumBytes);
         Map<String, String> mediaHeaders = mediaHeaders(stream);
         YouTubeMediaModels.HttpResponse response;
         try {
-            response = openInitialResponse(stream, mediaHeaders, chunkBytes, true);
-        } catch (IOException firstFailure) {
-            checkCancelled(token);
-            stream = resolver.resolveAudio(videoId);
-            checkCancelled(token);
-            if (stream.getExpiresAtMillis() <= System.currentTimeMillis())
-                throw new MediaException("YouTube stream URL expired before retry", firstFailure);
-            mediaHeaders = mediaHeaders(stream);
-            try {
-                response = openInitialResponse(stream, mediaHeaders, chunkBytes, false);
-            } catch (IOException retryFailure) {
-                retryFailure.addSuppressed(firstFailure);
-                throw retryFailure;
-            }
+            response = openInitialResponse(stream, mediaHeaders, chunkBytes, ranged);
+        } catch (IOException failure) {
+            throw new CandidateTransportFailure("Unable to open YouTube audio candidate", failure);
         }
         try (YouTubeMediaModels.HttpResponse responseResource = response) {
             if (responseResource.getStatusCode() < 200 || responseResource.getStatusCode() >= 300
                 || !YouTubeStreamResolver.isSafeMediaUrl(responseResource.getUrl())) {
-                throw new MediaException("Audio response exceeds its finite limits");
+                throw new CandidateTransportFailure("Audio candidate response is not trusted");
             }
             InputStream compressed;
             long expectedLength;
             if (responseResource.getStatusCode() == 206) {
-                rangeInput = MediaRangeInputStream.open(
-                    stream.getUrl(),
-                    requester,
-                    mediaHeaders,
-                    TIMEOUT_MILLIS,
-                    maximumBytes,
-                    chunkBytes,
-                    responseResource);
+                try {
+                    rangeInput = MediaRangeInputStream.open(
+                        stream.getUrl(),
+                        requester,
+                        mediaHeaders,
+                        TIMEOUT_MILLIS,
+                        maximumBytes,
+                        chunkBytes,
+                        responseResource);
+                } catch (IOException failure) {
+                    throw new CandidateTransportFailure("Audio candidate range response is not trusted", failure);
+                }
                 compressed = rangeInput;
                 expectedLength = rangeInput.getTotalBytes();
             } else {
                 if (responseResource.getContentLength() < 0L || responseResource.getContentLength() > maximumBytes) {
-                    throw new MediaException("Audio response exceeds its finite limits");
+                    throw new CandidateTransportFailure("Audio candidate response exceeds its finite limits");
                 }
                 compressed = new BoundedInputStream(
                     responseResource.getInputStream(),
@@ -116,29 +184,54 @@ public final class JavaAudioDownloadBackend implements YouTubeMediaModels.AudioD
                 expectedLength = responseResource.getContentLength();
             }
             if (!YouTubeStreamResolver.isSafeMediaUrl(responseResource.getUrl()))
-                throw new MediaException("Audio response redirected to an unsafe URL");
+                throw new CandidateTransportFailure("Audio response redirected to an unsafe URL");
             CountingInputStream counted = new CountingInputStream(compressed);
             InputStream input = new CancellationInputStream(counted, token);
-            byte[] prefix = readPrefix(input, PREFIX_BYTES);
-            MediaFormat detected = detector.detect(responseResource.getContentType(), prefix);
-            if (detected != stream.getFormat() || !registry.supports(detected))
-                throw new MediaException("Resolved stream format does not match the audio response");
+            byte[] prefix;
+            MediaFormat detected;
+            try {
+                prefix = readPrefix(input, PREFIX_BYTES);
+                detected = detector.detect(responseResource.getContentType(), prefix);
+            } catch (IOException failure) {
+                if (cancellationRequested(token)) throw failure;
+                throw new CandidateDecodeFailure("Audio candidate could not be inspected", failure);
+            }
+            if (detected != stream.getFormat() || !registry.supports(detected)) {
+                throw new CandidateDecodeFailure("Resolved stream format does not match the audio response");
+            }
             sink = new WavFileSink(destination, maximumBytes);
             DeferredFinishPcmSink deferred = new DeferredFinishPcmSink(sink, token);
-            registry.find(detected, new java.io.ByteArrayInputStream(prefix), input)
-                .decode(new java.io.SequenceInputStream(new java.io.ByteArrayInputStream(prefix), input), deferred);
-            if (!deferred.isFinishRequested() || counted.getBytesRead() != expectedLength) {
-                throw new MediaException("Audio response does not exactly match its declared body length");
+            try {
+                registry.find(detected, new java.io.ByteArrayInputStream(prefix), input)
+                    .decode(new java.io.SequenceInputStream(new java.io.ByteArrayInputStream(prefix), input), deferred);
+                if (!deferred.isFinishRequested() || counted.getBytesRead() != expectedLength) {
+                    throw new MediaException("Audio response does not exactly match its declared body length");
+                }
+            } catch (IOException failure) {
+                if (cancellationRequested(token) || deferred.hasDownstreamFailure()) throw failure;
+                throw new CandidateDecodeFailure("Audio candidate could not be decoded", failure);
             }
             checkCancelled(token);
             deferred.commit();
             return destination;
         } catch (IOException exception) {
-            if (sink != null) sink.abort();
+            if (sink != null) {
+                try {
+                    sink.abort();
+                } catch (IOException abortFailure) {
+                    exception.addSuppressed(abortFailure);
+                }
+            }
             throw exception;
         } finally {
             if (rangeInput != null) rangeInput.close();
         }
+    }
+
+    private static MediaException aggregateFailure(String videoId, List<IOException> failures) {
+        MediaException aggregate = new MediaException("No usable YouTube audio candidate for " + videoId);
+        for (IOException failure : failures) aggregate.addSuppressed(failure);
+        return aggregate;
     }
 
     @Override
@@ -165,8 +258,12 @@ public final class JavaAudioDownloadBackend implements YouTubeMediaModels.AudioD
     }
 
     private static void checkCancelled(YouTubeMediaModels.CancellationToken token) throws MediaException {
-        if (token.isCancelled() || Thread.currentThread()
-            .isInterrupted()) throw new MediaException("YouTube audio download cancelled");
+        if (cancellationRequested(token)) throw new MediaException("YouTube audio download cancelled");
+    }
+
+    private static boolean cancellationRequested(YouTubeMediaModels.CancellationToken token) {
+        return token.isCancelled() || Thread.currentThread()
+            .isInterrupted();
     }
 
     private static Map<String, String> mediaHeaders(YouTubeMediaModels.ResolvedAudioStream stream) {
@@ -240,6 +337,7 @@ public final class JavaAudioDownloadBackend implements YouTubeMediaModels.AudioD
         private final PcmSink downstream;
         private final YouTubeMediaModels.CancellationToken token;
         private boolean finishRequested;
+        private boolean downstreamFailure;
 
         private DeferredFinishPcmSink(PcmSink downstream, YouTubeMediaModels.CancellationToken token) {
             this.downstream = downstream;
@@ -249,7 +347,12 @@ public final class JavaAudioDownloadBackend implements YouTubeMediaModels.AudioD
         @Override
         public void write(byte[] data, int offset, int length) throws IOException {
             checkCancelled(token);
-            downstream.write(data, offset, length);
+            try {
+                downstream.write(data, offset, length);
+            } catch (IOException failure) {
+                downstreamFailure = true;
+                throw failure;
+            }
         }
 
         @Override
@@ -272,8 +375,34 @@ public final class JavaAudioDownloadBackend implements YouTubeMediaModels.AudioD
             return finishRequested;
         }
 
+        private boolean hasDownstreamFailure() {
+            return downstreamFailure;
+        }
+
         private void commit() throws IOException {
             token.finish(downstream);
+        }
+    }
+
+    private static final class CandidateTransportFailure extends IOException {
+
+        private CandidateTransportFailure(String message) {
+            super(message);
+        }
+
+        private CandidateTransportFailure(String message, Throwable cause) {
+            super(message, cause);
+        }
+    }
+
+    private static final class CandidateDecodeFailure extends IOException {
+
+        private CandidateDecodeFailure(String message) {
+            super(message);
+        }
+
+        private CandidateDecodeFailure(String message, Throwable cause) {
+            super(message, cause);
         }
     }
 }

@@ -83,6 +83,31 @@ public class HorizonRadioClientTrackSyncTest {
     }
 
     @Test
+    public void stopRadioSyncStopsStreamButKeepsStationAsResumablePresentation() {
+        HorizonRadioClient.handleTrackSync(TrackSyncPacket.radio(5L, "station-id"));
+        HorizonRadioClient.handleLocalRadioStarted(5L, "station-id", "Station name");
+
+        HorizonRadioClient.handleTrackSync(TrackSyncPacket.stop(6L));
+
+        assertFalse(HorizonRadioClient.isRadioActive());
+        assertFalse(
+            HorizonRadioClient.getCachedRadioPresentation()
+                .isActive());
+        assertEquals(
+            "station-id",
+            HorizonRadioClient.getCachedRadioPresentation()
+                .getStationUuid());
+        assertEquals(
+            "Station name",
+            HorizonRadioClient.getCachedRadioPresentation()
+                .getStationName());
+        assertEquals(
+            "",
+            HorizonRadioClient.getCachedRadioPresentation()
+                .getStatus());
+    }
+
+    @Test
     public void radioTrackIgnoresFinitePauseAndResumeControls() {
         HorizonRadioClient.handleTrackSync(TrackSyncPacket.radio(5L, "station-id"));
 

@@ -167,6 +167,7 @@ public final class PlaylistState {
             currentIndex--;
         }
 
+        evictFrontForImmediateSelection();
         playlist.add(0, selected);
         if (currentIndex >= 0) {
             currentIndex++;
@@ -177,8 +178,16 @@ public final class PlaylistState {
     }
 
     public boolean selectRadioAtFront(PlaylistEntry station) {
-        if (!canSelectRadioAtFront(station)) {
+        if (station == null || !station.isRadio()) {
             return false;
+        }
+
+        if (currentIndex >= 0 && currentIndex < playlist.size()
+            && currentSourceType == MediaSourceType.YOUTUBE
+            && playlist.get(currentIndex)
+                .isFinite()) {
+            lastTrack = playlist.remove(currentIndex);
+            currentIndex--;
         }
 
         boolean replacesFrontRadio = !playlist.isEmpty() && playlist.get(0)
@@ -186,10 +195,23 @@ public final class PlaylistState {
         if (replacesFrontRadio) {
             playlist.set(0, station);
         } else {
+            evictFrontForImmediateSelection();
             playlist.add(0, station);
         }
         markQueueMutation();
         startRadioTrack(0, station.getSourceId());
+        return true;
+    }
+
+    public boolean pauseRadioPlayback() {
+        if (currentIndex < 0 || currentIndex >= playlist.size()
+            || currentSourceType != MediaSourceType.RADIO
+            || !playlist.get(currentIndex)
+                .isRadio()) {
+            return false;
+        }
+        playing = false;
+        paused = false;
         return true;
     }
 
@@ -199,6 +221,18 @@ public final class PlaylistState {
         }
         return (!playlist.isEmpty() && playlist.get(0)
             .isRadio()) || playlist.size() < maxPlaylistSize;
+    }
+
+    private void evictFrontForImmediateSelection() {
+        if (playlist.isEmpty() || playlist.size() < maxPlaylistSize) {
+            return;
+        }
+        playlist.remove(0);
+        if (currentIndex > 0) {
+            currentIndex--;
+        } else if (currentIndex == 0) {
+            currentIndex = -1;
+        }
     }
 
     public boolean moveQueued(int fromIndex, int targetIndex) {

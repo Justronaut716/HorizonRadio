@@ -61,6 +61,46 @@ public class PlaylistStateTest {
     }
 
     @Test
+    public void radioSelectionStoresInterruptedFiniteTrackAndKeepsSuccessors() {
+        PlaylistState state = new PlaylistState(5);
+        state.add(PlaylistEntry.youtube("current", 60_000L, "Alice"));
+        state.add(PlaylistEntry.youtube("next", 60_000L, "Bob"));
+        state.startFiniteTrack(0, "current", 60_000L, 0L);
+
+        assertTrue(state.selectRadioAtFront(PlaylistEntry.radio("station", "Carol")));
+
+        assertEquals(
+            "station",
+            state.get(0)
+                .getSourceId());
+        assertEquals(
+            "next",
+            state.get(1)
+                .getSourceId());
+        assertEquals(
+            "current",
+            state.peekLastTrack()
+                .getSourceId());
+        assertEquals(MediaSourceType.RADIO, state.getCurrentSourceType());
+    }
+
+    @Test
+    public void pausingRadioKeepsQueueAndRadioSelection() {
+        PlaylistState state = new PlaylistState(5);
+        state.selectRadioAtFront(PlaylistEntry.radio("station", "Carol"));
+
+        assertTrue(state.pauseRadioPlayback());
+
+        assertFalse(state.isPlaying());
+        assertEquals(0, state.getCurrentIndex());
+        assertEquals(MediaSourceType.RADIO, state.getCurrentSourceType());
+        assertEquals(
+            "station",
+            state.get(0)
+                .getSourceId());
+    }
+
+    @Test
     public void selectingRadioAtFrontAtomicallyReplacesTheActiveStation() {
         PlaylistState state = new PlaylistState(5);
         state.selectRadioAtFront(PlaylistEntry.radio("station-one", "Alice"));
@@ -93,6 +133,65 @@ public class PlaylistStateTest {
         assertEquals(
             "station",
             state.takeLastTrack()
+                .getSourceId());
+    }
+
+    @Test
+    public void immediateFinitePlaybackEvictsFrontWhenFullWithoutActiveTrack() {
+        PlaylistState state = new PlaylistState(2);
+        state.add(PlaylistEntry.youtube("oldest", 1_000L, "Alice"));
+        state.add(PlaylistEntry.youtube("queued", 1_000L, "Bob"));
+
+        PlaylistEntry selected = state.prepareImmediatePlayback(PlaylistEntry.youtube("direct", 1_000L, "Carol"));
+
+        assertEquals("direct", selected.getSourceId());
+        assertEquals(2, state.size());
+        assertEquals(
+            "direct",
+            state.get(0)
+                .getSourceId());
+        assertEquals(
+            "queued",
+            state.get(1)
+                .getSourceId());
+    }
+
+    @Test
+    public void selectingRadioEvictsFrontWhenFull() {
+        PlaylistState state = new PlaylistState(2);
+        state.add(PlaylistEntry.youtube("oldest", 1_000L, "Alice"));
+        state.add(PlaylistEntry.youtube("queued", 1_000L, "Bob"));
+
+        PlaylistEntry station = PlaylistEntry.radio("station", "Carol");
+        assertFalse(state.canSelectRadioAtFront(station));
+        assertTrue(state.selectRadioAtFront(station));
+
+        assertEquals(2, state.size());
+        assertEquals(
+            MediaSourceType.RADIO,
+            state.get(0)
+                .getSourceType());
+        assertEquals(
+            "station",
+            state.get(0)
+                .getSourceId());
+        assertEquals(
+            "queued",
+            state.get(1)
+                .getSourceId());
+        assertEquals(0, state.getCurrentIndex());
+    }
+
+    @Test
+    public void ordinaryAddStillRejectsAFullQueue() {
+        PlaylistState state = new PlaylistState(1);
+        state.add(PlaylistEntry.youtube("existing", 1_000L, "Alice"));
+
+        assertFalse(state.add(PlaylistEntry.youtube("rejected", 1_000L, "Bob")));
+        assertEquals(1, state.size());
+        assertEquals(
+            "existing",
+            state.get(0)
                 .getSourceId());
     }
 
