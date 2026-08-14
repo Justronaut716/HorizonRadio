@@ -167,6 +167,7 @@ public final class PlaylistState {
             currentIndex--;
         }
 
+        evictFrontForImmediateSelection();
         playlist.add(0, selected);
         if (currentIndex >= 0) {
             currentIndex++;
@@ -186,6 +187,7 @@ public final class PlaylistState {
         if (replacesFrontRadio) {
             playlist.set(0, station);
         } else {
+            evictFrontForImmediateSelection();
             playlist.add(0, station);
         }
         markQueueMutation();
@@ -197,8 +199,19 @@ public final class PlaylistState {
         if (station == null || !station.isRadio()) {
             return false;
         }
-        return (!playlist.isEmpty() && playlist.get(0)
-            .isRadio()) || playlist.size() < maxPlaylistSize;
+        return true;
+    }
+
+    private void evictFrontForImmediateSelection() {
+        if (playlist.isEmpty() || playlist.size() < maxPlaylistSize) {
+            return;
+        }
+        playlist.remove(0);
+        if (currentIndex > 0) {
+            currentIndex--;
+        } else if (currentIndex == 0) {
+            currentIndex = -1;
+        }
     }
 
     public boolean moveQueued(int fromIndex, int targetIndex) {
