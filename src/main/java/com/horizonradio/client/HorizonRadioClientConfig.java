@@ -34,24 +34,38 @@ public final class HorizonRadioClientConfig {
     private final File configFile;
     private final float volume;
     private final ClientFavorites favorites;
+    private final PlaybackMode playbackMode;
 
-    private HorizonRadioClientConfig(File configFile, float volume, ClientFavorites favorites) {
+    private HorizonRadioClientConfig(
+        File configFile,
+        float volume,
+        ClientFavorites favorites,
+        PlaybackMode playbackMode) {
         this.configFile = configFile;
         this.volume = volume;
         this.favorites = favorites == null ? new ClientFavorites() : favorites;
+        this.playbackMode = playbackMode == null ? PlaybackMode.SERVER : playbackMode;
     }
 
     public static HorizonRadioClientConfig load(File configDirectory) {
         File configFile = configDirectory == null ? null : new File(configDirectory, FILE_NAME);
         if (configFile == null || !configFile.isFile()) {
-            return new HorizonRadioClientConfig(configFile, DEFAULT_VOLUME, new ClientFavorites());
+            return new HorizonRadioClientConfig(
+                configFile,
+                DEFAULT_VOLUME,
+                new ClientFavorites(),
+                PlaybackMode.SERVER);
         }
 
         try (Reader reader = new BufferedReader(
             new InputStreamReader(new FileInputStream(configFile), StandardCharsets.UTF_8))) {
             JsonObject object = GSON.fromJson(reader, JsonObject.class);
             if (object != null) {
-                return new HorizonRadioClientConfig(configFile, readVolume(object), readFavorites(object));
+                return new HorizonRadioClientConfig(
+                    configFile,
+                    readVolume(object),
+                    readFavorites(object),
+                    readPlaybackMode(object));
             }
         } catch (IOException exception) {
             LOGGER.log(Level.WARNING, "Could not load HorizonRadio client configuration", exception);
@@ -61,7 +75,11 @@ public final class HorizonRadioClientConfig {
             LOGGER.log(Level.WARNING, "Could not read HorizonRadio client configuration", exception);
         }
 
-        return new HorizonRadioClientConfig(configFile, DEFAULT_VOLUME, new ClientFavorites());
+        return new HorizonRadioClientConfig(
+            configFile,
+            DEFAULT_VOLUME,
+            new ClientFavorites(),
+            PlaybackMode.SERVER);
     }
 
     public float getVolume() {
@@ -72,11 +90,19 @@ public final class HorizonRadioClientConfig {
         return new ClientFavorites(favorites.getSongs(), favorites.getRadios());
     }
 
+    public PlaybackMode getPlaybackMode() {
+        return playbackMode;
+    }
+
     public void save(float value) {
-        save(value, favorites);
+        save(value, favorites, playbackMode);
     }
 
     public void save(float value, ClientFavorites favoriteState) {
+        save(value, favoriteState, playbackMode);
+    }
+
+    public void save(float value, ClientFavorites favoriteState, PlaybackMode mode) {
         if (configFile == null) {
             return;
         }
@@ -93,6 +119,8 @@ public final class HorizonRadioClientConfig {
         ClientFavorites safeFavorites = favoriteState == null ? new ClientFavorites() : favoriteState;
         object.add("favoriteSongs", songArray(safeFavorites));
         object.add("favoriteRadios", radioArray(safeFavorites));
+        PlaybackMode safeMode = mode == null || mode == PlaybackMode.GROUP ? PlaybackMode.SERVER : mode;
+        object.addProperty("playbackMode", safeMode.getPersistedName());
         try (Writer writer = new OutputStreamWriter(new FileOutputStream(temporaryFile), StandardCharsets.UTF_8)) {
             GSON.toJson(object, writer);
         } catch (IOException exception) {
@@ -159,6 +187,18 @@ public final class HorizonRadioClientConfig {
             }
         }
         return new ClientFavorites(songs, radios);
+    }
+
+    private static PlaybackMode readPlaybackMode(JsonObject object) {
+        JsonElement value = object.get("playbackMode");
+        if (value == null || value.isJsonNull() || !value.isJsonPrimitive()) {
+            return PlaybackMode.SERVER;
+        }
+        try {
+            return PlaybackMode.fromPersistedName(value.getAsString());
+        } catch (RuntimeException exception) {
+            return PlaybackMode.SERVER;
+        }
     }
 
     private static JsonArray songArray(ClientFavorites favorites) {

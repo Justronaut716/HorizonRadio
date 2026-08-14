@@ -28,6 +28,32 @@ public class HorizonRadioClientConfigTest {
     }
 
     @Test
+    public void missingOrInvalidPlaybackModeDefaultsToServer() throws IOException {
+        File directory = Files.createTempDirectory("horizonradio-playback-mode-default")
+            .toFile();
+        try {
+            assertEquals(PlaybackMode.SERVER, HorizonRadioClientConfig.load(directory).getPlaybackMode());
+            write(directory, "{\"playbackMode\":\"not-a-mode\"}");
+            assertEquals(PlaybackMode.SERVER, HorizonRadioClientConfig.load(directory).getPlaybackMode());
+        } finally {
+            deleteRecursively(directory);
+        }
+    }
+
+    @Test
+    public void privateModeSurvivesConfigurationRoundTrip() throws IOException {
+        File directory = Files.createTempDirectory("horizonradio-playback-mode-roundtrip")
+            .toFile();
+        try {
+            HorizonRadioClientConfig.load(directory)
+                .save(0.35f, new ClientFavorites(), PlaybackMode.PRIVATE);
+            assertEquals(PlaybackMode.PRIVATE, HorizonRadioClientConfig.load(directory).getPlaybackMode());
+        } finally {
+            deleteRecursively(directory);
+        }
+    }
+
+    @Test
     public void savedVolumeLoadsAgainFromDedicatedFile() throws IOException {
         File directory = Files.createTempDirectory("horizonradio-client-config-roundtrip")
             .toFile();
@@ -189,6 +215,37 @@ public class HorizonRadioClientConfigTest {
                 HorizonRadioClientConfig.load(directory)
                     .getVolume(),
                 0.0001f);
+        } finally {
+            deleteRecursively(directory);
+        }
+    }
+
+    @Test
+    public void savingVolumeWithoutExplicitFavoritesPreservesLoadedPlaybackMode() throws IOException {
+        File directory = Files.createTempDirectory("horizonradio-playback-mode-volume-save")
+            .toFile();
+        try {
+            HorizonRadioClientConfig config = HorizonRadioClientConfig.load(directory);
+            config.save(0.4f, new ClientFavorites(), PlaybackMode.PRIVATE);
+            HorizonRadioClientConfig.load(directory).save(0.6f);
+
+            assertEquals(PlaybackMode.PRIVATE, HorizonRadioClientConfig.load(directory).getPlaybackMode());
+        } finally {
+            deleteRecursively(directory);
+        }
+    }
+
+    @Test
+    public void savingFavoritesWithoutExplicitPlaybackModePreservesLoadedPlaybackMode() throws IOException {
+        File directory = Files.createTempDirectory("horizonradio-playback-mode-favorites-save")
+            .toFile();
+        try {
+            HorizonRadioClientConfig config = HorizonRadioClientConfig.load(directory);
+            config.save(0.4f, new ClientFavorites(), PlaybackMode.PRIVATE);
+            HorizonRadioClientConfig loaded = HorizonRadioClientConfig.load(directory);
+            loaded.save(0.5f, new ClientFavorites());
+
+            assertEquals(PlaybackMode.PRIVATE, HorizonRadioClientConfig.load(directory).getPlaybackMode());
         } finally {
             deleteRecursively(directory);
         }
