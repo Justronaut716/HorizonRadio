@@ -622,6 +622,41 @@ public class HorizonRadioClientDiscoveryTest {
     }
 
     @Test
+    public void resyncForClosedScreenCannotCompletePendingAddOnReopenedScreen() {
+        HorizonRadioScreen original = new HorizonRadioScreen();
+        HorizonRadioScreen reopened = new HorizonRadioScreen();
+        HorizonRadioScreen.setActiveScreen(original);
+        try {
+            HorizonRadioScreen.SearchResult originalResult = chartWithDuration("closed-pending", "2:00");
+            assertEquals(
+                Collections.singletonList(originalResult),
+                original.beginChartAdd(Collections.singletonList(originalResult)));
+            HorizonRadioClient.sendAddChartsToPlaylist(Collections.singletonList(originalResult));
+
+            original.onGuiClosed();
+            HorizonRadioScreen.setActiveScreen(reopened);
+
+            HorizonRadioScreen.SearchResult reopenedResult = chartWithDuration("reopened-pending", "2:00");
+            assertEquals(
+                Collections.singletonList(reopenedResult),
+                reopened.beginChartAdd(Collections.singletonList(reopenedResult)));
+            HorizonRadioClient.sendAddChartsToPlaylist(Collections.singletonList(reopenedResult));
+
+            HorizonRadioClient.handlePlaylistSnapshot(snapshot(0L, "already-queued"));
+
+            assertTrue(reopened.isChartAddPending("reopened-pending"));
+            assertEquals(Arrays.asList(0L, 0L), transport.resyncRevisions);
+
+            HorizonRadioClient.handlePlaylistSnapshot(snapshot(0L, "already-queued"));
+
+            assertFalse(reopened.isChartAddPending("reopened-pending"));
+        } finally {
+            HorizonRadioScreen.clearActiveScreen(original);
+            HorizonRadioScreen.clearActiveScreen(reopened);
+        }
+    }
+
+    @Test
     public void authoritativeResyncClearsOnlyUnacceptedIdsFromPartialPlaylistBulkAdd() {
         HorizonRadioScreen screen = new HorizonRadioScreen();
         HorizonRadioScreen.setActiveScreen(screen);

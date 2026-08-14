@@ -118,7 +118,6 @@ public class HorizonRadioScreen extends GuiScreen {
     private List<SearchResult> chartResults = new ArrayList<SearchResult>();
     private final Set<String> pendingChartAdds = new HashSet<String>();
     private final Set<String> pendingPlaylistAdds = new HashSet<String>();
-    private final List<PendingAddResolution> pendingAddResolutions = new ArrayList<PendingAddResolution>();
     private String chartRegionCode = "";
     private String chartSearchMessage = "";
     private List<SearchResult> searchResults = new ArrayList<SearchResult>();
@@ -1461,18 +1460,16 @@ public class HorizonRadioScreen extends GuiScreen {
     void completeChartAdds(List<String> videoIds) {
         if (videoIds != null) {
             pendingChartAdds.removeAll(videoIds);
-            removeCompletedPendingAddResolutions();
         }
     }
 
     void completePlaylistAdds(List<String> videoIds) {
         if (videoIds != null) {
             pendingPlaylistAdds.removeAll(videoIds);
-            removeCompletedPendingAddResolutions();
         }
     }
 
-    boolean awaitPendingAddResolution(boolean playlistOrigin, List<String> videoIds) {
+    Set<String> pendingAddIds(boolean playlistOrigin, List<String> videoIds) {
         Set<String> pendingAdds = playlistOrigin ? pendingPlaylistAdds : pendingChartAdds;
         Set<String> pendingIds = new HashSet<String>();
         if (videoIds != null) {
@@ -1482,25 +1479,7 @@ public class HorizonRadioScreen extends GuiScreen {
                 }
             }
         }
-        if (pendingIds.isEmpty()) {
-            return false;
-        }
-        pendingAddResolutions.add(new PendingAddResolution(playlistOrigin, pendingIds));
-        return pendingAddResolutions.size() == 1;
-    }
-
-    boolean completeNextPendingAddResolution() {
-        if (pendingAddResolutions.isEmpty()) {
-            return false;
-        }
-        PendingAddResolution resolution = pendingAddResolutions.remove(0);
-        if (resolution.playlistOrigin) {
-            pendingPlaylistAdds.removeAll(resolution.videoIds);
-        } else {
-            pendingChartAdds.removeAll(resolution.videoIds);
-        }
-        removeCompletedPendingAddResolutions();
-        return !pendingAddResolutions.isEmpty();
+        return pendingIds;
     }
 
     List<SearchResult> beginChartAdd(List<SearchResult> results) {
@@ -1528,17 +1507,6 @@ public class HorizonRadioScreen extends GuiScreen {
         return request;
     }
 
-    private void removeCompletedPendingAddResolutions() {
-        for (int index = pendingAddResolutions.size() - 1; index >= 0; index--) {
-            PendingAddResolution resolution = pendingAddResolutions.get(index);
-            Set<String> pendingAdds = resolution.playlistOrigin ? pendingPlaylistAdds : pendingChartAdds;
-            resolution.videoIds.retainAll(pendingAdds);
-            if (resolution.videoIds.isEmpty()) {
-                pendingAddResolutions.remove(index);
-            }
-        }
-    }
-
     boolean isChartAddPending(String videoId) {
         return videoId != null && pendingChartAdds.contains(videoId);
     }
@@ -1561,17 +1529,6 @@ public class HorizonRadioScreen extends GuiScreen {
             }
         }
         return false;
-    }
-
-    private static final class PendingAddResolution {
-
-        private final boolean playlistOrigin;
-        private final Set<String> videoIds;
-
-        private PendingAddResolution(boolean playlistOrigin, Set<String> videoIds) {
-            this.playlistOrigin = playlistOrigin;
-            this.videoIds = videoIds;
-        }
     }
 
     public void updateNowPlaying(String title, float progress) {
