@@ -6,6 +6,7 @@ import static org.junit.Assert.assertTrue;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.util.Collections;
 import java.nio.charset.Charset;
 import java.nio.file.Files;
 
@@ -85,6 +86,88 @@ public class HorizonRadioClientConfigTest {
         }
     }
 
+    @Test
+    public void savedFavoritesRoundTripWithVolume() throws IOException {
+        File directory = Files.createTempDirectory("horizonradio-favorites-roundtrip")
+            .toFile();
+        try {
+            ClientFavorites favorites = new ClientFavorites(
+                Collections.singletonList(
+                    new ClientFavorites.Song("song", "Song", "Channel", "2:00", "thumb")),
+                Collections.singletonList(new ClientFavorites.Radio("station", "Station")));
+            HorizonRadioClientConfig config = HorizonRadioClientConfig.load(directory);
+
+            config.save(0.35f, favorites);
+
+            HorizonRadioClientConfig loaded = HorizonRadioClientConfig.load(directory);
+            assertEquals(0.35f, loaded.getVolume(), 0.0001f);
+            assertEquals(favorites.getSongs(), loaded.getFavorites().getSongs());
+            assertEquals(favorites.getRadios(), loaded.getFavorites().getRadios());
+        } finally {
+            deleteRecursively(directory);
+        }
+    }
+
+    @Test
+    public void volumeOnlyConfigurationLoadsEmptyFavorites() throws IOException {
+        File directory = Files.createTempDirectory("horizonradio-favorites-legacy")
+            .toFile();
+        try {
+            write(directory, "{\"volume\":0.5}");
+
+            HorizonRadioClientConfig loaded = HorizonRadioClientConfig.load(directory);
+
+            assertEquals(0.5f, loaded.getVolume(), 0.0001f);
+            assertTrue(loaded.getFavorites().getSongs().isEmpty());
+            assertTrue(loaded.getFavorites().getRadios().isEmpty());
+        } finally {
+            deleteRecursively(directory);
+        }
+    }
+
+    @Test
+    public void invalidFavoriteRecordsAreSkippedWhileValidRecordsSurvive() throws IOException {
+        File directory = Files.createTempDirectory("horizonradio-favorites-invalid")
+            .toFile();
+        try {
+            write(
+                directory,
+                "{\"volume\":0.5,\"favoriteSongs\":["
+                    + "{\"videoId\":\"valid\",\"title\":\"Valid\"},"
+                    + "{\"videoId\":\" \"},42],"
+                    + "\"favoriteRadios\":[{\"stationUuid\":\"station\",\"name\":\"Station\"},null]}" );
+
+            HorizonRadioClientConfig loaded = HorizonRadioClientConfig.load(directory);
+
+            assertEquals(Collections.singletonList("valid"), songIds(loaded.getFavorites().getSongs()));
+            assertEquals(Collections.singletonList("station"), radioIds(loaded.getFavorites().getRadios()));
+        } finally {
+            deleteRecursively(directory);
+        }
+    }
+
+    @Test
+    public void savingVolumeWithoutExplicitFavoritesPreservesLoadedFavorites() throws IOException {
+        File directory = Files.createTempDirectory("horizonradio-favorites-save")
+            .toFile();
+        try {
+            ClientFavorites favorites = new ClientFavorites(
+                Collections.singletonList(new ClientFavorites.Song("song", "Song", "", "", "")),
+                Collections.<ClientFavorites.Radio>emptyList());
+            HorizonRadioClientConfig config = HorizonRadioClientConfig.load(directory);
+            config.save(0.4f, favorites);
+            config = HorizonRadioClientConfig.load(directory);
+
+            config.save(0.6f);
+
+            assertEquals(Collections.singletonList("song"), songIds(
+                HorizonRadioClientConfig.load(directory).getFavorites().getSongs()));
+            assertEquals(0.6f, HorizonRadioClientConfig.load(directory).getVolume(), 0.0001f);
+        } finally {
+            deleteRecursively(directory);
+        }
+    }
+
     private static void write(File directory, String json) throws IOException {
         FileOutputStream output = new FileOutputStream(new File(directory, HorizonRadioClientConfig.FILE_NAME));
         try {
@@ -106,5 +189,21 @@ public class HorizonRadioClientConfigTest {
         if (!file.delete()) {
             file.deleteOnExit();
         }
+    }
+
+    private static java.util.List<String> songIds(java.util.List<ClientFavorites.Song> songs) {
+        java.util.List<String> ids = new java.util.ArrayList<String>();
+        for (ClientFavorites.Song song : songs) {
+            ids.add(song.getVideoId());
+        }
+        return ids;
+    }
+
+    private static java.util.List<String> radioIds(java.util.List<ClientFavorites.Radio> radios) {
+        java.util.List<String> ids = new java.util.ArrayList<String>();
+        for (ClientFavorites.Radio radio : radios) {
+            ids.add(radio.getStationUuid());
+        }
+        return ids;
     }
 }
