@@ -967,8 +967,8 @@ public class GuiLayoutTest {
     }
 
     @Test
-    public void activeRadioDoesNotHighlightTheFirstPlaylistRow() {
-        assertFalse(HorizonRadioScreen.isPlaylistRowPlaying(0, true, true));
+    public void activeRadioHighlightsOnlyTheFirstPlaylistRow() {
+        assertTrue(HorizonRadioScreen.isPlaylistRowPlaying(0, true, true));
         assertTrue(HorizonRadioScreen.isPlaylistRowPlaying(0, true, false));
         assertFalse(HorizonRadioScreen.isPlaylistRowPlaying(1, true, false));
     }
@@ -1039,10 +1039,16 @@ public class GuiLayoutTest {
         assertTrue(screen.controlButton(7).visible);
         assertTrue(screen.controlButton(8).visible);
         assertFalse(screen.controlButton(4).enabled);
-        assertFalse(screen.controlButton(5).enabled);
+        assertTrue(screen.controlButton(5).enabled);
         assertTrue(screen.controlButton(6).enabled);
-        assertFalse(screen.controlButton(7).enabled);
+        assertTrue(screen.controlButton(7).enabled);
         assertFalse(screen.controlButton(8).enabled);
+
+        screen.invokeControlAction(5);
+        screen.invokeControlAction(7);
+
+        assertTrue(transport.previousTrack);
+        assertTrue(transport.skipTrack);
 
         screen.invokePlaybackAction();
 
@@ -1057,21 +1063,50 @@ public class GuiLayoutTest {
         TestScreen screen = new TestScreen();
         screen.setScreenSize(300, 285);
         screen.initialize();
-        screen.selectRadioTab();
+        screen.selectPlaylistTab();
         screen.updateRadioPresentation(ClientRadioPresentation.inactive(1L, "radio-uuid", "Station", "", false));
 
         assertFalse(screen.controlButton(4).enabled);
-        assertFalse(screen.controlButton(5).enabled);
+        assertTrue(screen.controlButton(5).enabled);
         assertTrue(screen.controlButton(6).enabled);
-        assertFalse(screen.controlButton(7).enabled);
+        assertTrue(screen.controlButton(7).enabled);
         assertFalse(screen.controlButton(8).enabled);
         assertEquals("Station", screen.getNowPlayingSnapshot());
+
+        screen.invokeControlAction(5);
+        screen.invokeControlAction(7);
+
+        assertTrue(transport.previousTrack);
+        assertTrue(transport.skipTrack);
 
         screen.invokePlaybackAction();
 
         assertEquals("radio-uuid", transport.selectedRadioUuid);
         assertFalse(transport.stopRadio);
         assertFalse(transport.togglePlayback);
+    }
+
+    @Test
+    public void radioStopSyncKeepsTheStationVisibleAndResumableOnTheQueueTab() {
+        TestScreen screen = new TestScreen();
+        screen.setScreenSize(300, 285);
+        try {
+            screen.initialize();
+            screen.selectPlaylistTab();
+
+            HorizonRadioClient.handleTrackSync(TrackSyncPacket.radio(5L, "radio-uuid"));
+            HorizonRadioClient.handleLocalRadioStarted(5L, "radio-uuid", "Station");
+            HorizonRadioClient.handleTrackSync(TrackSyncPacket.stop(6L));
+
+            assertFalse(HorizonRadioClient.isRadioActive());
+            assertEquals("Station", screen.getNowPlayingSnapshot());
+            assertTrue(screen.radioControlsVisible());
+            assertTrue(screen.controlButton(6).enabled);
+            assertTrue(screen.controlButton(5).enabled);
+            assertTrue(screen.controlButton(7).enabled);
+        } finally {
+            HorizonRadioScreen.clearActiveScreen(screen);
+        }
     }
 
     @Test
@@ -1568,6 +1603,10 @@ public class GuiLayoutTest {
 
         private void invokePlaybackAction() {
             actionPerformed(new GuiButton(6, 0, 0, "Playback"));
+        }
+
+        private void invokeControlAction(int id) {
+            actionPerformed(new GuiButton(id, 0, 0, "Control"));
         }
 
         private void invokeFavoriteAction() {

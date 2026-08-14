@@ -574,7 +574,7 @@ public class HorizonRadioScreen extends GuiScreen {
             boolean hovered = mouseX >= left + 10 && mouseX <= left + PANEL_WIDTH - 10
                 && mouseY >= y
                 && mouseY < y + ROW_HEIGHT;
-            boolean isPlaying = isPlaylistRowPlaying(index, nowPlaying != null, isRadioActive());
+            boolean isPlaying = isPlaylistRowPlaying(index, entry);
             boolean isDragged = index == draggedPlaylistIndex;
             drawRect(
                 left + 10,
@@ -764,9 +764,9 @@ public class HorizonRadioScreen extends GuiScreen {
             } else if (currentTab != RADIO_TAB) {
                 HorizonRadioClient.sendTogglePlayback();
             }
-        } else if (button.id == 7 && !radioControlsLocked()) {
+        } else if (button.id == 7) {
             HorizonRadioClient.sendSkipTrack();
-        } else if (button.id == 5 && !radioControlsLocked()) {
+        } else if (button.id == 5) {
             HorizonRadioClient.sendPreviousTrack();
         } else if (button.id == 8 && !radioControlsLocked()) {
             HorizonRadioClient.sendToggleLoop();
@@ -1542,7 +1542,7 @@ public class HorizonRadioScreen extends GuiScreen {
 
     public void updatePlaybackPaused(boolean paused) {
         if (playbackButton != null && !isRadioActive()) {
-            playbackButton.setIcon(paused ? ICON_PLAY : ICON_PAUSE);
+            playbackButton.setIcon(paused || canResumeRadio() ? ICON_PLAY : ICON_PAUSE);
         }
         updateFavoriteState();
     }
@@ -1989,7 +1989,7 @@ public class HorizonRadioScreen extends GuiScreen {
     }
 
     boolean radioControlsVisible() {
-        return isRadioActive() && playbackButton != null && playbackButton.visible;
+        return (isRadioActive() || canResumeRadio()) && playbackButton != null && playbackButton.visible;
     }
 
     private boolean isRadioActive() {
@@ -2015,8 +2015,7 @@ public class HorizonRadioScreen extends GuiScreen {
     }
 
     private boolean canResumeRadio() {
-        return currentTab == RADIO_TAB && radioState != null
-            && radioState.getStationUuid() != null
+        return radioState != null && radioState.getStationUuid() != null
             && radioState.getStationUuid()
                 .length() > 0;
     }
@@ -2053,9 +2052,9 @@ public class HorizonRadioScreen extends GuiScreen {
         setVisible(loopButton, true);
         setVisible(favoriteButton, true);
         setEnabled(shuffleButton, !controlsLocked);
-        setEnabled(previousButton, !controlsLocked);
+        setEnabled(previousButton, true);
         setEnabled(playbackButton, true);
-        setEnabled(nextButton, !controlsLocked);
+        setEnabled(nextButton, true);
         setEnabled(loopButton, !controlsLocked);
         setEnabled(favoriteButton, HorizonRadioClient.hasCurrentFavoriteSource());
         if (favoriteButton != null) {
@@ -2225,7 +2224,19 @@ public class HorizonRadioScreen extends GuiScreen {
     }
 
     static boolean isPlaylistRowPlaying(int index, boolean hasNowPlaying, boolean radioActive) {
-        return index == 0 && hasNowPlaying && !radioActive;
+        return index == 0 && hasNowPlaying;
+    }
+
+    private boolean isPlaylistRowPlaying(int index, PlaylistEntry entry) {
+        if (index != 0 || entry == null) {
+            return false;
+        }
+        if (entry.sourceType == MediaSourceType.RADIO) {
+            return isRadioActive() && radioState != null
+                && radioState.getStationUuid()
+                    .equals(entry.sourceId);
+        }
+        return entry.isFinite() && nowPlaying != null && !isRadioActive();
     }
 
     private int playlistListTop(int top) {
