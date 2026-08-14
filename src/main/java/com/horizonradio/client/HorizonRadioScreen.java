@@ -113,6 +113,7 @@ public class HorizonRadioScreen extends GuiScreen {
     private HorizonRadioVolumeSlider volumeSlider;
     private List<SearchResult> chartResults = new ArrayList<SearchResult>();
     private final Set<String> pendingChartAdds = new HashSet<String>();
+    private final Set<String> pendingPlaylistAdds = new HashSet<String>();
     private String chartRegionCode = "";
     private String chartSearchMessage = "";
     private List<SearchResult> searchResults = new ArrayList<SearchResult>();
@@ -1093,6 +1094,22 @@ public class HorizonRadioScreen extends GuiScreen {
         }
     }
 
+    void updatePlaylistResultDuration(String videoId, String duration) {
+        if (videoId == null || duration == null) {
+            return;
+        }
+        updateResultDuration(playlistResults, videoId, duration);
+    }
+
+    private void updateResultDuration(List<SearchResult> results, String videoId, String duration) {
+        for (int index = 0; index < results.size(); index++) {
+            SearchResult result = results.get(index);
+            if (result != null && videoId.equals(result.videoId) && !duration.equals(result.duration)) {
+                results.set(index, new SearchResult(result.videoId, result.title, result.channel, duration, result.thumbnail));
+            }
+        }
+    }
+
     public void updateRadioResults(List<RadioStationResult> results) {
         boolean requestWasLoading = radioLoading;
         radioResults = results == null ? new ArrayList<RadioStationResult>()
@@ -1298,6 +1315,7 @@ public class HorizonRadioScreen extends GuiScreen {
         for (PlaylistEntry entry : playlist) {
             if (entry != null) {
                 pendingChartAdds.remove(entry.sourceId);
+                pendingPlaylistAdds.remove(entry.sourceId);
             }
         }
         refreshCurrentDuration();
@@ -1315,7 +1333,21 @@ public class HorizonRadioScreen extends GuiScreen {
         }
     }
 
+    void completePlaylistAdds(List<String> videoIds) {
+        if (videoIds != null) {
+            pendingPlaylistAdds.removeAll(videoIds);
+        }
+    }
+
     List<SearchResult> beginChartAdd(List<SearchResult> results) {
+        return beginPendingAdd(results, pendingChartAdds);
+    }
+
+    List<SearchResult> beginPlaylistAdd(List<SearchResult> results) {
+        return beginPendingAdd(results, pendingPlaylistAdds);
+    }
+
+    private List<SearchResult> beginPendingAdd(List<SearchResult> results, Set<String> pendingAdds) {
         List<SearchResult> request = new ArrayList<SearchResult>();
         if (results == null) {
             return request;
@@ -1324,7 +1356,7 @@ public class HorizonRadioScreen extends GuiScreen {
             if (result == null || result.videoId == null
                 || result.videoId.length() == 0
                 || isInQueue(result.videoId)
-                || !pendingChartAdds.add(result.videoId)) {
+                || !pendingAdds.add(result.videoId)) {
                 continue;
             }
             request.add(result);
@@ -1334,6 +1366,10 @@ public class HorizonRadioScreen extends GuiScreen {
 
     boolean isChartAddPending(String videoId) {
         return videoId != null && pendingChartAdds.contains(videoId);
+    }
+
+    boolean isPlaylistAddPending(String videoId) {
+        return videoId != null && pendingPlaylistAdds.contains(videoId);
     }
 
     static String chartQueueButtonLabel(boolean inQueue, boolean pending) {

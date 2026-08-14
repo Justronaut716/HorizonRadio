@@ -263,6 +263,35 @@ public class GuiLayoutTest {
     }
 
     @Test
+    public void playlistPendingStateIsIndependentFromPendingChartAdds() {
+        TestScreen screen = new TestScreen();
+        HorizonRadioScreen.SearchResult shared =
+            new HorizonRadioScreen.SearchResult("shared", "Shared", "", "2:00", "");
+        HorizonRadioScreen.SearchResult playlistOnly =
+            new HorizonRadioScreen.SearchResult("playlist-only", "Playlist only", "", "3:00", "");
+
+        assertEquals(Collections.singletonList(shared), screen.beginChartAdd(Collections.singletonList(shared)));
+        assertEquals(
+            Arrays.asList(shared, playlistOnly),
+            screen.beginPlaylistAdd(Arrays.asList(shared, playlistOnly)));
+
+        assertTrue(screen.isChartAddPending("shared"));
+        assertTrue(screen.isPlaylistAddPending("shared"));
+        assertTrue(screen.isPlaylistAddPending("playlist-only"));
+
+        screen.completePlaylistAdds(Collections.singletonList("shared"));
+
+        assertTrue(screen.isChartAddPending("shared"));
+        assertFalse(screen.isPlaylistAddPending("shared"));
+        assertTrue(screen.isPlaylistAddPending("playlist-only"));
+
+        screen.completeChartAdds(Collections.singletonList("shared"));
+
+        assertFalse(screen.isChartAddPending("shared"));
+        assertTrue(screen.isPlaylistAddPending("playlist-only"));
+    }
+
+    @Test
     public void playlistUsesCompactContentMarginsWithoutSearchField() {
         assertEquals(25, screenConstant("PLAYLIST_HEADER_Y_OFFSET"));
         assertEquals(45, screenConstant("PLAYLIST_LIST_TOP_OFFSET"));

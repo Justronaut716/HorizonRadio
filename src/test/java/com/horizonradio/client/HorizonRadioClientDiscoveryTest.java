@@ -2,6 +2,7 @@ package com.horizonradio.client;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import java.lang.reflect.InvocationHandler;
@@ -274,6 +275,43 @@ public class HorizonRadioClientDiscoveryTest {
 
         assertEquals(Collections.singletonList("kQw4w9WgXcQ|90000"), transport.chartSelections);
         assertEquals(0, provider.videoLookupCount);
+    }
+
+    @Test
+    public void playlistBulkAddPreservesOrderAndUsesOnlyQueueSelectionTransport() {
+        HorizonRadioScreen.SearchResult first =
+            new HorizonRadioScreen.SearchResult("pl-one", "One", "", "1:00", "");
+        HorizonRadioScreen.SearchResult second =
+            new HorizonRadioScreen.SearchResult("pl-two", "Two", "", "2:00", "");
+
+        HorizonRadioClient.sendPlaylistResultsToQueue(Arrays.asList(first, second));
+
+        assertEquals(Arrays.asList("pl-one|60000", "pl-two|120000"), transport.chartSelections);
+        assertNull(transport.importPlaylistUrl);
+    }
+
+    @Test
+    public void failedPlaylistMetadataClearsOnlyPlaylistPendingState() {
+        DeferredProvider provider = new DeferredProvider();
+        HorizonRadioClient.setClientMediaService(new ClientMediaService(provider));
+        HorizonRadioScreen screen = new HorizonRadioScreen();
+        HorizonRadioScreen.setActiveScreen(screen);
+        HorizonRadioScreen.SearchResult result =
+            new HorizonRadioScreen.SearchResult("pl-missing", "Missing", "", "", "");
+        try {
+            assertEquals(
+                Collections.singletonList(result),
+                screen.beginPlaylistAdd(Collections.singletonList(result)));
+
+            HorizonRadioClient.sendPlaylistResultsToQueue(Collections.singletonList(result));
+            provider.deferVideo("pl-missing")
+                .completeExceptionally(new IllegalStateException("missing"));
+
+            assertFalse(screen.isPlaylistAddPending("pl-missing"));
+            assertTrue(transport.chartSelections.isEmpty());
+        } finally {
+            HorizonRadioScreen.clearActiveScreen(screen);
+        }
     }
 
     @Test
@@ -676,6 +714,7 @@ public class HorizonRadioClientDiscoveryTest {
         private int discoveryCallCount;
         private final List<String> chartSelections = new ArrayList<String>();
         private final List<String> playNowRequests = new ArrayList<String>();
+        private String importPlaylistUrl;
 
         private HorizonRadioClient.ClientTransport asTransport() {
             return (HorizonRadioClient.ClientTransport) Proxy.newProxyInstance(
@@ -692,6 +731,9 @@ public class HorizonRadioClientDiscoveryTest {
                 || "sendImportVideo".equals(name)
                 || "sendRadioSearch".equals(name)) {
                 discoveryCallCount++;
+            }
+            if ("sendImportPlaylist".equals(name) && arguments != null && arguments.length > 0) {
+                importPlaylistUrl = String.valueOf(arguments[0]);
             }
             if ("sendAddChartSelections".equals(name) && arguments != null
                 && arguments.length > 0
