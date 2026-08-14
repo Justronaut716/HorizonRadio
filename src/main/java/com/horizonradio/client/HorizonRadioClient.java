@@ -378,6 +378,9 @@ public final class HorizonRadioClient {
         }
 
         localPlaybackGeneration++;
+        serverClockOffsetMs = 0L;
+        AudioPlayer.getInstance()
+            .resetServerClock();
         stopLocalPlayback(-1L);
         LOCAL_QUEUE.clear();
         pendingAddResolutions.clear();
@@ -1480,8 +1483,13 @@ public final class HorizonRadioClient {
                     @Override
                     public void run() {
                         synchronized (HorizonRadioClient.class) {
-                            if (generation != activeTrackGeneration || activeTrackSourceType != MediaSourceType.YOUTUBE
-                                || !videoId.equals(activeTrackVideoId)) {
+                            if (activeTrackSourceType != MediaSourceType.YOUTUBE
+                                || !shouldAcceptServerAudioCompletion(
+                                    playbackMode,
+                                    activeTrackGeneration,
+                                    generation,
+                                    activeTrackVideoId,
+                                    videoId)) {
                                 return;
                             }
                             if (failure != null || filePath == null || !Files.isRegularFile(filePath)) {
@@ -1500,6 +1508,12 @@ public final class HorizonRadioClient {
                 });
             }
         });
+    }
+
+    static boolean shouldAcceptServerAudioCompletion(PlaybackMode currentMode, long currentGeneration,
+        long expectedGeneration, String currentVideoId, String expectedVideoId) {
+        return currentMode == PlaybackMode.SERVER && currentGeneration == expectedGeneration
+            && currentVideoId != null && currentVideoId.equals(expectedVideoId);
     }
 
     static boolean shouldAcceptTrackSync(long currentGeneration, String currentVideoId, TrackSyncPacket packet) {
@@ -1583,6 +1597,7 @@ public final class HorizonRadioClient {
     }
 
     public static synchronized void clearCache() {
+        localPlaybackGeneration++;
         if (clientRadioPlayback != null) {
             clientRadioPlayback.stop();
         }
@@ -1614,7 +1629,6 @@ public final class HorizonRadioClient {
         chartGeneration++;
         playlistImportGeneration++;
         radioSearchGeneration++;
-        localPlaybackGeneration++;
         serverClockOffsetMs = 0L;
         AudioPlayer.getInstance()
             .stop();

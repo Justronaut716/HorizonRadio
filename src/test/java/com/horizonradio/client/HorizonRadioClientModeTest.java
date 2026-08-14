@@ -11,15 +11,20 @@ import java.lang.reflect.Field;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.AbstractExecutorService;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
+import com.horizonradio.client.audio.AudioPlayer;
 import com.horizonradio.core.client.ClientLocalPlaylistState;
 import com.horizonradio.core.model.MediaSourceType;
+import com.horizonradio.network.packets.ClockSyncResponsePacket;
 import com.horizonradio.network.packets.PlaylistSyncPacket;
 import com.horizonradio.network.packets.TrackSyncPacket;
 import com.horizonradio.server.AudioDownloadService;
@@ -196,6 +201,21 @@ public class HorizonRadioClientModeTest {
     }
 
     @Test
+    public void enteringPrivateModeClearsServerClockBeforeLocalTrackStart() {
+        HorizonRadioClient.handleClockSync(new ClockSyncResponsePacket(1_000L, 2_000L, 2_100L), 1_100L);
+        assertEquals(1_000L, longField("serverClockOffsetMs"));
+        assertTrue(audioPlayerBooleanField("serverClockSynchronized"));
+
+        HorizonRadioClient.setPlaybackMode(PlaybackMode.PRIVATE);
+        HorizonRadioClient.sendPlayNow("song", 1_000L);
+
+        assertEquals(0L, longField("serverClockOffsetMs"));
+        assertEquals(0L, audioPlayerLongField("serverClockOffsetMs"));
+        assertFalse(audioPlayerBooleanField("serverClockSynchronized"));
+        assertEquals(privateTrackStartAt(), audioPlayerLongField("resumeStartAtMs"));
+    }
+
+    @Test
     public void privateTickUsesTheLocalClockForPresentation() {
         HorizonRadioClient.setPlaybackMode(PlaybackMode.PRIVATE);
         HorizonRadioClient.sendPlayNow("song", 1_000L);
@@ -314,6 +334,64 @@ public class HorizonRadioClientModeTest {
     }
 
     @Test
+    public void lateServerDownloadCompletionIsIgnoredAfterPrivateGenerationAndVideoCollision() throws Exception {
+        AudioPlayer originalPlayer = AudioPlayer.getInstance();
+        CountingExecutorService audioExecutor = new CountingExecutorService();
+        AudioPlayer controlledPlayer = new AudioPlayer(new AudioPlayer.SourceLineFactory() {
+
+            @Override
+            public javax.sound.sampled.SourceDataLine create(javax.sound.sampled.AudioFormat format) {
+                throw new AssertionError("finite callback must not open a radio line");
+            }
+        }, audioExecutor);
+        setAudioPlayerInstance(controlledPlayer);
+        try {
+            long serverGeneration = longField("localPlaybackGeneration") + 2L;
+            HorizonRadioClient.handleTrackSync(TrackSyncPacket.youtube(serverGeneration, "song", 0L, 0L, false));
+            CompletableFuture<Path> oldServerDownload = audioDownloads.future("song");
+            assertNotNull(oldServerDownload);
+            audioDownloads.detachDownloadOnCancel();
+
+            HorizonRadioClient.setPlaybackMode(PlaybackMode.PRIVATE);
+            HorizonRadioClient.sendPlayNow("song", 1_000L);
+            assertEquals(serverGeneration, activePrivateGeneration());
+            int tasksBeforeLateCompletion = audioExecutor.executeCount();
+            Path completed = Files.createFile(audioDirectory.resolve("completed.wav"));
+            oldServerDownload.complete(completed);
+
+            assertFalse(
+                HorizonRadioClient.shouldAcceptServerAudioCompletion(
+                    HorizonRadioClient.getPlaybackMode(),
+                    activePrivateGeneration(),
+                    serverGeneration,
+                    activePrivateSourceId(),
+                    "song"));
+            assertEquals(tasksBeforeLateCompletion, audioExecutor.executeCount());
+            assertEquals("song", activePrivateSourceId());
+            assertEquals("song", HorizonRadioClient.getCachedNowPlaying());
+        } finally {
+            setAudioPlayerInstance(originalPlayer);
+            controlledPlayer.shutdown();
+        }
+    }
+
+    @Test
+    public void clearCacheInvalidatesPrivateGenerationBeforeSynchronousCancellationCallback() {
+        HorizonRadioClient.setPlaybackMode(PlaybackMode.PRIVATE);
+        HorizonRadioClient.sendPlayNow("song", 1_000L);
+        long generation = longField("localPlaybackGeneration");
+        audioDownloads.failDownloadOnCancel();
+
+        HorizonRadioClient.clearCache();
+
+        assertEquals(generation + 1L, longField("localPlaybackGeneration"));
+        assertNull(activePrivateSourceId());
+        assertNull(HorizonRadioClient.getCachedNowPlaying());
+        assertTrue(HorizonRadioClient.getCachedPlaylist().isEmpty());
+        assertNull(localQueue().getCurrentEntry());
+    }
+
+    @Test
     public void privateAudioCompletionGuardRequiresMatchingPrivateGenerationAndVideo() {
         assertTrue(
             HorizonRadioClient.shouldAcceptPrivateAudioCompletion(
@@ -384,6 +462,11 @@ public class HorizonRadioClientModeTest {
             com.horizonradio.client.audio.AudioPlayer.getInstance())).longValue();
     }
 
+    private static boolean audioPlayerBooleanField(String name) {
+        return ((Boolean) fieldValue(com.horizonradio.client.audio.AudioPlayer.class, name,
+            com.horizonradio.client.audio.AudioPlayer.getInstance())).booleanValue();
+    }
+
     private static long longField(String name) {
         return ((Long) fieldValue(HorizonRadioClient.class, name, null)).longValue();
     }
@@ -393,6 +476,16 @@ public class HorizonRadioClientModeTest {
             Field field = owner.getDeclaredField(name);
             field.setAccessible(true);
             return field.get(instance);
+        } catch (ReflectiveOperationException exception) {
+            throw new AssertionError(exception);
+        }
+    }
+
+    private static void setAudioPlayerInstance(AudioPlayer player) {
+        try {
+            Field field = AudioPlayer.class.getDeclaredField("instance");
+            field.setAccessible(true);
+            field.set(null, player);
         } catch (ReflectiveOperationException exception) {
             throw new AssertionError(exception);
         }
@@ -517,10 +610,56 @@ public class HorizonRadioClientModeTest {
         }
     }
 
+    private static final class CountingExecutorService extends AbstractExecutorService {
+
+        private int executeCount;
+        private boolean shutdown;
+
+        @Override
+        public synchronized void shutdown() {
+            shutdown = true;
+        }
+
+        @Override
+        public synchronized List<Runnable> shutdownNow() {
+            shutdown = true;
+            return Collections.emptyList();
+        }
+
+        @Override
+        public synchronized boolean isShutdown() {
+            return shutdown;
+        }
+
+        @Override
+        public synchronized boolean isTerminated() {
+            return shutdown;
+        }
+
+        @Override
+        public synchronized boolean awaitTermination(long timeout, TimeUnit unit) {
+            return shutdown;
+        }
+
+        @Override
+        public synchronized void execute(Runnable command) {
+            if (shutdown) {
+                throw new java.util.concurrent.RejectedExecutionException("executor is shut down");
+            }
+            executeCount++;
+        }
+
+        private synchronized int executeCount() {
+            return executeCount;
+        }
+    }
+
     private static final class ControlledAudioDownloadService extends AudioDownloadService {
 
         private final java.util.Map<String, CompletableFuture<Path>> futures =
             new java.util.HashMap<String, CompletableFuture<Path>>();
+        private boolean detachDownloadOnCancel;
+        private boolean failDownloadOnCancel;
 
         private ControlledAudioDownloadService(Path directory) throws java.io.IOException {
             super(directory);
@@ -538,7 +677,22 @@ public class HorizonRadioClientModeTest {
 
         @Override
         public synchronized void cancelDownload(String videoId) {
-            // Deliberately leave the future completable to simulate a late callback.
+            CompletableFuture<Path> future = futures.get(videoId);
+            if (detachDownloadOnCancel) {
+                futures.remove(videoId);
+            }
+            if (failDownloadOnCancel && future != null) {
+                future.completeExceptionally(new IllegalStateException("cancelled during clear"));
+            }
+            // Futures remain completable to simulate callbacks racing cancellation.
+        }
+
+        private synchronized void detachDownloadOnCancel() {
+            detachDownloadOnCancel = true;
+        }
+
+        private synchronized void failDownloadOnCancel() {
+            failDownloadOnCancel = true;
         }
 
         private synchronized boolean hasDownload(String videoId) {
