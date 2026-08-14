@@ -64,7 +64,10 @@ public class HorizonRadioClientModeTest {
         HorizonRadioClient.sendAdd("private-song", 120_000L);
 
         assertEquals(0, transport.addCount);
-        assertEquals("private-song", HorizonRadioClient.getCachedPlaylist().get(0).sourceId);
+        assertEquals(
+            "private-song",
+            HorizonRadioClient.getCachedPlaylist()
+                .get(0).sourceId);
     }
 
     @Test
@@ -74,7 +77,9 @@ public class HorizonRadioClientModeTest {
         HorizonRadioClient.handlePlaylistSnapshot(snapshotPacket(4L, "server-song"));
         HorizonRadioClient.handleTrackSync(TrackSyncPacket.youtube(4L, "server-song", 0L, 0L, false));
 
-        assertTrue(HorizonRadioClient.getCachedPlaylist().isEmpty());
+        assertTrue(
+            HorizonRadioClient.getCachedPlaylist()
+                .isEmpty());
         assertNull(HorizonRadioClient.getCachedNowPlaying());
     }
 
@@ -85,7 +90,9 @@ public class HorizonRadioClientModeTest {
 
         HorizonRadioClient.setPlaybackMode(PlaybackMode.SERVER);
 
-        assertTrue(HorizonRadioClient.getCachedPlaylist().isEmpty());
+        assertTrue(
+            HorizonRadioClient.getCachedPlaylist()
+                .isEmpty());
         assertEquals(1, transport.playlistResyncCount);
         assertEquals(1, transport.clockSyncCount);
     }
@@ -152,7 +159,9 @@ public class HorizonRadioClientModeTest {
         HorizonRadioClient.sendClockSync();
 
         assertEquals(0, transport.totalPacketCount());
-        assertTrue(HorizonRadioClient.getCachedPlaylist().isEmpty());
+        assertTrue(
+            HorizonRadioClient.getCachedPlaylist()
+                .isEmpty());
     }
 
     @Test
@@ -271,8 +280,13 @@ public class HorizonRadioClientModeTest {
 
         HorizonRadioClient.onClientTick(startedAt + 1_001L);
 
-        assertTrue(Arrays.asList("two", "three").contains(currentPrivateSourceId()));
-        assertEquals(2, HorizonRadioClient.getCachedPlaylist().size());
+        assertTrue(
+            Arrays.asList("two", "three")
+                .contains(currentPrivateSourceId()));
+        assertEquals(
+            2,
+            HorizonRadioClient.getCachedPlaylist()
+                .size());
         assertFalse(playlistSourceIds().contains("one"));
         assertEquals(0, transport.totalPacketCount());
     }
@@ -323,12 +337,8 @@ public class HorizonRadioClientModeTest {
         audioDownloads.complete("song", completed);
 
         assertFalse(
-            HorizonRadioClient.shouldAcceptPrivateAudioCompletion(
-                PlaybackMode.SERVER,
-                generation,
-                generation,
-                "song",
-                "song"));
+            HorizonRadioClient
+                .shouldAcceptPrivateAudioCompletion(PlaybackMode.SERVER, generation, generation, "song", "song"));
         assertNull(activePrivateSourceId());
         assertNull(HorizonRadioClient.getCachedNowPlaying());
     }
@@ -385,7 +395,8 @@ public class HorizonRadioClientModeTest {
     }
 
     @Test
-    public void clearCacheInvalidatesServerGenerationBeforeSynchronousSuccessfulCancellationCallback() throws Exception {
+    public void clearCacheInvalidatesServerGenerationBeforeSynchronousSuccessfulCancellationCallback()
+        throws Exception {
         AudioPlayer originalPlayer = AudioPlayer.getInstance();
         CountingExecutorService audioExecutor = new CountingExecutorService();
         AudioPlayer controlledPlayer = new AudioPlayer(new AudioPlayer.SourceLineFactory() {
@@ -450,40 +461,26 @@ public class HorizonRadioClientModeTest {
         assertEquals(generation + 1L, longField("localPlaybackGeneration"));
         assertNull(activePrivateSourceId());
         assertNull(HorizonRadioClient.getCachedNowPlaying());
-        assertTrue(HorizonRadioClient.getCachedPlaylist().isEmpty());
+        assertTrue(
+            HorizonRadioClient.getCachedPlaylist()
+                .isEmpty());
         assertNull(localQueue().getCurrentEntry());
     }
 
     @Test
     public void privateAudioCompletionGuardRequiresMatchingPrivateGenerationAndVideo() {
         assertTrue(
-            HorizonRadioClient.shouldAcceptPrivateAudioCompletion(
-                PlaybackMode.PRIVATE,
-                7L,
-                7L,
-                "private-song",
-                "private-song"));
+            HorizonRadioClient
+                .shouldAcceptPrivateAudioCompletion(PlaybackMode.PRIVATE, 7L, 7L, "private-song", "private-song"));
         assertTrue(
-            !HorizonRadioClient.shouldAcceptPrivateAudioCompletion(
-                PlaybackMode.SERVER,
-                7L,
-                7L,
-                "private-song",
-                "private-song"));
+            !HorizonRadioClient
+                .shouldAcceptPrivateAudioCompletion(PlaybackMode.SERVER, 7L, 7L, "private-song", "private-song"));
         assertTrue(
-            !HorizonRadioClient.shouldAcceptPrivateAudioCompletion(
-                PlaybackMode.PRIVATE,
-                8L,
-                7L,
-                "private-song",
-                "private-song"));
+            !HorizonRadioClient
+                .shouldAcceptPrivateAudioCompletion(PlaybackMode.PRIVATE, 8L, 7L, "private-song", "private-song"));
         assertTrue(
-            !HorizonRadioClient.shouldAcceptPrivateAudioCompletion(
-                PlaybackMode.PRIVATE,
-                7L,
-                7L,
-                "other-song",
-                "private-song"));
+            !HorizonRadioClient
+                .shouldAcceptPrivateAudioCompletion(PlaybackMode.PRIVATE, 7L, 7L, "other-song", "private-song"));
     }
 
     private static PlaylistSyncPacket snapshotPacket(long revision, String videoId) {
@@ -521,12 +518,16 @@ public class HorizonRadioClientModeTest {
     }
 
     private static long audioPlayerLongField(String name) {
-        return ((Long) fieldValue(com.horizonradio.client.audio.AudioPlayer.class, name,
+        return ((Long) fieldValue(
+            com.horizonradio.client.audio.AudioPlayer.class,
+            name,
             com.horizonradio.client.audio.AudioPlayer.getInstance())).longValue();
     }
 
     private static boolean audioPlayerBooleanField(String name) {
-        return ((Boolean) fieldValue(com.horizonradio.client.audio.AudioPlayer.class, name,
+        return ((Boolean) fieldValue(
+            com.horizonradio.client.audio.AudioPlayer.class,
+            name,
             com.horizonradio.client.audio.AudioPlayer.getInstance())).booleanValue();
     }
 
@@ -659,9 +660,20 @@ public class HorizonRadioClientModeTest {
         }
 
         private int totalPacketCount() {
-            return addCount + playNowCount + removeCount + clearCount + reorderCount + seekCount + playbackCount
-                + skipCount + previousCount + loopCount + shuffleCount + radioCount + stopRadioCount
-                + playlistResyncCount + clockSyncCount;
+            return addCount + playNowCount
+                + removeCount
+                + clearCount
+                + reorderCount
+                + seekCount
+                + playbackCount
+                + skipCount
+                + previousCount
+                + loopCount
+                + shuffleCount
+                + radioCount
+                + stopRadioCount
+                + playlistResyncCount
+                + clockSyncCount;
         }
     }
 
@@ -719,8 +731,7 @@ public class HorizonRadioClientModeTest {
 
     private static final class ControlledAudioDownloadService extends AudioDownloadService {
 
-        private final java.util.Map<String, CompletableFuture<Path>> futures =
-            new java.util.HashMap<String, CompletableFuture<Path>>();
+        private final java.util.Map<String, CompletableFuture<Path>> futures = new java.util.HashMap<String, CompletableFuture<Path>>();
         private boolean detachDownloadOnCancel;
         private boolean failDownloadOnCancel;
         private Path completionOnCancel;

@@ -105,8 +105,11 @@ public final class ClientLocalPlaylistState {
     }
 
     public boolean moveQueued(int fromIndex, int targetIndex) {
-        if (fromIndex < 0 || fromIndex >= playlist.size() || targetIndex < 0 || targetIndex >= playlist.size()
-            || fromIndex == targetIndex || (currentIndex >= 0 && (fromIndex <= currentIndex || targetIndex <= currentIndex))) {
+        if (fromIndex < 0 || fromIndex >= playlist.size()
+            || targetIndex < 0
+            || targetIndex >= playlist.size()
+            || fromIndex == targetIndex
+            || (currentIndex >= 0 && (fromIndex <= currentIndex || targetIndex <= currentIndex))) {
             return false;
         }
         PlaylistEntry entry = playlist.remove(fromIndex);
@@ -342,7 +345,9 @@ public final class ClientLocalPlaylistState {
     }
 
     private PlaylistEntry requireEntry(int index, MediaSourceType sourceType) {
-        if (index < 0 || index >= playlist.size() || playlist.get(index).getSourceType() != sourceType) {
+        if (index < 0 || index >= playlist.size()
+            || playlist.get(index)
+                .getSourceType() != sourceType) {
             throw new IllegalArgumentException("current source does not match playlist entry");
         }
         return playlist.get(index);
@@ -350,7 +355,9 @@ public final class ClientLocalPlaylistState {
 
     private boolean hasFiniteTrack() {
         PlaylistEntry entry = getCurrentEntry();
-        return currentSourceType == MediaSourceType.YOUTUBE && currentSourceId != null && entry != null && entry.isFinite()
+        return currentSourceType == MediaSourceType.YOUTUBE && currentSourceId != null
+            && entry != null
+            && entry.isFinite()
             && entry.getDurationMs() > 0L;
     }
 

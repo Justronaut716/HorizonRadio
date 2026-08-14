@@ -717,8 +717,8 @@ public final class HorizonRadioClient {
             removePrivateSelectionIds(selections);
             return;
         }
-        if (playbackMode == PlaybackMode.PRIVATE && (remove || selections == null || selections.isEmpty()
-            || !containsSearchResult(selections))) {
+        if (playbackMode == PlaybackMode.PRIVATE
+            && (remove || selections == null || selections.isEmpty() || !containsSearchResult(selections))) {
             applyPrivateSelections(toPlaylistSelections(selections), remove);
             return;
         }
@@ -911,12 +911,12 @@ public final class HorizonRadioClient {
                     startPrivateFinite(prepared, 0L, false, System.currentTimeMillis());
                 }
                 refreshCachedPlaylistFromActiveQueue();
-            } else if (current != null && current.isFinite()
-                && LOCAL_QUEUE.seek(0L, System.currentTimeMillis()) >= 0L) {
-                alignPrivateFiniteAudio(0L, LOCAL_QUEUE.isPaused());
-                updatePrivateFinitePresentation(current, 0L);
-                refreshCachedPlaylistFromActiveQueue();
-            }
+            } else
+                if (current != null && current.isFinite() && LOCAL_QUEUE.seek(0L, System.currentTimeMillis()) >= 0L) {
+                    alignPrivateFiniteAudio(0L, LOCAL_QUEUE.isPaused());
+                    updatePrivateFinitePresentation(current, 0L);
+                    refreshCachedPlaylistFromActiveQueue();
+                }
             return;
         }
         transport.sendPreviousTrack();
@@ -1515,7 +1515,8 @@ public final class HorizonRadioClient {
     static boolean shouldAcceptServerAudioCompletion(PlaybackMode currentMode, long currentGeneration,
         long expectedGeneration, String currentVideoId, String expectedVideoId) {
         return currentMode == PlaybackMode.SERVER && currentGeneration == expectedGeneration
-            && currentVideoId != null && currentVideoId.equals(expectedVideoId);
+            && currentVideoId != null
+            && currentVideoId.equals(expectedVideoId);
     }
 
     static boolean shouldAcceptTrackSync(long currentGeneration, String currentVideoId, TrackSyncPacket packet) {
@@ -1755,7 +1756,8 @@ public final class HorizonRadioClient {
     static boolean shouldAcceptPrivateAudioCompletion(PlaybackMode currentMode, long currentGeneration,
         long expectedGeneration, String currentVideoId, String expectedVideoId) {
         return currentMode == PlaybackMode.PRIVATE && currentGeneration == expectedGeneration
-            && currentVideoId != null && currentVideoId.equals(expectedVideoId);
+            && currentVideoId != null
+            && currentVideoId.equals(expectedVideoId);
     }
 
     private static void advancePrivateFinitePlayback(long clientNowMs) {
@@ -1768,8 +1770,7 @@ public final class HorizonRadioClient {
             return;
         }
         updatePrivateFinitePresentation(entry, positionMs);
-        if (LOCAL_QUEUE.isPaused()
-            || clientNowMs - LOCAL_QUEUE.getPlaybackStartTime() < entry.getDurationMs()) {
+        if (LOCAL_QUEUE.isPaused() || clientNowMs - LOCAL_QUEUE.getPlaybackStartTime() < entry.getDurationMs()) {
             return;
         }
 
@@ -1968,7 +1969,8 @@ public final class HorizonRadioClient {
 
     private static void refreshCachedPlaylistFromActiveQueue() {
         List<HorizonRadioScreen.PlaylistEntry> refreshed = new ArrayList<HorizonRadioScreen.PlaylistEntry>();
-        List<PlaylistEntry> queue = playbackMode == PlaybackMode.PRIVATE ? LOCAL_QUEUE.snapshot() : CLIENT_QUEUE.snapshot();
+        List<PlaylistEntry> queue = playbackMode == PlaybackMode.PRIVATE ? LOCAL_QUEUE.snapshot()
+            : CLIENT_QUEUE.snapshot();
         for (PlaylistEntry entry : queue) {
             refreshed.add(toScreenPlaylistEntry(entry));
         }
@@ -2515,8 +2517,8 @@ public final class HorizonRadioClient {
 
     private static void sendPlayNowSelection(PlaylistSelection selection) {
         if (playbackMode == PlaybackMode.PRIVATE) {
-            PlaylistEntry prepared = LOCAL_QUEUE.prepareImmediatePlayback(
-                PlaylistEntry.youtube(selection.videoId, selection.durationMs, "Private"));
+            PlaylistEntry prepared = LOCAL_QUEUE
+                .prepareImmediatePlayback(PlaylistEntry.youtube(selection.videoId, selection.durationMs, "Private"));
             if (prepared != null) {
                 startPrivateFinite(prepared, 0L, false, System.currentTimeMillis());
                 refreshCachedPlaylistFromActiveQueue();
@@ -2685,7 +2687,8 @@ public final class HorizonRadioClient {
                 if (remove) {
                     changed |= LOCAL_QUEUE.remove(MediaSourceType.YOUTUBE, selection.videoId) >= 0;
                 } else {
-                    changed |= LOCAL_QUEUE.add(PlaylistEntry.youtube(selection.videoId, selection.durationMs, "Private"));
+                    changed |= LOCAL_QUEUE
+                        .add(PlaylistEntry.youtube(selection.videoId, selection.durationMs, "Private"));
                 }
             }
         }

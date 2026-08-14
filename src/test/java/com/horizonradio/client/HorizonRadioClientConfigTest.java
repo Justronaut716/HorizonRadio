@@ -32,9 +32,15 @@ public class HorizonRadioClientConfigTest {
         File directory = Files.createTempDirectory("horizonradio-playback-mode-default")
             .toFile();
         try {
-            assertEquals(PlaybackMode.SERVER, HorizonRadioClientConfig.load(directory).getPlaybackMode());
+            assertEquals(
+                PlaybackMode.SERVER,
+                HorizonRadioClientConfig.load(directory)
+                    .getPlaybackMode());
             write(directory, "{\"playbackMode\":\"not-a-mode\"}");
-            assertEquals(PlaybackMode.SERVER, HorizonRadioClientConfig.load(directory).getPlaybackMode());
+            assertEquals(
+                PlaybackMode.SERVER,
+                HorizonRadioClientConfig.load(directory)
+                    .getPlaybackMode());
         } finally {
             deleteRecursively(directory);
         }
@@ -47,7 +53,10 @@ public class HorizonRadioClientConfigTest {
         try {
             HorizonRadioClientConfig.load(directory)
                 .save(0.35f, new ClientFavorites(), PlaybackMode.PRIVATE);
-            assertEquals(PlaybackMode.PRIVATE, HorizonRadioClientConfig.load(directory).getPlaybackMode());
+            assertEquals(
+                PlaybackMode.PRIVATE,
+                HorizonRadioClientConfig.load(directory)
+                    .getPlaybackMode());
         } finally {
             deleteRecursively(directory);
         }
@@ -227,9 +236,13 @@ public class HorizonRadioClientConfigTest {
         try {
             HorizonRadioClientConfig config = HorizonRadioClientConfig.load(directory);
             config.save(0.4f, new ClientFavorites(), PlaybackMode.PRIVATE);
-            HorizonRadioClientConfig.load(directory).save(0.6f);
+            HorizonRadioClientConfig.load(directory)
+                .save(0.6f);
 
-            assertEquals(PlaybackMode.PRIVATE, HorizonRadioClientConfig.load(directory).getPlaybackMode());
+            assertEquals(
+                PlaybackMode.PRIVATE,
+                HorizonRadioClientConfig.load(directory)
+                    .getPlaybackMode());
         } finally {
             deleteRecursively(directory);
         }
@@ -245,7 +258,10 @@ public class HorizonRadioClientConfigTest {
             HorizonRadioClientConfig loaded = HorizonRadioClientConfig.load(directory);
             loaded.save(0.5f, new ClientFavorites());
 
-            assertEquals(PlaybackMode.PRIVATE, HorizonRadioClientConfig.load(directory).getPlaybackMode());
+            assertEquals(
+                PlaybackMode.PRIVATE,
+                HorizonRadioClientConfig.load(directory)
+                    .getPlaybackMode());
         } finally {
             deleteRecursively(directory);
         }

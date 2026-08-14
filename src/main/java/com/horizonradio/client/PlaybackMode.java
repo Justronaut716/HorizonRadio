@@ -3,6 +3,7 @@ package com.horizonradio.client;
 import java.util.Locale;
 
 public enum PlaybackMode {
+
     PRIVATE("private", true),
     SERVER("server", true),
     GROUP("group", false);
@@ -19,7 +20,8 @@ public enum PlaybackMode {
         if (value == null) {
             return SERVER;
         }
-        String normalized = value.trim().toLowerCase(Locale.ROOT);
+        String normalized = value.trim()
+            .toLowerCase(Locale.ROOT);
         for (PlaybackMode mode : values()) {
             if (mode.persistedName.equals(normalized)) {
                 return mode;

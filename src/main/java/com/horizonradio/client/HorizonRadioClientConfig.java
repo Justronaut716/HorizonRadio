@@ -36,10 +36,7 @@ public final class HorizonRadioClientConfig {
     private final ClientFavorites favorites;
     private final PlaybackMode playbackMode;
 
-    private HorizonRadioClientConfig(
-        File configFile,
-        float volume,
-        ClientFavorites favorites,
+    private HorizonRadioClientConfig(File configFile, float volume, ClientFavorites favorites,
         PlaybackMode playbackMode) {
         this.configFile = configFile;
         this.volume = volume;
@@ -50,11 +47,7 @@ public final class HorizonRadioClientConfig {
     public static HorizonRadioClientConfig load(File configDirectory) {
         File configFile = configDirectory == null ? null : new File(configDirectory, FILE_NAME);
         if (configFile == null || !configFile.isFile()) {
-            return new HorizonRadioClientConfig(
-                configFile,
-                DEFAULT_VOLUME,
-                new ClientFavorites(),
-                PlaybackMode.SERVER);
+            return new HorizonRadioClientConfig(configFile, DEFAULT_VOLUME, new ClientFavorites(), PlaybackMode.SERVER);
         }
 
         try (Reader reader = new BufferedReader(
@@ -75,11 +68,7 @@ public final class HorizonRadioClientConfig {
             LOGGER.log(Level.WARNING, "Could not read HorizonRadio client configuration", exception);
         }
 
-        return new HorizonRadioClientConfig(
-            configFile,
-            DEFAULT_VOLUME,
-            new ClientFavorites(),
-            PlaybackMode.SERVER);
+        return new HorizonRadioClientConfig(configFile, DEFAULT_VOLUME, new ClientFavorites(), PlaybackMode.SERVER);
     }
 
     public float getVolume() {

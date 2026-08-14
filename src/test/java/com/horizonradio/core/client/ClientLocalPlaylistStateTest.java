@@ -84,7 +84,9 @@ public class ClientLocalPlaylistStateTest {
 
         assertNull(state.prepareImmediatePlayback(PlaylistEntry.youtube("finite", 1_000L, "Private")));
         assertFalse(state.selectRadioAtFront(PlaylistEntry.radio("station", "Private")));
-        assertTrue(state.snapshot().isEmpty());
+        assertTrue(
+            state.snapshot()
+                .isEmpty());
         assertEquals(-1, state.getCurrentIndex());
     }
 
@@ -174,7 +176,9 @@ public class ClientLocalPlaylistStateTest {
 
         state.clear();
 
-        assertTrue(state.snapshot().isEmpty());
+        assertTrue(
+            state.snapshot()
+                .isEmpty());
         assertFalse(state.isPlaying());
         assertFalse(state.wasPreviousRestarted());
         assertFalse(state.isLooping());
