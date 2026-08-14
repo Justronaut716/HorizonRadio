@@ -3,6 +3,7 @@ package com.horizonradio.client;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
@@ -176,7 +177,8 @@ public class GuiLayoutTest {
     public void progressEstimatesMatchTheExpectedRequestDurations() {
         assertEquals(1500L, HorizonRadioScreen.progressEstimateMillis(1));
         assertEquals(1000L, HorizonRadioScreen.progressEstimateMillis(0));
-        assertEquals(400L, HorizonRadioScreen.progressEstimateMillis(3));
+        assertEquals(1500L, HorizonRadioScreen.progressEstimateMillis(3));
+        assertEquals(400L, HorizonRadioScreen.progressEstimateMillis(4));
     }
 
     @Test
@@ -289,6 +291,62 @@ public class GuiLayoutTest {
 
         assertFalse(screen.isChartAddPending("shared"));
         assertTrue(screen.isPlaylistAddPending("playlist-only"));
+    }
+
+    @Test
+    public void queueAndPlaylistsAreDifferentTabsAndFields() {
+        TestScreen screen = new TestScreen();
+        screen.setScreenSize(300, 285);
+        screen.initialize();
+
+        screen.selectPlaylistDiscoveryTab();
+
+        assertTrue(screen.isPlaylistDiscoveryTab());
+        assertFalse(screen.isPlaylistTab());
+        assertNotSame(screen.searchField(), screen.playlistUrlField());
+
+        screen.selectPlaylistTab();
+
+        assertTrue(screen.isPlaylistTab());
+        assertFalse(screen.isPlaylistDiscoveryTab());
+    }
+
+    @Test
+    public void playlistRowQueueButtonUsesQueueTransportWithoutAddingToQueueLocally() {
+        TestScreen screen = initializedPlaylistScreen(
+            Collections.singletonList(
+                new HorizonRadioScreen.SearchResult("playlist-song", "Playlist Song", "", "2:00", "")));
+
+        screen.click(280, 75);
+
+        assertEquals(Collections.singletonList("playlist-song|120000"), transport.chartSelections);
+        assertEquals("playlist-song", screen.getPlaylistResultsSnapshot().get(0).videoId);
+        assertTrue(screen.getPlaylistSnapshot().isEmpty());
+    }
+
+    @Test
+    public void playlistRowClickPlaysNowAndSwitchesToQueue() {
+        TestScreen screen = initializedPlaylistScreen(
+            Collections.singletonList(
+                new HorizonRadioScreen.SearchResult("playlist-song", "Playlist Song", "", "2:00", "")));
+
+        screen.click(50, 75);
+
+        assertEquals("playlist-song|120000", transport.playNowRequest);
+        assertTrue(screen.isPlaylistTab());
+    }
+
+    @Test
+    public void playlistBulkButtonUsesCompactQueueTransportInSourceOrder() {
+        TestScreen screen = initializedPlaylistScreen(
+            Arrays.asList(
+                new HorizonRadioScreen.SearchResult("playlist-one", "Playlist One", "", "1:00", ""),
+                new HorizonRadioScreen.SearchResult("playlist-two", "Playlist Two", "", "2:00", "")));
+
+        screen.click(280, 58);
+
+        assertEquals(Arrays.asList("playlist-one|60000", "playlist-two|120000"), transport.chartSelections);
+        assertTrue(screen.getPlaylistSnapshot().isEmpty());
     }
 
     @Test
@@ -1143,6 +1201,15 @@ public class GuiLayoutTest {
         return screen;
     }
 
+    private static TestScreen initializedPlaylistScreen(List<HorizonRadioScreen.SearchResult> results) {
+        TestScreen screen = new TestScreen();
+        screen.setScreenSize(300, 285);
+        screen.initialize();
+        screen.selectPlaylistDiscoveryTab();
+        screen.updatePlaylistResults(results);
+        return screen;
+    }
+
     private static void deleteRecursively(File file) {
         if (file.isDirectory()) {
             File[] children = file.listFiles();
@@ -1211,7 +1278,11 @@ public class GuiLayoutTest {
         }
 
         private void selectPlaylistTab() {
-            actionPerformed(new GuiButton(2, 0, 0, "Playlist"));
+            actionPerformed(new GuiButton(2, 0, 0, "Queue"));
+        }
+
+        private void selectPlaylistDiscoveryTab() {
+            actionPerformed(new GuiButton(13, 0, 0, "Playlists"));
         }
 
         private void selectRadioTab() {
@@ -1325,6 +1396,20 @@ public class GuiLayoutTest {
             }
         }
 
+        private GuiTextField playlistUrlField() {
+            try {
+                java.lang.reflect.Field field = HorizonRadioScreen.class.getDeclaredField("playlistUrlField");
+                field.setAccessible(true);
+                return (GuiTextField) field.get(this);
+            } catch (ReflectiveOperationException exception) {
+                throw new AssertionError("Playlist URL field was not initialized", exception);
+            }
+        }
+
+        boolean isPlaylistDiscoveryTab() {
+            return super.isPlaylistDiscoveryTab();
+        }
+
         private List<String> searchDisplayVideoIds() {
             List<SearchResult> results = invokeDisplayedSearchResults();
             List<String> ids = new ArrayList<String>();
@@ -1387,6 +1472,7 @@ public class GuiLayoutTest {
 
     private static final class RecordingTransport implements HorizonRadioClient.ClientTransport {
 
+        private final List<String> chartSelections = new ArrayList<String>();
         private String searchQuery;
         private boolean chartsRequest;
         private boolean forceChartsRequest;
@@ -1435,6 +1521,20 @@ public class GuiLayoutTest {
         @Override
         public void sendAddChartsToPlaylist(List<HorizonRadioScreen.SearchResult> results) {
             addChartsRequest = true;
+        }
+
+        @Override
+        public void sendAddChartSelections(List<HorizonRadioClient.PlaylistSelection> selections, boolean remove) {
+            addChartsRequest = true;
+            if (remove) {
+                return;
+            }
+            if (selections == null) {
+                return;
+            }
+            for (HorizonRadioClient.PlaylistSelection selection : selections) {
+                chartSelections.add(selection.videoId + "|" + selection.durationMs);
+            }
         }
 
         @Override
