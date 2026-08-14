@@ -72,6 +72,7 @@ public final class HorizonRadioClient {
     private static HorizonRadioScreen chartRequestScreen;
     private static ClientTransport transport = new NoopClientTransport();
     private static HorizonRadioClientConfig clientConfig;
+    private static ClientFavorites clientFavorites = new ClientFavorites();
     private static AudioDownloadService clientAudioDownloadService;
     private static ClientMediaService clientMediaService;
     private static ClientMetadataCache clientMetadataCache;
@@ -731,6 +732,43 @@ public final class HorizonRadioClient {
         return cachedRadioPresentation;
     }
 
+    public static synchronized List<ClientFavorites.Song> getFavoriteSongs() {
+        return clientFavorites.getSongs();
+    }
+
+    public static synchronized List<ClientFavorites.Radio> getFavoriteRadios() {
+        return clientFavorites.getRadios();
+    }
+
+    public static synchronized boolean hasCurrentFavoriteSource() {
+        return currentSongFavorite() != null || currentRadioFavorite() != null;
+    }
+
+    public static synchronized boolean isCurrentSourceFavorite() {
+        ClientFavorites.Song song = currentSongFavorite();
+        if (song != null) {
+            return clientFavorites.isSongFavorite(song.getVideoId());
+        }
+        ClientFavorites.Radio radio = currentRadioFavorite();
+        return radio != null && clientFavorites.isRadioFavorite(radio.getStationUuid());
+    }
+
+    public static synchronized boolean toggleCurrentFavorite() {
+        ClientFavorites.Song song = currentSongFavorite();
+        if (song != null) {
+            boolean added = clientFavorites.toggleSong(song);
+            persistClientFavorites();
+            return added;
+        }
+        ClientFavorites.Radio radio = currentRadioFavorite();
+        if (radio != null) {
+            boolean added = clientFavorites.toggleRadio(radio);
+            persistClientFavorites();
+            return added;
+        }
+        return false;
+    }
+
     public static synchronized boolean hasFreshCachedCharts() {
         return !CACHED_CHARTS.isEmpty() && cachedChartsAt > 0L
             && System.currentTimeMillis() - cachedChartsAt < CHART_CACHE_TTL_MILLIS;
@@ -746,6 +784,7 @@ public final class HorizonRadioClient {
 
     static synchronized void loadClientConfig(File configDirectory) {
         clientConfig = HorizonRadioClientConfig.load(configDirectory);
+        clientFavorites = clientConfig.getFavorites();
         AudioPlayer.getInstance()
             .setVolume(clientConfig.getVolume());
     }
@@ -764,7 +803,17 @@ public final class HorizonRadioClient {
         if (clientConfig != null) {
             clientConfig.save(
                 AudioPlayer.getInstance()
-                    .getVolume());
+                    .getVolume(),
+                clientFavorites);
+        }
+    }
+
+    private static void persistClientFavorites() {
+        if (clientConfig != null) {
+            clientConfig.save(
+                AudioPlayer.getInstance()
+                    .getVolume(),
+                clientFavorites);
         }
     }
 
@@ -1263,6 +1312,7 @@ public final class HorizonRadioClient {
             return;
         }
         setLocalRadioPresentation(ClientRadioPresentation.active(generation, stationUuid, stationName, "LIVE"));
+        refreshFavoritedCurrentRadioMetadata();
     }
 
     /** Keeps local radio failures on the client and ignores stale stream callbacks. */
@@ -1372,6 +1422,51 @@ public final class HorizonRadioClient {
         cachedNowPlaying = null;
         cachedProgress = 0.0f;
         cachedPaused = false;
+    }
+
+    private static ClientFavorites.Song currentSongFavorite() {
+        if (activeTrackSourceType != MediaSourceType.YOUTUBE || activeTrackVideoId == null
+            || activeTrackVideoId.trim()
+                .length() == 0) {
+            return null;
+        }
+        SearchResult metadata = clientMetadataCache == null ? null : clientMetadataCache.getVideo(activeTrackVideoId);
+        String title = metadata == null ? cachedNowPlaying : metadata.getTitle();
+        String channel = metadata == null ? "" : metadata.getChannel();
+        String duration = metadata == null ? formatDuration(activeTrackDurationMs) : metadata.getDuration();
+        String thumbnail = metadata == null ? "" : metadata.getThumbnail();
+        return new ClientFavorites.Song(activeTrackVideoId, title, channel, duration, thumbnail);
+    }
+
+    private static ClientFavorites.Radio currentRadioFavorite() {
+        String stationUuid = null;
+        if (activeTrackSourceType == MediaSourceType.RADIO) {
+            stationUuid = activeTrackSourceId;
+        } else if (cachedRadioPresentation != null && !cachedRadioPresentation.isMusicMode()) {
+            stationUuid = cachedRadioPresentation.getStationUuid();
+        }
+        if (stationUuid == null || stationUuid.trim()
+            .length() == 0) {
+            return null;
+        }
+        String stationName = cachedRadioPresentation == null ? "" : cachedRadioPresentation.getStationName();
+        return new ClientFavorites.Radio(stationUuid, stationName);
+    }
+
+    private static void refreshFavoritedCurrentSongMetadata() {
+        ClientFavorites.Song current = currentSongFavorite();
+        if (current != null && clientFavorites.isSongFavorite(current.getVideoId())) {
+            clientFavorites.updateSong(current);
+            persistClientFavorites();
+        }
+    }
+
+    private static void refreshFavoritedCurrentRadioMetadata() {
+        ClientFavorites.Radio current = currentRadioFavorite();
+        if (current != null && clientFavorites.isRadioFavorite(current.getStationUuid())) {
+            clientFavorites.updateRadio(current);
+            persistClientFavorites();
+        }
     }
 
     private static String canonicalChartRegionCode(String value, String fallback) {
@@ -1528,6 +1623,7 @@ public final class HorizonRadioClient {
                                     && activeTrackSourceType == MediaSourceType.YOUTUBE
                                     && videoId.equals(activeTrackVideoId)) {
                                     refreshLocalFinitePresentation(System.currentTimeMillis());
+                                    refreshFavoritedCurrentSongMetadata();
                                 }
                             }
                         }
