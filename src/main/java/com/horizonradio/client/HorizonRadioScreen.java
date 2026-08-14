@@ -36,7 +36,7 @@ public class HorizonRadioScreen extends GuiScreen {
     private static final int CONTROL_BUTTON_WIDTH = 26;
     private static final int CONTROL_BUTTON_HEIGHT = 24;
     private static final int CONTROL_BUTTON_GAP = 3;
-    private static final int CONTROL_BUTTON_COUNT = 5;
+    private static final int CONTROL_BUTTON_COUNT = 6;
     private static final int CONTROL_ICON_SIZE = 16;
     private static final int CONTROL_ICON_TEXTURE_SIZE = 128;
     private static final int TAB_BUTTON_WIDTH = 60;
@@ -70,6 +70,7 @@ public class HorizonRadioScreen extends GuiScreen {
     private static final int BUTTON_SEARCH_TAB = 9;
     private static final int BUTTON_REFRESH_CHARTS = 10;
     private static final int BUTTON_RADIO_TAB = 11;
+    private static final int BUTTON_FAVORITE = 12;
     private static final int QUEUE_BUTTON_WIDTH = 20;
     private static final int QUEUE_BUTTON_HEIGHT = 18;
     private static final int QUEUE_BUTTON_COLUMN_WIDTH = 26;
@@ -152,6 +153,7 @@ public class HorizonRadioScreen extends GuiScreen {
     private ControlButton shuffleButton;
     private ControlButton previousButton;
     private ControlButton nextButton;
+    private ControlButton favoriteButton;
     private int draggedPlaylistIndex = -1;
     private PlaylistEntry draggedPlaylistEntry;
     private boolean playlistDragMoved;
@@ -358,12 +360,13 @@ public class HorizonRadioScreen extends GuiScreen {
     }
 
     private void drawSearchTab(int left, int top, int mouseX, int mouseY) {
-        boolean resultsLoading = isSearchResultsLoading();
+        boolean resultsLoading = isSearchListLoading();
+        List<SearchResult> results = displayedSearchResults();
         if (shouldDrawSearchProgressBar(resultsLoading)) {
             drawProgressBar(left, top, searchProgress);
         }
         drawResultList(
-            resultsLoading ? Collections.<SearchResult>emptyList() : searchResults,
+            resultsLoading ? Collections.<SearchResult>emptyList() : results,
             searchScrollOffset,
             left,
             top + searchListTopOffset(resultsLoading),
@@ -372,21 +375,52 @@ public class HorizonRadioScreen extends GuiScreen {
             resultsLoading ? "Searching..." : (searchError.length() > 0 ? searchError : "Search for songs above"));
     }
 
+    private List<SearchResult> displayedSearchResults() {
+        if (searchField == null) {
+            return new ArrayList<SearchResult>(searchResults);
+        }
+        if (!isEmptySearchQuery()) {
+            return new ArrayList<SearchResult>(searchResults);
+        }
+        return FavoriteResultComposer.composeSongs(HorizonRadioClient.getFavoriteSongs(), chartResults);
+    }
+
+    private List<RadioStationResult> displayedRadioResults() {
+        if (searchField == null) {
+            return new ArrayList<RadioStationResult>(radioResults);
+        }
+        if (!isEmptySearchQuery()) {
+            return new ArrayList<RadioStationResult>(radioResults);
+        }
+        return FavoriteResultComposer.composeRadios(HorizonRadioClient.getFavoriteRadios(), radioResults);
+    }
+
+    private boolean isEmptySearchQuery() {
+        return searchField == null || searchField.getText()
+            .trim()
+            .length() == 0;
+    }
+
+    private boolean isSearchListLoading() {
+        return !isEmptySearchQuery() && isSearchResultsLoading();
+    }
+
     public void drawRadioTab(int left, int top, int mouseX, int mouseY) {
         boolean resultsLoading = isRadioResultsLoading();
+        List<RadioStationResult> results = displayedRadioResults();
         if (shouldDrawProgressBar(resultsLoading)) {
             drawProgressBar(left, top, radioProgress);
         }
         int listTop = top + radioListTopOffset(resultsLoading);
-        if (resultsLoading || radioResults.isEmpty()) {
+        if (results.isEmpty()) {
             String emptyMessage = resultsLoading ? "Loading stations..."
                 : (radioError.length() > 0 ? radioError : "No radio stations available");
             drawCenteredString(fontRendererObj, emptyMessage, left + PANEL_WIDTH / 2, listTop + 20, 0xFF888888);
             return;
         }
-        for (int row = 0; row < MAX_VISIBLE_ROWS && radioScrollOffset + row < radioResults.size(); row++) {
+        for (int row = 0; row < MAX_VISIBLE_ROWS && radioScrollOffset + row < results.size(); row++) {
             int y = listTop + row * ROW_HEIGHT;
-            RadioStationResult station = radioResults.get(radioScrollOffset + row);
+            RadioStationResult station = results.get(radioScrollOffset + row);
             boolean hovered = mouseX >= left + 10 && mouseX <= left + PANEL_WIDTH - 10
                 && mouseY >= y
                 && mouseY < y + ROW_HEIGHT;
@@ -404,7 +438,7 @@ public class HorizonRadioScreen extends GuiScreen {
                 drawString(fontRendererObj, "LIVE", radioLiveLabelLeft(left), y + 8, 0xFF55FF55);
             }
         }
-        drawResultScrollbar(radioResults.size(), radioScrollOffset, left, listTop);
+        drawResultScrollbar(results.size(), radioScrollOffset, left, listTop);
     }
 
     private void drawResultList(List<SearchResult> results, int scrollOffset, int left, int listTop, int mouseX,
@@ -604,6 +638,15 @@ public class HorizonRadioScreen extends GuiScreen {
             ICON_LOOP);
         loopButton.setActive(HorizonRadioClient.isLooping());
         addButton(loopButton);
+        favoriteButton = new ControlButton(
+            BUTTON_FAVORITE,
+            controlLeft + 5 * (CONTROL_BUTTON_WIDTH + CONTROL_BUTTON_GAP),
+            controlTop,
+            CONTROL_BUTTON_WIDTH,
+            CONTROL_BUTTON_HEIGHT,
+            "\u2605");
+        addButton(favoriteButton);
+        updateFavoriteState();
     }
 
     @SuppressWarnings("unchecked")
@@ -638,6 +681,9 @@ public class HorizonRadioScreen extends GuiScreen {
         } else if (button.id == BUTTON_REFRESH_CHARTS && !isChartRefreshBusy()) {
             beginChartLoading();
             HorizonRadioClient.sendChartsRequest(chartRegionCode, true);
+        } else if (button.id == BUTTON_FAVORITE) {
+            HorizonRadioClient.toggleCurrentFavorite();
+            updateFavoriteState();
         } else if (button.id == 6) {
             if (isRadioActive()) {
                 HorizonRadioClient.sendStopRadio();
@@ -682,12 +728,13 @@ public class HorizonRadioScreen extends GuiScreen {
     @Override
     protected void mouseClicked(int mouseX, int mouseY, int button) {
         if (button == 0 && currentTab == RADIO_TAB) {
+            List<RadioStationResult> results = displayedRadioResults();
             int listTop = panelTop() + radioListTopOffset(isRadioResultsLoading());
-            if (isResultScrollbarAt(panelLeft(), listTop, radioResults.size(), mouseX, mouseY)) {
+            if (isResultScrollbarAt(panelLeft(), listTop, results.size(), mouseX, mouseY)) {
                 int trackHeight = MAX_VISIBLE_ROWS * ROW_HEIGHT - 2;
-                int thumbHeight = resultScrollbarThumbHeight(radioResults.size(), trackHeight);
+                int thumbHeight = resultScrollbarThumbHeight(results.size(), trackHeight);
                 int thumbTop = resultScrollbarThumbTop(
-                    radioResults.size(),
+                    results.size(),
                     radioScrollOffset,
                     listTop,
                     trackHeight,
@@ -698,8 +745,8 @@ public class HorizonRadioScreen extends GuiScreen {
                 return;
             }
             int row = rowAt(mouseX, mouseY, listTop);
-            if (row >= 0 && row < radioResults.size() - radioScrollOffset) {
-                HorizonRadioClient.sendSelectRadio(radioResults.get(radioScrollOffset + row).stationUuid);
+            if (row >= 0 && row < results.size() - radioScrollOffset) {
+                HorizonRadioClient.sendSelectRadio(results.get(radioScrollOffset + row).stationUuid);
                 return;
             }
         }
@@ -716,7 +763,7 @@ public class HorizonRadioScreen extends GuiScreen {
                 }
                 return;
             }
-            List<SearchResult> results = charts ? chartResults : searchResults;
+            List<SearchResult> results = charts ? chartResults : displayedSearchResults();
             int scrollOffset = charts ? chartScrollOffset : searchScrollOffset;
             if (isResultScrollbarAt(panelLeft(), resultListTop(panelTop()), results.size(), mouseX, mouseY)) {
                 int trackHeight = MAX_VISIBLE_ROWS * ROW_HEIGHT - 2;
@@ -818,9 +865,9 @@ public class HorizonRadioScreen extends GuiScreen {
             if (currentTab == CHARTS_TAB) {
                 chartScrollOffset = scroll(chartScrollOffset, chartResults.size(), wheel);
             } else if (currentTab == SEARCH_TAB) {
-                searchScrollOffset = scroll(searchScrollOffset, searchResults.size(), wheel);
+                searchScrollOffset = scroll(searchScrollOffset, displayedSearchResults().size(), wheel);
             } else if (currentTab == RADIO_TAB) {
-                radioScrollOffset = scroll(radioScrollOffset, radioResults.size(), wheel);
+                radioScrollOffset = scroll(radioScrollOffset, displayedRadioResults().size(), wheel);
             } else {
                 playlistScrollOffset = scroll(playlistScrollOffset, playlist.size(), wheel);
             }
@@ -913,6 +960,11 @@ public class HorizonRadioScreen extends GuiScreen {
         if (query.length() == 0) {
             if (currentTab == RADIO_TAB) {
                 requestRadioSearch(query);
+            } else if (currentTab == SEARCH_TAB) {
+                searchError = "";
+                searchLoading = false;
+                searchResultsRevealPending = false;
+                searchScrollOffset = 0;
             } else {
                 openCharts();
             }
@@ -1286,12 +1338,14 @@ public class HorizonRadioScreen extends GuiScreen {
         if (!seeking) {
             playbackProgress = Math.max(0.0f, Math.min(1.0f, progress));
         }
+        updateFavoriteState();
     }
 
     public void updatePlaybackPaused(boolean paused) {
         if (playbackButton != null && !isRadioActive()) {
             playbackButton.setIcon(paused ? ICON_PLAY : ICON_PAUSE);
         }
+        updateFavoriteState();
     }
 
     public void updateLooping(boolean looping) {
@@ -1303,6 +1357,13 @@ public class HorizonRadioScreen extends GuiScreen {
     public void updateShuffling(boolean shuffling) {
         if (shuffleButton != null) {
             shuffleButton.setActive(shuffling);
+        }
+    }
+
+    void updateFavoriteState() {
+        if (favoriteButton != null) {
+            favoriteButton.enabled = HorizonRadioClient.hasCurrentFavoriteSource();
+            favoriteButton.setActive(HorizonRadioClient.isCurrentSourceFavorite());
         }
     }
 
@@ -1511,11 +1572,11 @@ public class HorizonRadioScreen extends GuiScreen {
             resultCount = chartResults.size();
             listTop = resultListTop(panelTop());
         } else if (currentTab == SEARCH_TAB) {
-            resultCount = searchResults.size();
+            resultCount = displayedSearchResults().size();
             listTop = resultListTop(panelTop());
         } else if (currentTab == RADIO_TAB) {
-            resultCount = radioResults.size();
-            listTop = panelTop() + radioListTopOffset(radioLoading);
+            resultCount = displayedRadioResults().size();
+            listTop = panelTop() + radioListTopOffset(isRadioResultsLoading());
         } else {
             resultCount = playlist.size();
             listTop = playlistListTop(panelTop());
@@ -1560,6 +1621,7 @@ public class HorizonRadioScreen extends GuiScreen {
         private ResourceLocation iconTexture;
         private boolean active;
         private final int borderColor;
+        private final String label;
 
         private ControlButton(int id, int x, int y, int width, int height, ResourceLocation iconTexture) {
             this(id, x, y, width, height, iconTexture, 0xFF111111);
@@ -1570,6 +1632,14 @@ public class HorizonRadioScreen extends GuiScreen {
             super(id, x, y, width, height, "");
             this.iconTexture = iconTexture;
             this.borderColor = borderColor;
+            this.label = "";
+        }
+
+        private ControlButton(int id, int x, int y, int width, int height, String label) {
+            super(id, x, y, width, height, "");
+            this.iconTexture = null;
+            this.borderColor = 0xFF111111;
+            this.label = label == null ? "" : label;
         }
 
         private void setIcon(ResourceLocation iconTexture) {
@@ -1595,13 +1665,22 @@ public class HorizonRadioScreen extends GuiScreen {
             drawRect(xPosition + 1, yPosition + 1, xPosition + width - 1, yPosition + height - 1, outer);
             drawRect(xPosition + 3, yPosition + 3, xPosition + width - 3, yPosition + height - 4, inner);
             drawRect(xPosition + 2, yPosition + 2, xPosition + width - 2, yPosition + 3, 0xFF9A9A9A);
-            minecraft.getTextureManager()
-                .bindTexture(iconTexture);
             if (enabled) {
                 GL11.glColor4f(1.0F, 1.0F, 1.0F, 1.0F);
             } else {
                 GL11.glColor4f(0.5F, 0.5F, 0.5F, 1.0F);
             }
+            if (iconTexture == null) {
+                drawCenteredString(
+                    minecraft.fontRenderer,
+                    label,
+                    xPosition + width / 2,
+                    yPosition + (height - 8) / 2 + 1,
+                    0xFFFFFFFF);
+                return;
+            }
+            minecraft.getTextureManager()
+                .bindTexture(iconTexture);
             Gui.func_152125_a(
                 xPosition + (width - CONTROL_ICON_SIZE) / 2,
                 yPosition + (height - CONTROL_ICON_SIZE) / 2,
@@ -1750,11 +1829,16 @@ public class HorizonRadioScreen extends GuiScreen {
         setVisible(playbackButton, true);
         setVisible(nextButton, true);
         setVisible(loopButton, true);
+        setVisible(favoriteButton, true);
         setEnabled(shuffleButton, !controlsLocked);
         setEnabled(previousButton, !controlsLocked);
         setEnabled(playbackButton, true);
         setEnabled(nextButton, !controlsLocked);
         setEnabled(loopButton, !controlsLocked);
+        setEnabled(favoriteButton, HorizonRadioClient.hasCurrentFavoriteSource());
+        if (favoriteButton != null) {
+            favoriteButton.setActive(HorizonRadioClient.isCurrentSourceFavorite());
+        }
         if (playbackButton != null) {
             playbackButton
                 .setIcon(radioActive || !canResumeRadio() && !HorizonRadioClient.isPaused() ? ICON_PAUSE : ICON_PLAY);
@@ -1885,7 +1969,7 @@ public class HorizonRadioScreen extends GuiScreen {
     }
 
     private int resultListTop(int top) {
-        return currentTab == SEARCH_TAB ? top + searchListTopOffset(isSearchResultsLoading())
+        return currentTab == SEARCH_TAB ? top + searchListTopOffset(isSearchListLoading())
             : top + CONTENT_LIST_TOP_OFFSET;
     }
 

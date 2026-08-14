@@ -17,6 +17,7 @@ import java.nio.charset.Charset;
 import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 
 import javax.imageio.ImageIO;
@@ -27,6 +28,8 @@ import net.minecraft.client.gui.GuiTextField;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
+
+import com.horizonradio.network.packets.TrackSyncPacket;
 
 public class GuiLayoutTest {
 
@@ -864,6 +867,72 @@ public class GuiLayoutTest {
     }
 
     @Test
+    public void favoriteControlIsDisabledWithoutCurrentSource() {
+        TestScreen screen = new TestScreen();
+        screen.setScreenSize(300, 285);
+        screen.initialize();
+
+        assertTrue(screen.controlButton(12).visible);
+        assertFalse(screen.controlButton(12).enabled);
+    }
+
+    @Test
+    public void emptySearchShowsFavoritesBeforeCachedChartsButChartsTabRemainsRaw() {
+        HorizonRadioClient.handleTrackSync(TrackSyncPacket.youtube(5L, "favorite", 0L, 0L, true));
+        HorizonRadioClient.toggleCurrentFavorite();
+        TestScreen screen = new TestScreen();
+        screen.setScreenSize(300, 285);
+        screen.initialize();
+        screen.updateChartResults(
+            Collections.singletonList(new HorizonRadioScreen.SearchResult("chart", "Chart", "", "3:00", "")));
+        screen.selectSearchTab();
+
+        assertEquals(Arrays.asList("favorite", "chart"), screen.searchDisplayVideoIds());
+        screen.selectChartsTab();
+        assertEquals(Collections.singletonList("chart"), screen.chartResultsSnapshotVideoIds());
+    }
+
+    @Test
+    public void nonEmptySearchShowsOnlySearchResults() {
+        TestScreen screen = new TestScreen();
+        screen.setScreenSize(300, 285);
+        screen.initialize();
+        screen.selectSearchTab();
+        screen.setSearchText("new query");
+        screen.updateSearchResults(singleResult());
+
+        assertEquals(Collections.singletonList("video"), screen.searchDisplayVideoIds());
+    }
+
+    @Test
+    public void emptyRadioSearchShowsFavoritesBeforePopularStations() {
+        HorizonRadioClient.handleTrackSync(TrackSyncPacket.radio(5L, "favorite-radio"));
+        HorizonRadioClient.toggleCurrentFavorite();
+        TestScreen screen = new TestScreen();
+        screen.setScreenSize(300, 285);
+        screen.initialize();
+        screen.selectRadioTab();
+        screen.updateRadioResults(
+            Collections.singletonList(new HorizonRadioScreen.RadioStationResult("popular-radio", "Popular")));
+
+        assertEquals(Arrays.asList("favorite-radio", "popular-radio"), screen.radioDisplayStationUuids());
+    }
+
+    @Test
+    public void favoriteControlRemovesCurrentFavorite() {
+        HorizonRadioClient.handleTrackSync(TrackSyncPacket.youtube(5L, "favorite", 0L, 0L, true));
+        HorizonRadioClient.toggleCurrentFavorite();
+        TestScreen screen = new TestScreen();
+        screen.setScreenSize(300, 285);
+        screen.initialize();
+
+        screen.invokeFavoriteAction();
+
+        assertTrue(HorizonRadioClient.getFavoriteSongs().isEmpty());
+        assertFalse(HorizonRadioClient.isCurrentSourceFavorite());
+    }
+
+    @Test
     public void pausedRadioDoesNotReplaceCurrentlyPlayingMusic() {
         HorizonRadioClient.updateNowPlaying("Song", 0.5f);
         HorizonRadioClient
@@ -977,7 +1046,7 @@ public class GuiLayoutTest {
         assertTrue(screen.contains("formatTime"));
         assertTrue(screen.contains("currentDuration"));
         assertTrue(screen.contains("addControlButtons"));
-        assertTrue(screen.contains("CONTROL_BUTTON_COUNT = 5"));
+        assertTrue(screen.contains("CONTROL_BUTTON_COUNT = 6"));
         assertTrue(screen.contains("textures/gui/Shuffle.png"));
         assertTrue(screen.contains("textures/gui/Previous.png"));
         assertTrue(screen.contains("textures/gui/Play.png"));
@@ -1106,6 +1175,10 @@ public class GuiLayoutTest {
             actionPerformed(new GuiButton(9, 0, 0, "Search"));
         }
 
+        private void selectChartsTab() {
+            actionPerformed(new GuiButton(1, 0, 0, "Charts"));
+        }
+
         private void selectPlaylistTab() {
             actionPerformed(new GuiButton(2, 0, 0, "Playlist"));
         }
@@ -1173,6 +1246,10 @@ public class GuiLayoutTest {
             actionPerformed(new GuiButton(6, 0, 0, "Playback"));
         }
 
+        private void invokeFavoriteAction() {
+            actionPerformed(new GuiButton(12, 0, 0, "Favorite"));
+        }
+
         private void invokeRefreshAction() {
             actionPerformed(refreshButton());
         }
@@ -1214,6 +1291,56 @@ public class GuiLayoutTest {
                 return (GuiTextField) field.get(this);
             } catch (ReflectiveOperationException exception) {
                 throw new AssertionError("Search field was not initialized", exception);
+            }
+        }
+
+        private List<String> searchDisplayVideoIds() {
+            List<SearchResult> results = invokeDisplayedSearchResults();
+            List<String> ids = new ArrayList<String>();
+            for (SearchResult result : results) {
+                ids.add(result.videoId);
+            }
+            return ids;
+        }
+
+        private List<String> chartResultsSnapshotVideoIds() {
+            List<String> ids = new ArrayList<String>();
+            for (SearchResult result : chartResultsSnapshot()) {
+                ids.add(result.videoId);
+            }
+            return ids;
+        }
+
+        private List<String> radioDisplayStationUuids() {
+            List<RadioStationResult> results = invokeDisplayedRadioResults();
+            List<String> ids = new ArrayList<String>();
+            for (RadioStationResult result : results) {
+                ids.add(result.stationUuid);
+            }
+            return ids;
+        }
+
+        @SuppressWarnings("unchecked")
+        private List<SearchResult> invokeDisplayedSearchResults() {
+            try {
+                java.lang.reflect.Method method = HorizonRadioScreen.class
+                    .getDeclaredMethod("displayedSearchResults");
+                method.setAccessible(true);
+                return (List<SearchResult>) method.invoke(this);
+            } catch (ReflectiveOperationException exception) {
+                throw new AssertionError("Displayed search results were not available", exception);
+            }
+        }
+
+        @SuppressWarnings("unchecked")
+        private List<RadioStationResult> invokeDisplayedRadioResults() {
+            try {
+                java.lang.reflect.Method method = HorizonRadioScreen.class
+                    .getDeclaredMethod("displayedRadioResults");
+                method.setAccessible(true);
+                return (List<RadioStationResult>) method.invoke(this);
+            } catch (ReflectiveOperationException exception) {
+                throw new AssertionError("Displayed radio results were not available", exception);
             }
         }
 
