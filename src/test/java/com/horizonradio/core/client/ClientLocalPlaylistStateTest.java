@@ -62,6 +62,33 @@ public class ClientLocalPlaylistStateTest {
     }
 
     @Test
+    public void replayingTheActiveEntryPreservesFollowingQueuedEntries() {
+        ClientLocalPlaylistState state = new ClientLocalPlaylistState(3);
+        PlaylistEntry current = PlaylistEntry.youtube("current", 1_000L, "Private");
+        PlaylistEntry following = PlaylistEntry.youtube("following", 1_000L, "Private");
+        state.add(current);
+        state.add(following);
+        state.startFiniteTrack(0, 100L);
+
+        assertEquals(current, state.prepareImmediatePlayback(current));
+
+        assertEquals(Arrays.asList(current, following), state.snapshot());
+        assertEquals(-1, state.getCurrentIndex());
+        assertFalse(state.isPlaying());
+        assertNull(state.takeLastTrack());
+    }
+
+    @Test
+    public void zeroCapacitySafelyRejectsImmediateFiniteAndRadioSelection() {
+        ClientLocalPlaylistState state = new ClientLocalPlaylistState(0);
+
+        assertNull(state.prepareImmediatePlayback(PlaylistEntry.youtube("finite", 1_000L, "Private")));
+        assertFalse(state.selectRadioAtFront(PlaylistEntry.radio("station", "Private")));
+        assertTrue(state.snapshot().isEmpty());
+        assertEquals(-1, state.getCurrentIndex());
+    }
+
+    @Test
     public void queuedMovesCannotMoveTheActiveEntry() {
         ClientLocalPlaylistState state = new ClientLocalPlaylistState(5);
         PlaylistEntry current = PlaylistEntry.youtube("current", 1_000L, "Private");

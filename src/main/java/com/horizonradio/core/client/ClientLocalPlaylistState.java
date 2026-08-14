@@ -115,17 +115,18 @@ public final class ClientLocalPlaylistState {
     }
 
     public PlaylistEntry prepareImmediatePlayback(PlaylistEntry requested) {
-        if (!isValidEntry(requested)) {
+        if (!isValidEntry(requested) || maxPlaylistSize == 0) {
             return null;
         }
 
         int selectedIndex = findIndex(requested.getSourceType(), requested.getSourceId());
+        boolean selectedCurrent = selectedIndex == currentIndex;
         PlaylistEntry selected = selectedIndex >= 0 ? playlist.remove(selectedIndex) : requested;
         if (selectedIndex >= 0 && selectedIndex < currentIndex) {
             currentIndex--;
         }
 
-        if (currentIndex >= 0 && currentIndex < playlist.size()) {
+        if (!selectedCurrent && currentIndex >= 0 && currentIndex < playlist.size()) {
             PlaylistEntry interrupted = playlist.remove(currentIndex);
             if (interrupted.isFinite() && interrupted != selected) {
                 lastTrack = interrupted;
@@ -138,7 +139,7 @@ public final class ClientLocalPlaylistState {
     }
 
     public boolean selectRadioAtFront(PlaylistEntry station) {
-        if (station == null || !station.isRadio()) {
+        if (station == null || !station.isRadio() || maxPlaylistSize == 0) {
             return false;
         }
 
