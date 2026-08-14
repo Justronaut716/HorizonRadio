@@ -5,6 +5,7 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
+import java.lang.reflect.Field;
 import java.util.Arrays;
 import java.util.List;
 
@@ -12,6 +13,7 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
+import com.horizonradio.core.client.ClientLocalPlaylistState;
 import com.horizonradio.core.model.MediaSourceType;
 import com.horizonradio.network.packets.PlaylistSyncPacket;
 import com.horizonradio.network.packets.TrackSyncPacket;
@@ -134,6 +136,37 @@ public class HorizonRadioClientModeTest {
     }
 
     @Test
+    public void privateSkipRemovesTheCurrentEntryAndPreparesTheFollowingEntryWithoutTransport() {
+        HorizonRadioClient.setPlaybackMode(PlaybackMode.PRIVATE);
+        HorizonRadioClient.sendAdd("one", 120_000L);
+        HorizonRadioClient.sendAdd("two", 120_000L);
+        HorizonRadioClient.sendPlayNow("one", 120_000L);
+        localQueue().startFiniteTrack(0, 1_000L);
+
+        HorizonRadioClient.sendSkipTrack();
+
+        assertEquals(Arrays.asList("two"), playlistSourceIds());
+        assertNull(localQueue().getCurrentEntry());
+        assertEquals(0, transport.totalPacketCount());
+    }
+
+    @Test
+    public void privatePreviousSelectsTheLastSkippedEntryWithoutTransport() {
+        HorizonRadioClient.setPlaybackMode(PlaybackMode.PRIVATE);
+        HorizonRadioClient.sendAdd("one", 120_000L);
+        HorizonRadioClient.sendAdd("two", 120_000L);
+        HorizonRadioClient.sendPlayNow("one", 120_000L);
+        localQueue().startFiniteTrack(0, 1_000L);
+        HorizonRadioClient.sendSkipTrack();
+
+        HorizonRadioClient.sendPreviousTrack();
+
+        assertEquals(Arrays.asList("one", "two"), playlistSourceIds());
+        assertNull(localQueue().getCurrentEntry());
+        assertEquals(0, transport.totalPacketCount());
+    }
+
+    @Test
     public void privateAudioCompletionGuardRequiresMatchingPrivateGenerationAndVideo() {
         assertTrue(
             HorizonRadioClient.shouldAcceptPrivateAudioCompletion(
@@ -171,6 +204,24 @@ public class HorizonRadioClientModeTest {
             false,
             false,
             Arrays.asList(new PlaylistSyncPacket.Entry(MediaSourceType.YOUTUBE, videoId, "Server")));
+    }
+
+    private static ClientLocalPlaylistState localQueue() {
+        try {
+            Field field = HorizonRadioClient.class.getDeclaredField("LOCAL_QUEUE");
+            field.setAccessible(true);
+            return (ClientLocalPlaylistState) field.get(null);
+        } catch (ReflectiveOperationException exception) {
+            throw new AssertionError(exception);
+        }
+    }
+
+    private static List<String> playlistSourceIds() {
+        List<String> sourceIds = new java.util.ArrayList<String>();
+        for (HorizonRadioScreen.PlaylistEntry entry : HorizonRadioClient.getCachedPlaylist()) {
+            sourceIds.add(entry.sourceId);
+        }
+        return sourceIds;
     }
 
     private static final class RecordingTransport implements HorizonRadioClient.ClientTransport {

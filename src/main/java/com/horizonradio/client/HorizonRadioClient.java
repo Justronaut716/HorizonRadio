@@ -839,6 +839,19 @@ public final class HorizonRadioClient {
 
     public static synchronized void sendSkipTrack() {
         if (playbackMode == PlaybackMode.PRIVATE) {
+            int currentIndex = LOCAL_QUEUE.getCurrentIndex();
+            PlaylistEntry removed = LOCAL_QUEUE.removeCurrent();
+            if (removed == null && LOCAL_QUEUE.size() > 0) {
+                currentIndex = 0;
+                PlaylistEntry prepared = LOCAL_QUEUE.get(0);
+                if (LOCAL_QUEUE.remove(prepared.getSourceType(), prepared.getSourceId()) >= 0) {
+                    removed = prepared;
+                }
+            }
+            if (removed != null) {
+                preparePrivateEntryAt(currentIndex);
+                refreshCachedPlaylistFromActiveQueue();
+            }
             return;
         }
         transport.sendSkipTrack();
@@ -846,6 +859,26 @@ public final class HorizonRadioClient {
 
     public static synchronized void sendPreviousTrack() {
         if (playbackMode == PlaybackMode.PRIVATE) {
+            PlaylistEntry current = LOCAL_QUEUE.getCurrentEntry();
+            if (current != null && current.isFinite()) {
+                long positionMs = LOCAL_QUEUE.currentPositionMs(System.currentTimeMillis());
+                if (!LOCAL_QUEUE.wasPreviousRestarted() || positionMs > 10_000L) {
+                    LOCAL_QUEUE.markPreviousRestarted();
+                    if (LOCAL_QUEUE.seek(0L, System.currentTimeMillis()) >= 0L) {
+                        refreshCachedPlaylistFromActiveQueue();
+                    }
+                    return;
+                }
+            }
+
+            PlaylistEntry previous = LOCAL_QUEUE.takeLastTrack();
+            if (previous != null && previous.isFinite()
+                && LOCAL_QUEUE.prepareImmediatePlayback(previous) != null) {
+                refreshCachedPlaylistFromActiveQueue();
+            } else if (current != null && current.isFinite()
+                && LOCAL_QUEUE.seek(0L, System.currentTimeMillis()) >= 0L) {
+                refreshCachedPlaylistFromActiveQueue();
+            }
             return;
         }
         transport.sendPreviousTrack();
@@ -2401,6 +2434,13 @@ public final class HorizonRadioClient {
             return;
         }
         transport.sendPlayNow(selection.videoId, selection.durationMs);
+    }
+
+    private static PlaylistEntry preparePrivateEntryAt(int index) {
+        if (index < 0 || index >= LOCAL_QUEUE.size()) {
+            return null;
+        }
+        return LOCAL_QUEUE.prepareImmediatePlayback(LOCAL_QUEUE.get(index));
     }
 
     private static void applyPrivateSelections(List<PlaylistSelection> selections, boolean remove) {
