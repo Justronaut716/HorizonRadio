@@ -102,13 +102,18 @@ public class PlaylistStateTest {
         state.add(PlaylistEntry.youtube("oldest", 1_000L, "Alice"));
         state.add(PlaylistEntry.youtube("queued", 1_000L, "Bob"));
 
-        PlaylistEntry selected = state.prepareImmediatePlayback(
-            PlaylistEntry.youtube("direct", 1_000L, "Carol"));
+        PlaylistEntry selected = state.prepareImmediatePlayback(PlaylistEntry.youtube("direct", 1_000L, "Carol"));
 
         assertEquals("direct", selected.getSourceId());
         assertEquals(2, state.size());
-        assertEquals("direct", state.get(0).getSourceId());
-        assertEquals("queued", state.get(1).getSourceId());
+        assertEquals(
+            "direct",
+            state.get(0)
+                .getSourceId());
+        assertEquals(
+            "queued",
+            state.get(1)
+                .getSourceId());
     }
 
     @Test
@@ -122,9 +127,18 @@ public class PlaylistStateTest {
         assertTrue(state.selectRadioAtFront(station));
 
         assertEquals(2, state.size());
-        assertEquals(MediaSourceType.RADIO, state.get(0).getSourceType());
-        assertEquals("station", state.get(0).getSourceId());
-        assertEquals("queued", state.get(1).getSourceId());
+        assertEquals(
+            MediaSourceType.RADIO,
+            state.get(0)
+                .getSourceType());
+        assertEquals(
+            "station",
+            state.get(0)
+                .getSourceId());
+        assertEquals(
+            "queued",
+            state.get(1)
+                .getSourceId());
         assertEquals(0, state.getCurrentIndex());
     }
 
@@ -135,7 +149,10 @@ public class PlaylistStateTest {
 
         assertFalse(state.add(PlaylistEntry.youtube("rejected", 1_000L, "Bob")));
         assertEquals(1, state.size());
-        assertEquals("existing", state.get(0).getSourceId());
+        assertEquals(
+            "existing",
+            state.get(0)
+                .getSourceId());
     }
 
     @Test
