@@ -107,10 +107,13 @@ public class PlaylistManagerTest {
             for (int index = 1; index < 50; index++) {
                 manager.handleAddToPlaylist(player, String.format("%011d", index), 60_000L);
             }
+            state(manager).stopPlayback();
+            assertEquals(-1, state(manager).getCurrentIndex());
 
             manager.handlePlayNow(player, SECOND_VIDEO_ID, 60_000L);
 
             assertEquals(50, playlist(manager).size());
+            assertEquals(0, state(manager).getCurrentIndex());
             assertEquals(SECOND_VIDEO_ID, current(manager).getSourceId());
             assertEquals(
                 SECOND_VIDEO_ID,
