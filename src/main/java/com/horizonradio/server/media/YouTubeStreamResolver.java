@@ -110,8 +110,7 @@ public final class YouTubeStreamResolver {
     }
 
     public YouTubeMediaModels.ResolvedAudioStream resolveAudio(String videoId) throws IOException {
-        return resolveAudioCandidates(videoId)
-            .getPrimaryCandidates()
+        return resolveAudioCandidates(videoId).getPrimaryCandidates()
             .get(0);
     }
 
@@ -142,9 +141,7 @@ public final class YouTubeStreamResolver {
             androidFailure = exception;
         }
         try {
-            return new ResolvedAudioCandidates(
-                resolveAudioWithClient(safeVideoId, visitorData, IOS_CLIENT),
-                null);
+            return new ResolvedAudioCandidates(resolveAudioWithClient(safeVideoId, visitorData, IOS_CLIENT), null);
         } catch (IOException fallbackFailure) {
             fallbackFailure.addSuppressed(androidFailure);
             if (visitorFailure != null) fallbackFailure.addSuppressed(visitorFailure);
@@ -593,8 +590,8 @@ public final class YouTubeStreamResolver {
             if (primaryCandidates == null || primaryCandidates.isEmpty()) {
                 throw new IllegalArgumentException("At least one audio candidate is required");
             }
-            this.primaryCandidates = Collections.unmodifiableList(
-                new ArrayList<YouTubeMediaModels.ResolvedAudioStream>(primaryCandidates));
+            this.primaryCandidates = Collections
+                .unmodifiableList(new ArrayList<YouTubeMediaModels.ResolvedAudioStream>(primaryCandidates));
             this.alternativeResolver = alternativeResolver;
         }
 
@@ -608,9 +605,9 @@ public final class YouTubeStreamResolver {
             alternativeResolved = true;
             if (alternativeResolver == null) return alternativeCandidates;
             List<YouTubeMediaModels.ResolvedAudioStream> resolved = alternativeResolver.resolve();
-            alternativeCandidates = resolved == null || resolved.isEmpty() ? Collections
-                .<YouTubeMediaModels.ResolvedAudioStream>emptyList() : Collections.unmodifiableList(
-                    new ArrayList<YouTubeMediaModels.ResolvedAudioStream>(resolved));
+            alternativeCandidates = resolved == null || resolved.isEmpty()
+                ? Collections.<YouTubeMediaModels.ResolvedAudioStream>emptyList()
+                : Collections.unmodifiableList(new ArrayList<YouTubeMediaModels.ResolvedAudioStream>(resolved));
             return alternativeCandidates;
         }
     }

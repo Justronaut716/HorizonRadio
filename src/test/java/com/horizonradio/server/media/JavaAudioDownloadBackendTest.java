@@ -8,6 +8,7 @@ import static org.junit.Assert.fail;
 import java.io.ByteArrayInputStream;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
@@ -35,6 +36,85 @@ public class JavaAudioDownloadBackendTest {
             assertEquals("RIFF", new String(output, 0, 4, StandardCharsets.US_ASCII));
             assertEquals(52, output.length);
             assertTrue(http.audioRequests == 1);
+        } finally {
+            Files.deleteIfExists(destination);
+            Files.deleteIfExists(directory);
+        }
+    }
+
+    @Test
+    public void fallsBackAfterFragmentedM4aRejectionAndPublishesOnlyTheUsableCandidate() throws Exception {
+        CandidateFallbackHttp http = new CandidateFallbackHttp(
+            playerResponse(
+                "https://r1.googlevideo.com/fragmented?expire=2000000000",
+                "https://r2.googlevideo.com/fallback?expire=2000000000"),
+            null);
+        JavaAudioDownloadBackend backend = new JavaAudioDownloadBackend(
+            new YouTubeStreamResolver(http, new AudioDecoderRegistry(), () -> 1000000L),
+            http,
+            new AudioDecoderRegistry(),
+            1024L);
+        Path directory = Files.createTempDirectory("horizonradio-download-candidate-fallback");
+        Path destination = directory.resolve("dQw4w9WgXcQ.wav");
+        try {
+            assertEquals(destination, backend.download("dQw4w9WgXcQ", destination, () -> false));
+            assertEquals(1, http.playerRequests);
+            assertEquals(2, http.audioRequests);
+            assertEquals(52L, Files.size(destination));
+            assertOnlyDestination(directory, destination);
+        } finally {
+            Files.deleteIfExists(destination);
+            Files.deleteIfExists(directory);
+        }
+    }
+
+    @Test
+    public void triesTheLazyAlternativeProfileAfterAllPrimaryMediaCandidatesFail() throws Exception {
+        CandidateFallbackHttp http = new CandidateFallbackHttp(
+            playerResponse("https://r1.googlevideo.com/fragmented?expire=2000000000", null),
+            wavPlayerResponse("https://r2.googlevideo.com/fallback?expire=2000000000"));
+        JavaAudioDownloadBackend backend = new JavaAudioDownloadBackend(
+            new YouTubeStreamResolver(http, new AudioDecoderRegistry(), () -> 1000000L),
+            http,
+            new AudioDecoderRegistry(),
+            1024L);
+        Path directory = Files.createTempDirectory("horizonradio-download-profile-fallback");
+        Path destination = directory.resolve("dQw4w9WgXcQ.wav");
+        try {
+            assertEquals(destination, backend.download("dQw4w9WgXcQ", destination, () -> false));
+            assertEquals(2, http.playerRequests);
+            assertEquals(2, http.audioRequests);
+            assertOnlyDestination(directory, destination);
+        } finally {
+            Files.deleteIfExists(destination);
+            Files.deleteIfExists(directory);
+        }
+    }
+
+    @Test
+    public void reportsFiniteCandidateFailureWithoutPublishingPartialOutput() throws Exception {
+        CandidateFallbackHttp http = new CandidateFallbackHttp(
+            playerResponse(
+                "https://r1.googlevideo.com/fragmented-one?expire=2000000000",
+                "https://r2.googlevideo.com/fragmented-two?expire=2000000000"),
+            null);
+        JavaAudioDownloadBackend backend = new JavaAudioDownloadBackend(
+            new YouTubeStreamResolver(http, new AudioDecoderRegistry(), () -> 1000000L),
+            http,
+            new AudioDecoderRegistry(),
+            1024L);
+        Path directory = Files.createTempDirectory("horizonradio-download-candidate-failure");
+        Path destination = directory.resolve("dQw4w9WgXcQ.wav");
+        try {
+            try {
+                backend.download("dQw4w9WgXcQ", destination, () -> false);
+                fail("all unusable candidates should fail the download");
+            } catch (MediaException exception) {
+                assertTrue(exception.getSuppressed().length >= 2);
+            }
+            assertEquals(2, http.audioRequests);
+            assertFalse(Files.exists(destination));
+            assertDirectoryEmpty(directory);
         } finally {
             Files.deleteIfExists(destination);
             Files.deleteIfExists(directory);
@@ -231,6 +311,74 @@ public class JavaAudioDownloadBackendTest {
         }
     }
 
+    private static void assertOnlyDestination(Path directory, Path destination) throws Exception {
+        try (DirectoryStream<Path> files = Files.newDirectoryStream(directory)) {
+            int count = 0;
+            for (Path file : files) {
+                count++;
+                assertEquals(destination.getFileName(), file.getFileName());
+            }
+            assertEquals(1, count);
+        }
+    }
+
+    private static void assertDirectoryEmpty(Path directory) throws Exception {
+        try (DirectoryStream<Path> files = Files.newDirectoryStream(directory)) {
+            assertFalse(
+                files.iterator()
+                    .hasNext());
+        }
+    }
+
+    private static String playerResponse(String firstUrl, String secondUrl) {
+        StringBuilder formats = new StringBuilder();
+        formats.append("{\"mimeType\":\"audio/mp4; codecs=\\\"mp4a.40.2\\\"\",\"bitrate\":128000,\"url\":\"")
+            .append(firstUrl)
+            .append("\"}");
+        if (secondUrl != null) {
+            formats.append(",")
+                .append("{\"mimeType\":\"audio/wav\",\"bitrate\":64000,\"url\":\"")
+                .append(secondUrl)
+                .append("\"}");
+        }
+        return "{\"streamingData\":{\"adaptiveFormats\":[" + formats + "]}}";
+    }
+
+    private static String wavPlayerResponse(String url) {
+        return "{\"streamingData\":{\"adaptiveFormats\":[" + "{\"mimeType\":\"audio/wav\",\"bitrate\":64000,\"url\":\""
+            + url
+            + "\"}]}}";
+    }
+
+    private static byte[] fragmentedM4a() {
+        return join(
+            box("ftyp", new byte[] { 'M', '4', 'A', ' ', 0, 0, 0, 0, 'i', 's', 'o', 'm' }),
+            box("moov", box("mvex", new byte[0])));
+    }
+
+    private static byte[] box(String type, byte[] payload) {
+        byte[] result = new byte[8 + payload.length];
+        result[0] = (byte) (result.length >>> 24);
+        result[1] = (byte) (result.length >>> 16);
+        result[2] = (byte) (result.length >>> 8);
+        result[3] = (byte) result.length;
+        for (int index = 0; index < type.length(); index++) result[4 + index] = (byte) type.charAt(index);
+        System.arraycopy(payload, 0, result, 8, payload.length);
+        return result;
+    }
+
+    private static byte[] join(byte[]... parts) {
+        int length = 0;
+        for (byte[] part : parts) length += part.length;
+        byte[] result = new byte[length];
+        int offset = 0;
+        for (byte[] part : parts) {
+            System.arraycopy(part, 0, result, offset, part.length);
+            offset += part.length;
+        }
+        return result;
+    }
+
     private static final class FakeHttp implements YouTubeMediaModels.HttpRequester {
 
         private final byte[] audio;
@@ -302,6 +450,59 @@ public class JavaAudioDownloadBackendTest {
                 "audio/wav",
                 declaredAudioLength,
                 new ByteArrayInputStream(audio));
+        }
+    }
+
+    private static final class CandidateFallbackHttp implements YouTubeMediaModels.HttpRequester {
+
+        private final byte[] androidResponse;
+        private final byte[] iosResponse;
+        private final byte[] fragmented = fragmentedM4a();
+        private final byte[] fallback = wave(new byte[] { 1, 0, 2, 0, 3, 0, 4, 0 });
+        private int playerRequests;
+        private int audioRequests;
+
+        private CandidateFallbackHttp(String androidResponse, String iosResponse) {
+            this.androidResponse = androidResponse.getBytes(StandardCharsets.UTF_8);
+            this.iosResponse = iosResponse == null ? null : iosResponse.getBytes(StandardCharsets.UTF_8);
+        }
+
+        @Override
+        public YouTubeMediaModels.HttpResponse post(URL url, Map<String, String> headers, byte[] body,
+            int timeoutMillis, long maximumBytes) {
+            playerRequests++;
+            boolean ios = new String(body, StandardCharsets.UTF_8).contains("\"clientName\":\"IOS\"");
+            byte[] response = ios && iosResponse != null ? iosResponse : androidResponse;
+            return new YouTubeMediaModels.HttpResponse(
+                url,
+                200,
+                "application/json",
+                response.length,
+                new ByteArrayInputStream(response));
+        }
+
+        @Override
+        public YouTubeMediaModels.HttpResponse get(URL url, Map<String, String> headers, int timeoutMillis,
+            long maximumBytes) {
+            if ("/watch".equals(url.getPath())) {
+                byte[] visitor = "{\"VISITOR_DATA\":\"test-visitor\"}".getBytes(StandardCharsets.UTF_8);
+                return new YouTubeMediaModels.HttpResponse(
+                    url,
+                    200,
+                    "text/html",
+                    visitor.length,
+                    new ByteArrayInputStream(visitor));
+            }
+            audioRequests++;
+            boolean fragmentedResponse = url.getPath()
+                .contains("fragmented");
+            byte[] body = fragmentedResponse ? fragmented : fallback;
+            return new YouTubeMediaModels.HttpResponse(
+                url,
+                200,
+                fragmentedResponse ? "audio/mp4" : "audio/wav",
+                body.length,
+                new ByteArrayInputStream(body));
         }
     }
 
