@@ -8,6 +8,7 @@ import java.io.ByteArrayInputStream;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 import org.junit.Test;
@@ -56,6 +57,36 @@ public class YouTubeStreamResolverTest {
             "r2.googlevideo.com",
             stream.getUrl()
                 .getHost());
+    }
+
+    @Test
+    public void exposesOrderedPrimaryCandidatesAndLazilyResolvesTheIosFallback() throws Exception {
+        FakeHttp http = new FakeHttp(
+            "{\"streamingData\":{\"adaptiveFormats\":["
+                + "{\"mimeType\":\"audio/mp4; codecs=\\\"mp4a.40.2\\\"\",\"bitrate\":128000,"
+                + "\"url\":\"https://r1.googlevideo.com/videoplayback?expire=2000\"},"
+                + "{\"mimeType\":\"audio/aac\",\"bitrate\":96000,"
+                + "\"url\":\"https://r2.googlevideo.com/videoplayback?expire=2000\"}]}}");
+        http.iosResponse = "{\"streamingData\":{\"adaptiveFormats\":["
+            + "{\"mimeType\":\"audio/webm; codecs=\\\"opus\\\"\",\"bitrate\":160000,"
+            + "\"url\":\"https://r3.googlevideo.com/videoplayback?expire=2000\"}]}}";
+        YouTubeStreamResolver resolver = new YouTubeStreamResolver(http, new AudioDecoderRegistry(), () -> 1000000L);
+
+        YouTubeStreamResolver.ResolvedAudioCandidates resolved = resolver.resolveAudioCandidates("dQw4w9WgXcQ");
+        List<YouTubeMediaModels.ResolvedAudioStream> primary = resolved.getPrimaryCandidates();
+
+        assertEquals(2, primary.size());
+        assertEquals(MediaFormat.M4A, primary.get(0).getFormat());
+        assertEquals(MediaFormat.AAC, primary.get(1).getFormat());
+        assertEquals(1, http.playerRequests);
+
+        List<YouTubeMediaModels.ResolvedAudioStream> alternative = resolved.resolveAlternativeCandidates();
+
+        assertEquals(1, alternative.size());
+        assertEquals(MediaFormat.WEBM_OPUS, alternative.get(0).getFormat());
+        assertEquals(2, http.playerRequests);
+        assertEquals(1, resolved.resolveAlternativeCandidates().size());
+        assertEquals(2, http.playerRequests);
     }
 
     @Test
