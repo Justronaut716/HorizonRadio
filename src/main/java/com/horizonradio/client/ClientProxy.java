@@ -37,6 +37,7 @@ import cpw.mods.fml.common.network.FMLNetworkEvent;
 
 public class ClientProxy extends CommonProxy {
 
+    private static final boolean CLIENT_DEBUG_CHAT_ENABLED = false;
     private static final Logger LOGGER = Logger.getLogger(ClientProxy.class.getName());
 
     interface ClientTaskScheduler {
@@ -258,6 +259,9 @@ public class ClientProxy extends CommonProxy {
     }
 
     static void sendDebugChat(String message) {
+        if (!CLIENT_DEBUG_CHAT_ENABLED) {
+            return;
+        }
         Minecraft minecraft = Minecraft.getMinecraft();
         if (minecraft == null || minecraft.thePlayer == null) {
             return;

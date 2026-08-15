@@ -42,6 +42,7 @@ public final class PlaylistManager {
 
     private static final long CLIENT_TRACK_START_DELAY_MS = 3000L;
     private static final long INITIAL_CLIENT_TRACK_START_DELAY_MS = 5000L;
+    private static final boolean SERVER_DEBUG_CHAT_ENABLED = false;
     private static final Logger LOGGER = Logger.getLogger(PlaylistManager.class.getName());
 
     interface PacketBroadcaster {
@@ -103,7 +104,7 @@ public final class PlaylistManager {
             sendChat(player, EnumChatFormatting.RED, "Invalid playlist entry.");
             return;
         }
-        sendChat(
+        sendDebugChat(
             player,
             EnumChatFormatting.GRAY,
             "[debug] AddToPlaylistPacket id=" + videoId
@@ -135,7 +136,7 @@ public final class PlaylistManager {
             sendChat(player, EnumChatFormatting.RED, "Invalid playlist entry.");
             return;
         }
-        sendChat(
+        sendDebugChat(
             player,
             EnumChatFormatting.GRAY,
             "[debug] PlayNowPacket id=" + videoId
@@ -174,7 +175,7 @@ public final class PlaylistManager {
             }
             packetIds.append(entry == null ? "null" : safe(entry.getVideoId()));
         }
-        sendChat(
+        sendDebugChat(
             player,
             EnumChatFormatting.GRAY,
             "[debug] AddChartsToPlaylistPacket remove=" + remove
@@ -455,7 +456,7 @@ public final class PlaylistManager {
             accepted++;
             broadcastDelta(PlaylistDeltaPacket.add(state.getQueueRevision(), toDeltaEntry(entry), state.size() - 1));
         }
-        sendChat(
+        sendDebugChat(
             player,
             EnumChatFormatting.GRAY,
             "[debug] Chart packet result accepted=" + accepted
@@ -713,6 +714,14 @@ public final class PlaylistManager {
     private void sendChat(EntityPlayerMP player, EnumChatFormatting color, String message) {
         LOGGER.info("HorizonRadio: " + message);
         if (serverDebugChat && server != null && player != null) {
+            player
+                .addChatMessage(new ChatComponentText(EnumChatFormatting.YELLOW + "[HorizonRadio] " + color + message));
+        }
+    }
+
+    private void sendDebugChat(EntityPlayerMP player, EnumChatFormatting color, String message) {
+        LOGGER.info("HorizonRadio: " + message);
+        if (SERVER_DEBUG_CHAT_ENABLED && serverDebugChat && server != null && player != null) {
             player
                 .addChatMessage(new ChatComponentText(EnumChatFormatting.YELLOW + "[HorizonRadio] " + color + message));
         }
