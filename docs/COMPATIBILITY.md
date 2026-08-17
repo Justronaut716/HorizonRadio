@@ -194,10 +194,13 @@ server.
 ## Embedded media and audio
 
 The client-local downloaded WAV cache is named `<videoId>.wav` below
-`config/horizonradio-audio`. Finite YouTube audio and metadata are handled by
-the embedded Java backend, while direct radio uses the same Java decoder
-pipeline and a bounded PCM relay. No separate media installation is part of
-the runtime.
+`horizonradio-audio` at the game root. The cache is session-scoped and is
+deleted in full when the client starts and when it exits. While playing it is
+pruned to the playback window: the current track, the last two finished
+tracks, and the next two queued finite tracks. Finite YouTube audio
+and metadata are handled by the embedded Java backend, while direct radio uses
+the same Java decoder pipeline and a bounded PCM relay. No separate media
+installation is part of the runtime.
 
 Java Sound is client-local and depends on an available `Clip`/audio line. A
 headless client or an unavailable `MASTER_GAIN` control is handled without

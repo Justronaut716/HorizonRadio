@@ -7,6 +7,9 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -34,6 +37,7 @@ import com.horizonradio.core.model.RadioStation;
 import com.horizonradio.network.packets.AudioChunkPacket;
 import com.horizonradio.network.packets.RadioAudioChunkPacket;
 import com.horizonradio.network.packets.RadioAudioStartPacket;
+import com.horizonradio.server.AudioDownloadService;
 
 public class RadioClientStateTest {
 
@@ -150,6 +154,22 @@ public class RadioClientStateTest {
 
         assertFalse(HorizonRadioClient.isRadioActive());
         assertEquals(Arrays.asList("Test-Minecraft-Client"), scheduler.executionThreads());
+    }
+
+    @Test
+    public void clientShutdownCleansUpTheAudioCache() throws Exception {
+        Path directory = Files.createTempDirectory("horizonradio-shutdown-cleanup");
+        RecordingAudioDownloadService service = new RecordingAudioDownloadService(directory);
+        try {
+            HorizonRadioClient.setClientAudioDownloadService(service);
+            int cleanUpsBefore = service.cleanUpCalls;
+            HorizonRadioClient.cleanUpAudioCache();
+            assertEquals(cleanUpsBefore + 1, service.cleanUpCalls);
+        } finally {
+            HorizonRadioClient.setClientAudioDownloadService(null);
+            service.shutdown();
+            Files.deleteIfExists(directory);
+        }
     }
 
     @Test
@@ -620,6 +640,20 @@ public class RadioClientStateTest {
 
         private synchronized List<String> executionThreads() {
             return new ArrayList<String>(threads);
+        }
+    }
+
+    private static final class RecordingAudioDownloadService extends AudioDownloadService {
+
+        private int cleanUpCalls;
+
+        RecordingAudioDownloadService(Path directory) throws IOException {
+            super(directory);
+        }
+
+        @Override
+        public synchronized void cleanUpCache() {
+            cleanUpCalls++;
         }
     }
 

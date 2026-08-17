@@ -24,11 +24,11 @@ public class AudioDownloadCommandTest {
     @Test
     public void returnsAnExistingWavAsACacheHitWithoutCallingTheBackend() throws Exception {
         Path directory = Files.createTempDirectory("horizonradio-service-cache");
-        Path expected = directory.resolve("dQw4w9WgXcQ.wav");
-        writeCanonicalWave(expected);
         RecordingBackend backend = new RecordingBackend();
         AudioDownloadService service = new AudioDownloadService(directory, backend);
         try {
+            Path expected = directory.resolve("dQw4w9WgXcQ.wav");
+            writeCanonicalWave(expected);
             assertEquals(
                 expected,
                 service.download("dQw4w9WgXcQ")
@@ -36,7 +36,7 @@ public class AudioDownloadCommandTest {
             assertEquals(0, backend.calls.get());
         } finally {
             service.shutdown();
-            Files.deleteIfExists(expected);
+            Files.deleteIfExists(directory.resolve("dQw4w9WgXcQ.wav"));
             Files.deleteIfExists(directory);
         }
     }

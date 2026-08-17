@@ -61,6 +61,7 @@ public final class HorizonRadioClient {
     private static final List<HorizonRadioScreen.SearchResult> CACHED_PLAYLIST_RESULTS = new ArrayList<HorizonRadioScreen.SearchResult>();
     private static final List<RadioStation> CACHED_RADIO_RESULTS = new ArrayList<RadioStation>();
     private static final long CHART_CACHE_TTL_MILLIS = 7L * 24L * 60L * 60L * 1000L;
+    private static final int AUDIO_CACHE_NEIGHBOURHOOD = 2;
     private static String cachedNowPlaying;
     private static float cachedProgress;
     private static boolean cachedPaused;
@@ -98,6 +99,7 @@ public final class HorizonRadioClient {
     private static MediaSourceType activeTrackSourceType;
     private static String activeTrackSourceId;
     private static String activeTrackVideoId;
+    private static final List<String> recentlyPlayedVideoIds = new ArrayList<String>();
     private static long activeTrackGeneration = -1L;
     private static long activeTrackPositionMs;
     private static long activeTrackStartAtMs;
@@ -417,6 +419,14 @@ public final class HorizonRadioClient {
         activeTrackPositionMs = 0L;
         activeTrackStartAtMs = 0L;
         activeTrackDurationMs = 0L;
+    }
+
+    /** Enforces the audio cache size cap when the client shuts down. */
+    static void cleanUpAudioCache() {
+        AudioDownloadService service = clientAudioDownloadService;
+        if (service != null) {
+            service.cleanUpCache();
+        }
     }
 
     static synchronized void setClientMediaService(ClientMediaService service) {
@@ -1396,6 +1406,7 @@ public final class HorizonRadioClient {
         if (packet.isStop()) {
             localPlaybackGeneration++;
             stopLocalPlayback(packet.getGeneration());
+            pruneAudioCacheToPlaybackWindow();
             return;
         }
 
@@ -1410,6 +1421,10 @@ public final class HorizonRadioClient {
             && (packet.getSourceType() != MediaSourceType.YOUTUBE || !previousVideoId.equals(activeTrackVideoId))) {
             clientAudioDownloadService.cancelDownload(previousVideoId);
         }
+        if (packet.getSourceType() == MediaSourceType.YOUTUBE) {
+            rememberRecentlyPlayedVideo(activeTrackVideoId);
+        }
+        pruneAudioCacheToPlaybackWindow();
 
         if (packet.getSourceType() == MediaSourceType.RADIO) {
             clearCachedMusicState();
@@ -1625,6 +1640,7 @@ public final class HorizonRadioClient {
         cachedRadioPresentation = null;
         CLIENT_QUEUE.reset();
         LOCAL_QUEUE.clear();
+        recentlyPlayedVideoIds.clear();
         playlistResyncRequested = false;
         pendingAddResolutionResyncRequested = false;
         pendingAddResolutions.clear();
@@ -2026,6 +2042,64 @@ public final class HorizonRadioClient {
         } catch (RuntimeException exception) {
             debugChat("Vorladen konnte nicht gestartet werden: " + videoId);
         }
+    }
+
+    /** Keeps at most the last AUDIO_CACHE_NEIGHBOURHOOD finite tracks, newest first. */
+    private static void rememberRecentlyPlayedVideo(String videoId) {
+        if (videoId == null) {
+            return;
+        }
+        recentlyPlayedVideoIds.remove(videoId);
+        recentlyPlayedVideoIds.add(0, videoId);
+        while (recentlyPlayedVideoIds.size() > AUDIO_CACHE_NEIGHBOURHOOD + 1) {
+            recentlyPlayedVideoIds.remove(recentlyPlayedVideoIds.size() - 1);
+        }
+    }
+
+    /**
+     * Prunes the local audio cache to the playback window: the current track, the last
+     * AUDIO_CACHE_NEIGHBOURHOOD finished tracks, and the next AUDIO_CACHE_NEIGHBOURHOOD queued
+     * finite tracks, so skipping or going back twice still has cached audio.
+     */
+    private static void pruneAudioCacheToPlaybackWindow() {
+        if (clientAudioDownloadService == null) {
+            return;
+        }
+        if (playbackMode != PlaybackMode.PRIVATE && CLIENT_QUEUE.isSnapshotRequired()) {
+            return;
+        }
+        List<PlaylistEntry> queue = playbackMode == PlaybackMode.PRIVATE ? LOCAL_QUEUE.snapshot()
+            : CLIENT_QUEUE.snapshot();
+        // When nothing is active (stopped playback) the most recent track still anchors the window.
+        String anchor = activeTrackVideoId;
+        if (anchor == null && !recentlyPlayedVideoIds.isEmpty()) {
+            anchor = recentlyPlayedVideoIds.get(0);
+        }
+        int currentIndex = -1;
+        if (anchor != null) {
+            for (int index = 0; index < queue.size(); index++) {
+                PlaylistEntry entry = queue.get(index);
+                if (entry != null && entry.isFinite() && anchor.equals(entry.getSourceId())) {
+                    currentIndex = index;
+                    break;
+                }
+            }
+        }
+        List<String> keep = new ArrayList<String>(recentlyPlayedVideoIds);
+        if (activeTrackSourceType == MediaSourceType.YOUTUBE && activeTrackVideoId != null
+            && !keep.contains(activeTrackVideoId)) {
+            keep.add(activeTrackVideoId);
+        }
+        int upcoming = 0;
+        for (int index = currentIndex + 1; index < queue.size() && upcoming < AUDIO_CACHE_NEIGHBOURHOOD; index++) {
+            PlaylistEntry entry = queue.get(index);
+            if (entry == null || !entry.isFinite() || keep.contains(entry.getSourceId())) {
+                continue;
+            }
+            keep.add(entry.getSourceId());
+            upcoming++;
+        }
+        clientAudioDownloadService.keepOnlyTracks(keep);
     }
 
     private static HorizonRadioScreen.PlaylistEntry toScreenPlaylistEntry(final PlaylistEntry entry) {
@@ -2565,6 +2639,8 @@ public final class HorizonRadioClient {
         activeTrackStartAtMs = paused ? 0L : clientNowMs;
         activeTrackDurationMs = entry.getDurationMs();
         cachedPaused = paused;
+        rememberRecentlyPlayedVideo(videoId);
+        pruneAudioCacheToPlaybackWindow();
         updatePrivateFinitePresentation(entry, safePositionMs);
 
         if (clientRadioPlayback != null) {
@@ -2647,6 +2723,7 @@ public final class HorizonRadioClient {
             LOCAL_QUEUE.resetPlayback();
         }
         stopLocalPlayback(generation);
+        pruneAudioCacheToPlaybackWindow();
     }
 
     private static void alignPrivateFiniteAudio(long positionMs, boolean paused) {

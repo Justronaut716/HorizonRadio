@@ -99,8 +99,9 @@ see the [`release guide`](docs/RELEASE.md).
    `-sources` outputs. This one JAR is for ordinary Forge 1.7.10 and GTNH
    Java 17+; Java 25 is only required to build it.
 3. Start the server once. HorizonRadio creates `config/horizonradio.json` defaults.
-   Finite-track WAV files are cached per client in `config/horizonradio-audio`;
-   the server-side `downloadDir` remains for configuration compatibility only.
+   Finite-track WAV files are cached per client in `horizonradio-audio` at the
+   game root (`.minecraft`); the server-side `downloadDir` remains for
+   configuration compatibility only.
 4. Keep the server and every client on the same Forge 1.7.10 port build. The
    current protocol uses the versioned `horizonradio_1_0` channel.
 
@@ -137,7 +138,11 @@ server diagnostics into Minecraft chat.
 The JSON above is the server/common configuration. Client audio settings and
 the finite-track cache are kept separately: the volume slider stores its value
 in `config/horizonradio-client.json`, while downloaded WAV files live in
-`config/horizonradio-audio` and are reused across rejoins.
+`horizonradio-audio` at the game root. The cache is session-scoped: it is
+deleted in full when the client starts and when it exits, and while playing it
+is pruned to the playback window - the current track, the last two finished
+tracks, and the next two queued tracks - so skipping or going back still finds
+cached audio.
 
 ## Use
 
