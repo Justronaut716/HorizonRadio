@@ -200,12 +200,55 @@ public class HorizonRadioClientTrackSyncTest {
                         new PlaylistSyncPacket.Entry(MediaSourceType.YOUTUBE, "dQw4w9WgXcQ", "Alice"),
                         new PlaylistSyncPacket.Entry(MediaSourceType.YOUTUBE, "aQw4w9WgXcQ", "Alice"),
                         new PlaylistSyncPacket.Entry(MediaSourceType.YOUTUBE, "bQw4w9WgXcQ", "Alice"))));
+            // Queue updates prefetch after the settle window instead of immediately.
+            HorizonRadioClient.onClientTick(System.currentTimeMillis() + 1500L);
             assertTrue(service.awaitDownload("dQw4w9WgXcQ"));
 
             HorizonRadioClient.handleTrackSync(
                 TrackSyncPacket.youtube(5L, "dQw4w9WgXcQ", 0L, System.currentTimeMillis() + 3_000L, false));
             assertTrue(service.awaitDownload("aQw4w9WgXcQ"));
             assertFalse(service.hasDownload("bQw4w9WgXcQ"));
+        } finally {
+            HorizonRadioClient.setClientAudioDownloadService(null);
+            Files.deleteIfExists(directory);
+        }
+    }
+
+    @Test
+    public void rapidQueueRemovalsCoalesceIntoASinglePrefetch() throws Exception {
+        new ClientProxy(new DirectClientTaskScheduler());
+        Path directory = Files.createTempDirectory("horizonradio-prefetch-storm-test");
+        RecordingAudioDownloadService service = new RecordingAudioDownloadService(directory);
+        HorizonRadioClient.setClientAudioDownloadService(service);
+        try {
+            long now = System.currentTimeMillis();
+            HorizonRadioClient.handlePlaylistSnapshot(
+                new PlaylistSyncPacket(
+                    6L,
+                    false,
+                    false,
+                    Arrays.asList(
+                        new PlaylistSyncPacket.Entry(MediaSourceType.YOUTUBE, "dQw4w9WgXcQ", "Alice"),
+                        new PlaylistSyncPacket.Entry(MediaSourceType.YOUTUBE, "aQw4w9WgXcQ", "Alice"),
+                        new PlaylistSyncPacket.Entry(MediaSourceType.YOUTUBE, "bQw4w9WgXcQ", "Alice"),
+                        new PlaylistSyncPacket.Entry(MediaSourceType.YOUTUBE, "cQw4w9WgXcQ", "Alice"),
+                        new PlaylistSyncPacket.Entry(MediaSourceType.YOUTUBE, "eQw4w9WgXcQ", "Alice"))));
+            HorizonRadioClient.handleTrackSync(TrackSyncPacket.youtube(5L, "dQw4w9WgXcQ", 0L, now + 3_000L, false));
+            assertTrue(service.awaitDownload("aQw4w9WgXcQ"));
+
+            // Deleting several queued tracks back to back must not start one download per deletion.
+            HorizonRadioClient.handlePlaylistDelta(PlaylistDeltaPacket.remove(7L, 1));
+            HorizonRadioClient.handlePlaylistDelta(PlaylistDeltaPacket.remove(8L, 1));
+            HorizonRadioClient.handlePlaylistDelta(PlaylistDeltaPacket.remove(9L, 1));
+
+            HorizonRadioClient.onClientTick(now + 500L);
+            assertFalse(service.hasDownload("eQw4w9WgXcQ"));
+
+            HorizonRadioClient.onClientTick(now + 1500L);
+            assertTrue(service.hasDownload("eQw4w9WgXcQ"));
+
+            HorizonRadioClient.onClientTick(now + 3_000L);
+            assertEquals(Arrays.asList("dQw4w9WgXcQ", "aQw4w9WgXcQ", "eQw4w9WgXcQ"), service.downloadIds());
         } finally {
             HorizonRadioClient.setClientAudioDownloadService(null);
             Files.deleteIfExists(directory);
@@ -357,6 +400,12 @@ public class HorizonRadioClientTrackSyncTest {
         private boolean hasDownload(String videoId) {
             synchronized (downloads) {
                 return downloads.contains(videoId);
+            }
+        }
+
+        private List<String> downloadIds() {
+            synchronized (downloads) {
+                return new java.util.ArrayList<String>(downloads);
             }
         }
     }

@@ -100,6 +100,12 @@ public final class HorizonRadioClient {
     private static String activeTrackSourceId;
     private static String activeTrackVideoId;
     private static final List<String> recentlyPlayedVideoIds = new ArrayList<String>();
+    private static final long NEXT_PREFETCH_SETTLE_MILLIS = 1000L;
+    private static final long NEXT_PREFETCH_CHANGE_COOLDOWN_MILLIS = 2000L;
+    private static String lastPrefetchedVideoId;
+    private static boolean nextPrefetchPending;
+    private static long nextPrefetchEarliestAtMs;
+    private static long lastScheduledPrefetchAtMs;
     private static long activeTrackGeneration = -1L;
     private static long activeTrackPositionMs;
     private static long activeTrackStartAtMs;
@@ -1641,6 +1647,10 @@ public final class HorizonRadioClient {
         CLIENT_QUEUE.reset();
         LOCAL_QUEUE.clear();
         recentlyPlayedVideoIds.clear();
+        lastPrefetchedVideoId = null;
+        nextPrefetchPending = false;
+        nextPrefetchEarliestAtMs = 0L;
+        lastScheduledPrefetchAtMs = 0L;
         playlistResyncRequested = false;
         pendingAddResolutionResyncRequested = false;
         pendingAddResolutions.clear();
@@ -1762,6 +1772,7 @@ public final class HorizonRadioClient {
     }
 
     static synchronized void onClientTick(long clientNowMs) {
+        processScheduledNextPrefetch(clientNowMs);
         if (playbackMode == PlaybackMode.PRIVATE) {
             advancePrivateFinitePlayback(clientNowMs);
             return;
@@ -1992,16 +2003,62 @@ public final class HorizonRadioClient {
         }
         CACHED_PLAYLIST.clear();
         CACHED_PLAYLIST.addAll(refreshed);
-        prefetchNextFiniteTrack(queue);
+        scheduleNextFinitePrefetch();
         HorizonRadioScreen screen = getOpenScreen();
         if (screen != null) {
             screen.updatePlaylist(CACHED_PLAYLIST);
         }
     }
 
+    /** Prefetches the next finite track immediately; used when a track starts. */
     private static void prefetchNextFiniteTrack(List<PlaylistEntry> queue) {
-        if (clientAudioDownloadService == null || queue == null) {
+        if (clientAudioDownloadService == null) {
             return;
+        }
+        String target = resolveNextFinitePrefetchTarget(queue);
+        if (target == null || target.equals(lastPrefetchedVideoId)) {
+            return;
+        }
+        lastPrefetchedVideoId = target;
+        requestLocalAudioDownload(target);
+    }
+
+    /**
+     * Schedules a prefetch of the next finite track after the queue changed. Rapid queue changes
+     * (for example deleting several queued tracks at once) are coalesced so only the settled
+     * target is downloaded instead of one download per change.
+     */
+    private static void scheduleNextFinitePrefetch() {
+        if (clientAudioDownloadService == null) {
+            return;
+        }
+        nextPrefetchPending = true;
+        nextPrefetchEarliestAtMs = System.currentTimeMillis() + NEXT_PREFETCH_SETTLE_MILLIS;
+    }
+
+    private static void processScheduledNextPrefetch(long nowMs) {
+        if (!nextPrefetchPending || nowMs < nextPrefetchEarliestAtMs) {
+            return;
+        }
+        List<PlaylistEntry> queue = playbackMode == PlaybackMode.PRIVATE ? LOCAL_QUEUE.snapshot()
+            : CLIENT_QUEUE.snapshot();
+        String target = resolveNextFinitePrefetchTarget(queue);
+        if (target == null || target.equals(lastPrefetchedVideoId)) {
+            nextPrefetchPending = false;
+            return;
+        }
+        if (nowMs - lastScheduledPrefetchAtMs < NEXT_PREFETCH_CHANGE_COOLDOWN_MILLIS) {
+            return;
+        }
+        nextPrefetchPending = false;
+        lastScheduledPrefetchAtMs = nowMs;
+        lastPrefetchedVideoId = target;
+        requestLocalAudioDownload(target);
+    }
+
+    private static String resolveNextFinitePrefetchTarget(List<PlaylistEntry> queue) {
+        if (queue == null) {
+            return null;
         }
         boolean currentSeen = activeTrackSourceType == null || activeTrackSourceType == MediaSourceType.RADIO;
         PlaylistEntry fallback = null;
@@ -2024,13 +2081,13 @@ public final class HorizonRadioClient {
                 .equals(activeTrackSourceId)) {
                 continue;
             }
-            requestLocalAudioDownload(entry.getSourceId());
-            return;
+            return entry.getSourceId();
         }
         if (fallback != null && (activeTrackSourceType != MediaSourceType.YOUTUBE || !fallback.getSourceId()
             .equals(activeTrackSourceId))) {
-            requestLocalAudioDownload(fallback.getSourceId());
+            return fallback.getSourceId();
         }
+        return null;
     }
 
     private static void requestLocalAudioDownload(String videoId) {

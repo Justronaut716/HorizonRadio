@@ -120,7 +120,7 @@ public class AudioDownloadService {
             public Path get() {
                 if (Files.exists(filePath)) {
                     if (isCanonicalCachedWav(filePath)) {
-                        LOGGER.info("HorizonRadio: Using cached audio for " + videoId);
+                        LOGGER.log(Level.FINE, "HorizonRadio: Using cached audio for " + videoId);
                         return filePath;
                     }
                     try {
