@@ -213,6 +213,57 @@ public class HorizonRadioClientTrackSyncTest {
     }
 
     @Test
+    public void trackChangesPruneTheCacheToCurrentPlusTwoNeighbours() throws Exception {
+        new ClientProxy(new DirectClientTaskScheduler());
+        Path directory = Files.createTempDirectory("horizonradio-window-test");
+        RecordingAudioDownloadService service = new RecordingAudioDownloadService(directory);
+        HorizonRadioClient.setClientAudioDownloadService(service);
+        Path previous = directory.resolve("bQw4w9WgXcQ.wav");
+        Path current = directory.resolve("cQw4w9WgXcQ.wav");
+        try {
+            Files.write(previous, new byte[60]);
+            Files.write(current, new byte[60]);
+            HorizonRadioClient.handlePlaylistSnapshot(
+                new PlaylistSyncPacket(
+                    0L,
+                    false,
+                    false,
+                    Arrays.asList(
+                        new PlaylistSyncPacket.Entry(MediaSourceType.YOUTUBE, "aQw4w9WgXcQ", "Alice"),
+                        new PlaylistSyncPacket.Entry(MediaSourceType.YOUTUBE, "bQw4w9WgXcQ", "Alice"),
+                        new PlaylistSyncPacket.Entry(MediaSourceType.YOUTUBE, "cQw4w9WgXcQ", "Alice"),
+                        new PlaylistSyncPacket.Entry(MediaSourceType.YOUTUBE, "dQw4w9WgXcQ", "Alice"),
+                        new PlaylistSyncPacket.Entry(MediaSourceType.YOUTUBE, "eQw4w9WgXcQ", "Alice"),
+                        new PlaylistSyncPacket.Entry(MediaSourceType.YOUTUBE, "fQw4w9WgXcQ", "Alice"))));
+
+            // Starting c keeps c itself, the last two finished tracks, and the next two queued.
+            HorizonRadioClient.handleTrackSync(
+                TrackSyncPacket.youtube(5L, "cQw4w9WgXcQ", 0L, System.currentTimeMillis() + 3_000L, false));
+            assertEquals(Arrays.asList("cQw4w9WgXcQ", "dQw4w9WgXcQ", "eQw4w9WgXcQ"), service.lastKeepSet());
+            assertFalse(Files.exists(previous));
+            assertTrue(Files.exists(current));
+
+            // Advancing to d shifts the window by one: c joins the "previous" side.
+            HorizonRadioClient.handleTrackSync(
+                TrackSyncPacket.youtube(6L, "dQw4w9WgXcQ", 0L, System.currentTimeMillis() + 6_000L, false));
+            assertEquals(
+                Arrays.asList("dQw4w9WgXcQ", "cQw4w9WgXcQ", "eQw4w9WgXcQ", "fQw4w9WgXcQ"),
+                service.lastKeepSet());
+
+            // Stopping anchors the window on the most recent track.
+            HorizonRadioClient.handleTrackSync(TrackSyncPacket.stop(7L));
+            assertEquals(
+                Arrays.asList("dQw4w9WgXcQ", "cQw4w9WgXcQ", "eQw4w9WgXcQ", "fQw4w9WgXcQ"),
+                service.lastKeepSet());
+        } finally {
+            HorizonRadioClient.setClientAudioDownloadService(null);
+            Files.deleteIfExists(previous);
+            Files.deleteIfExists(current);
+            Files.deleteIfExists(directory);
+        }
+    }
+
+    @Test
     public void removingActiveRadioFromAuthoritativeQueueStopsLocalRadio() {
         HorizonRadioClient.handlePlaylistSnapshot(
             new PlaylistSyncPacket(
@@ -253,9 +304,23 @@ public class HorizonRadioClientTrackSyncTest {
 
         private final List<String> downloads = Collections.synchronizedList(new java.util.ArrayList<String>());
         private final java.util.Map<String, CompletableFuture<Path>> futures = new java.util.HashMap<String, CompletableFuture<Path>>();
+        private final List<List<String>> keepSets = Collections
+            .synchronizedList(new java.util.ArrayList<List<String>>());
 
         private RecordingAudioDownloadService(Path directory) throws java.io.IOException {
             super(directory);
+        }
+
+        @Override
+        public synchronized void keepOnlyTracks(java.util.Collection<String> videoIds) {
+            keepSets.add(new java.util.ArrayList<String>(videoIds));
+            super.keepOnlyTracks(videoIds);
+        }
+
+        private List<String> lastKeepSet() {
+            synchronized (keepSets) {
+                return keepSets.isEmpty() ? null : keepSets.get(keepSets.size() - 1);
+            }
         }
 
         @Override

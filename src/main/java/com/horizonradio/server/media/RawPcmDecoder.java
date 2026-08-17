@@ -6,7 +6,7 @@ import java.io.InputStream;
 /** Streams supplied raw PCM metadata or a RIFF/WAVE PCM payload without buffering it. */
 public final class RawPcmDecoder implements AudioDecoder {
 
-    private static final long MAX_WAV_DATA_BYTES = 128L * 1024L * 1024L;
+    private static final long MAX_WAV_DATA_BYTES = 192L * 1024L * 1024L;
     private static final int COPY_BUFFER_SIZE = 8192;
 
     private final PcmFormat rawFormat;

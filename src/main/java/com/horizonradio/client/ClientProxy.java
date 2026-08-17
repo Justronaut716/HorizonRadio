@@ -77,11 +77,18 @@ public class ClientProxy extends CommonProxy {
             .getParentFile();
         HorizonRadioClient.loadClientConfig(configDirectory);
         try {
-            File audioDirectory = new File(
-                configDirectory == null ? new File(".") : configDirectory,
-                "horizonradio-audio");
+            File gameDirectory = configDirectory == null ? null : configDirectory.getParentFile();
+            File audioDirectory = new File(gameDirectory == null ? new File(".") : gameDirectory, "horizonradio-audio");
             AudioDownloadService audioDownloadService = new AudioDownloadService(audioDirectory.toPath());
             HorizonRadioClient.setClientAudioDownloadService(audioDownloadService);
+            Runtime.getRuntime()
+                .addShutdownHook(new Thread(new Runnable() {
+
+                    @Override
+                    public void run() {
+                        HorizonRadioClient.cleanUpAudioCache();
+                    }
+                }, "HorizonRadio-AudioCacheCleanup"));
             final ClientMediaService mediaService = new ClientMediaService(
                 new YouTubeService(),
                 audioDownloadService,

@@ -1,9 +1,14 @@
 package com.horizonradio.server;
 
 import java.io.IOException;
+import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -94,6 +99,7 @@ public class AudioDownloadService {
         this.cancellationInterleavingHook = cancellationInterleavingHook == null ? CancellationInterleavingHook.NONE
             : cancellationInterleavingHook;
         Files.createDirectories(downloadDir);
+        cleanUpCache();
     }
 
     /** Downloads a YouTube video as WAV and returns its cache path, or null on failure. */
@@ -293,6 +299,71 @@ public class AudioDownloadService {
             LOGGER.info("HorizonRadio: Deleted audio for " + videoId);
         } catch (IOException exception) {
             LOGGER.log(Level.WARNING, "HorizonRadio: Failed to delete audio for " + videoId, exception);
+        }
+    }
+
+    /**
+     * Deletes every cached track, including partial downloads. The cache is session-scoped and is
+     * cleared when the client starts and when it exits, so nothing survives across restarts.
+     */
+    public synchronized void cleanUpCache() {
+        try {
+            if (!Files.isDirectory(downloadDir)) return;
+            int deleted = 0;
+            DirectoryStream<Path> stream = Files.newDirectoryStream(downloadDir);
+            try {
+                for (Path path : stream) {
+                    if (!Files.isRegularFile(path)) continue;
+                    try {
+                        if (Files.deleteIfExists(path)) deleted++;
+                    } catch (IOException exception) {
+                        LOGGER.log(Level.FINE, "HorizonRadio: Could not delete cached audio " + path, exception);
+                    }
+                }
+            } finally {
+                stream.close();
+            }
+            if (deleted > 0) {
+                LOGGER.info("HorizonRadio: Cleared " + deleted + " cached audio file(s)");
+            }
+        } catch (IOException exception) {
+            LOGGER.log(Level.FINE, "HorizonRadio: Audio cache cleanup failed", exception);
+        }
+    }
+
+    /**
+     * Deletes every cached track outside the playback window, leaving in-flight partial downloads
+     * untouched. An empty set deletes every cached track.
+     */
+    public synchronized void keepOnlyTracks(Collection<String> videoIds) {
+        try {
+            if (!Files.isDirectory(downloadDir)) return;
+            Set<String> keep = videoIds == null ? Collections.<String>emptySet() : new HashSet<String>(videoIds);
+            int deleted = 0;
+            DirectoryStream<Path> stream = Files.newDirectoryStream(downloadDir);
+            try {
+                for (Path path : stream) {
+                    String name = path.getFileName()
+                        .toString();
+                    if (!Files.isRegularFile(path) || !name.endsWith(".wav")
+                        || name.contains(".part-")
+                        || keep.contains(name.substring(0, name.length() - ".wav".length()))) {
+                        continue;
+                    }
+                    try {
+                        if (Files.deleteIfExists(path)) deleted++;
+                    } catch (IOException exception) {
+                        LOGGER.log(Level.FINE, "HorizonRadio: Could not delete cached audio " + path, exception);
+                    }
+                }
+            } finally {
+                stream.close();
+            }
+            if (deleted > 0) {
+                LOGGER.info("HorizonRadio: Pruned " + deleted + " cached audio file(s) outside the playback window");
+            }
+        } catch (IOException exception) {
+            LOGGER.log(Level.FINE, "HorizonRadio: Audio cache pruning failed", exception);
         }
     }
 
