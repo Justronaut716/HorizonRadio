@@ -234,6 +234,30 @@ public class YouTubeStreamResolverTest {
     }
 
     @Test
+    public void invalidatingTheVisitorCacheForcesAFreshWatchPageFetch() throws Exception {
+        FakeHttp http = new FakeHttp(
+            "{\"streamingData\":{\"adaptiveFormats\":["
+                + "{\"mimeType\":\"audio/mp4; codecs=\\\"mp4a.40.2\\\"\",\"bitrate\":128000,"
+                + "\"url\":\"https://r1.googlevideo.com/videoplayback?expire=2000\"}]}}");
+        YouTubeStreamResolver resolver = new YouTubeStreamResolver(http, new AudioDecoderRegistry(), () -> 1000000L);
+
+        YouTubeMediaModels.ResolvedAudioStream first = resolver.resolveAudio("dQw4w9WgXcQ");
+        assertEquals("test-visitor", first.getVisitorData());
+        assertEquals(1, http.watchRequests);
+
+        YouTubeMediaModels.ResolvedAudioStream second = resolver.resolveAudio("dQw4w9WgXcQ");
+        assertEquals("test-visitor", second.getVisitorData());
+        assertEquals(1, http.watchRequests);
+
+        http.visitorPage = "{\"VISITOR_DATA\":\"fresh-visitor\"}";
+        resolver.invalidateVisitorCache();
+
+        YouTubeMediaModels.ResolvedAudioStream third = resolver.resolveAudio("dQw4w9WgXcQ");
+        assertEquals("fresh-visitor", third.getVisitorData());
+        assertEquals(2, http.watchRequests);
+    }
+
+    @Test
     public void fallsBackToIosPlayerWhenAndroidPlayerIsUnavailable() throws Exception {
         FakeHttp http = new FakeHttp(
             "{\"playabilityStatus\":{\"status\":\"LOGIN_REQUIRED\",\"reason\":\"Sign in to confirm you are not a bot\"}}");

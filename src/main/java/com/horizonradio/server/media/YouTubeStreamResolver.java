@@ -17,6 +17,8 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.LongSupplier;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -50,6 +52,7 @@ public final class YouTubeStreamResolver {
         "iOS",
         "18.1");
     private static final String WATCH_PAGE_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0 Safari/537.36";
+    private static final Logger LOGGER = Logger.getLogger(YouTubeStreamResolver.class.getName());
     private static final URL PLAYER_URL;
     private static final int TIMEOUT_MILLIS = 15000;
     private static final long MAX_PLAYER_BYTES = 2L * 1024L * 1024L;
@@ -122,6 +125,11 @@ public final class YouTubeStreamResolver {
             visitorData = resolveVisitorData(safeVideoId);
         } catch (IOException exception) {
             visitorFailure = exception;
+            LOGGER.log(
+                Level.WARNING,
+                "YouTube visitor data is unavailable for " + safeVideoId
+                    + "; stream requests will continue without a visitor id",
+                exception);
         }
         IOException androidFailure;
         try {
@@ -146,6 +154,18 @@ public final class YouTubeStreamResolver {
             fallbackFailure.addSuppressed(androidFailure);
             if (visitorFailure != null) fallbackFailure.addSuppressed(visitorFailure);
             throw fallbackFailure;
+        }
+    }
+
+    /**
+     * Discards cached visitor data so the next resolution fetches a fresh visitor id. Callers should do this when
+     * YouTube rejects a stream fetched under the cached visitor id (for example with HTTP 403), because the cached id
+     * is then burned until its TTL expires on its own.
+     */
+    public void invalidateVisitorCache() {
+        synchronized (visitorDataLock) {
+            cachedVisitorData = "";
+            visitorDataExpiresAtMillis = 0L;
         }
     }
 

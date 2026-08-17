@@ -12,22 +12,29 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.LongSupplier;
 
 /** Downloads a freshly resolved YouTube stream through the Java decoder pipeline into an atomic WAV cache entry. */
 public final class JavaAudioDownloadBackend implements YouTubeMediaModels.AudioDownloadBackend {
 
     private static final int TIMEOUT_MILLIS = 15000;
     private static final int PREFIX_BYTES = 44;
-    private static final long RANGE_CHUNK_BYTES = 1024L * 1024L;
+    private static final long RANGE_CHUNK_BYTES = 4L * 1024L * 1024L;
     private static final long DEFAULT_MAXIMUM_BYTES = 128L * 1024L * 1024L;
     private static final String MEDIA_USER_AGENT = "com.google.android.apps.youtube.vr.oculus/1.65.10 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip";
-    private static final Object IPV6_FALLBACK_LOCK = new Object();
+    private static final long RATE_LIMIT_BASE_MILLIS = 60000L;
+    private static final long RATE_LIMIT_MAX_MILLIS = 600000L;
     private static final ConcurrentMap<Path, Object> DESTINATION_LOCKS = new ConcurrentHashMap<Path, Object>();
     private final YouTubeStreamResolver resolver;
     private final YouTubeMediaModels.HttpRequester requester;
     private final AudioDecoderRegistry registry;
     private final AudioFormatDetector detector = new AudioFormatDetector();
     private final long maximumBytes;
+    private final LongSupplier clock;
+    private final AtomicInteger consecutiveRateLimitFailures = new AtomicInteger();
+    private final AtomicLong nextRateLimitRetryAtMillis = new AtomicLong();
 
     public JavaAudioDownloadBackend() {
         this(
@@ -39,12 +46,24 @@ public final class JavaAudioDownloadBackend implements YouTubeMediaModels.AudioD
 
     public JavaAudioDownloadBackend(YouTubeStreamResolver resolver, YouTubeMediaModels.HttpRequester requester,
         AudioDecoderRegistry registry, long maximumBytes) {
-        if (resolver == null || requester == null || registry == null || maximumBytes <= 0L)
+        this(resolver, requester, registry, maximumBytes, new LongSupplier() {
+
+            @Override
+            public long getAsLong() {
+                return System.currentTimeMillis();
+            }
+        });
+    }
+
+    JavaAudioDownloadBackend(YouTubeStreamResolver resolver, YouTubeMediaModels.HttpRequester requester,
+        AudioDecoderRegistry registry, long maximumBytes, LongSupplier clock) {
+        if (resolver == null || requester == null || registry == null || maximumBytes <= 0L || clock == null)
             throw new IllegalArgumentException("Download backend dependencies are required");
         this.resolver = resolver;
         this.requester = requester;
         this.registry = registry;
         this.maximumBytes = maximumBytes;
+        this.clock = clock;
     }
 
     @Override
@@ -67,14 +86,40 @@ public final class JavaAudioDownloadBackend implements YouTubeMediaModels.AudioD
 
     private Path downloadLocked(String videoId, Path destination, YouTubeMediaModels.CancellationToken token)
         throws IOException {
+        checkRateLimited();
         try {
-            return downloadLockedOnce(videoId, destination, token);
+            Path result = downloadLockedOnce(videoId, destination, token);
+            resetRateLimit();
+            return result;
         } catch (IOException failure) {
             if (!containsHttp403(failure) || cancellationRequested(token)) {
                 throw failure;
             }
-            return retryWithIpv6Preference(videoId, destination, token, failure);
+            // A 403 means YouTube is rate-limiting this network. Re-mint under a fresh visitor id and
+            // back off instead of retrying immediately: every extra request keeps the rate limit in place.
+            resolver.invalidateVisitorCache();
+            recordRateLimitFailure();
+            throw failure;
         }
+    }
+
+    private void checkRateLimited() throws IOException {
+        long now = clock.getAsLong();
+        long retryAt = nextRateLimitRetryAtMillis.get();
+        if (now >= retryAt) return;
+        throw new IOException(
+            "YouTube audio is rate-limited (HTTP 403); retrying in " + (retryAt - now + 999L) / 1000L + "s");
+    }
+
+    private void recordRateLimitFailure() {
+        int failures = consecutiveRateLimitFailures.incrementAndGet();
+        long backoff = Math.min(RATE_LIMIT_BASE_MILLIS << Math.min(failures - 1, 4), RATE_LIMIT_MAX_MILLIS);
+        nextRateLimitRetryAtMillis.set(clock.getAsLong() + backoff);
+    }
+
+    private void resetRateLimit() {
+        consecutiveRateLimitFailures.set(0);
+        nextRateLimitRetryAtMillis.set(0L);
     }
 
     private Path downloadLockedOnce(String videoId, Path destination, YouTubeMediaModels.CancellationToken token)
@@ -128,25 +173,6 @@ public final class JavaAudioDownloadBackend implements YouTubeMediaModels.AudioD
         throw aggregateFailure(videoId, failures);
     }
 
-    private Path retryWithIpv6Preference(String videoId, Path destination, YouTubeMediaModels.CancellationToken token,
-        IOException initialFailure) throws IOException {
-        synchronized (IPV6_FALLBACK_LOCK) {
-            String previousPreferIpv4Stack = System.getProperty("java.net.preferIPv4Stack");
-            String previousPreferIpv6Addresses = System.getProperty("java.net.preferIPv6Addresses");
-            try {
-                System.setProperty("java.net.preferIPv4Stack", "false");
-                System.setProperty("java.net.preferIPv6Addresses", "true");
-                return downloadLockedOnce(videoId, destination, token);
-            } catch (IOException retryFailure) {
-                retryFailure.addSuppressed(initialFailure);
-                throw retryFailure;
-            } finally {
-                restoreSystemProperty("java.net.preferIPv4Stack", previousPreferIpv4Stack);
-                restoreSystemProperty("java.net.preferIPv6Addresses", previousPreferIpv6Addresses);
-            }
-        }
-    }
-
     private static boolean containsHttp403(Throwable failure) {
         if (failure == null) {
             return false;
@@ -164,14 +190,6 @@ public final class JavaAudioDownloadBackend implements YouTubeMediaModels.AudioD
             }
         }
         return false;
-    }
-
-    private static void restoreSystemProperty(String name, String value) {
-        if (value == null) {
-            System.clearProperty(name);
-        } else {
-            System.setProperty(name, value);
-        }
     }
 
     private Path tryCandidates(Path destination, YouTubeMediaModels.CancellationToken token,
@@ -198,7 +216,7 @@ public final class JavaAudioDownloadBackend implements YouTubeMediaModels.AudioD
     private Path downloadCandidate(YouTubeMediaModels.ResolvedAudioStream stream, Path destination,
         YouTubeMediaModels.CancellationToken token, boolean ranged) throws IOException {
         checkCancelled(token);
-        if (stream.getExpiresAtMillis() <= System.currentTimeMillis()) {
+        if (stream.getExpiresAtMillis() <= clock.getAsLong()) {
             throw new CandidateDecodeFailure("YouTube stream URL expired before download");
         }
         WavFileSink sink = null;
