@@ -123,6 +123,11 @@ public final class JavaAudioDownloadBackend implements YouTubeMediaModels.AudioD
         nextRateLimitRetryAtMillis.set(0L);
     }
 
+    @Override
+    public long nextRateLimitRetryAtMillis() {
+        return nextRateLimitRetryAtMillis.get();
+    }
+
     private Path downloadLockedOnce(String videoId, Path destination, YouTubeMediaModels.CancellationToken token)
         throws IOException {
         checkCancelled(token);

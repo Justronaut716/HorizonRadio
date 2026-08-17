@@ -2,6 +2,7 @@ package com.horizonradio.server;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import java.io.IOException;
@@ -132,6 +133,39 @@ public class AudioDownloadServiceTest {
         }
     }
 
+    @Test
+    public void retriesAfterTheRateLimitBackoffWindow() throws Exception {
+        Path directory = Files.createTempDirectory("horizonradio-service-rate-retry");
+        RateLimitedBackend backend = new RateLimitedBackend(2, 150L);
+        AudioDownloadService service = new AudioDownloadService(directory, backend);
+        try {
+            Path result = service.download("dQw4w9WgXcQ")
+                .get(15, TimeUnit.SECONDS);
+
+            assertEquals(directory.resolve("dQw4w9WgXcQ.wav"), result);
+            assertEquals(3, backend.calls.get());
+        } finally {
+            service.shutdown();
+            deleteDirectory(directory);
+        }
+    }
+
+    @Test
+    public void givesUpAfterTheMaximumRateLimitRetries() throws Exception {
+        Path directory = Files.createTempDirectory("horizonradio-service-rate-giveup");
+        RateLimitedBackend backend = new RateLimitedBackend(Integer.MAX_VALUE, 50L);
+        AudioDownloadService service = new AudioDownloadService(directory, backend);
+        try {
+            assertNull(
+                service.download("dQw4w9WgXcQ")
+                    .get(15, TimeUnit.SECONDS));
+            assertEquals(6, backend.calls.get());
+        } finally {
+            service.shutdown();
+            deleteDirectory(directory);
+        }
+    }
+
     private static final class FailingBackend implements YouTubeMediaModels.AudioDownloadBackend {
 
         private final AtomicInteger calls = new AtomicInteger();
@@ -141,6 +175,41 @@ public class AudioDownloadServiceTest {
             throws IOException {
             calls.incrementAndGet();
             throw new IOException("audio download backend must not be called");
+        }
+
+        @Override
+        public boolean isReady() {
+            return true;
+        }
+    }
+
+    private static final class RateLimitedBackend implements YouTubeMediaModels.AudioDownloadBackend {
+
+        private final int failures;
+        private final long backoffMillis;
+        private final AtomicInteger calls = new AtomicInteger();
+        private volatile long retryAt;
+
+        private RateLimitedBackend(int failures, long backoffMillis) {
+            this.failures = failures;
+            this.backoffMillis = backoffMillis;
+        }
+
+        @Override
+        public Path download(String videoId, Path destination, YouTubeMediaModels.CancellationToken token)
+            throws IOException {
+            int call = calls.incrementAndGet();
+            if (call <= failures) {
+                retryAt = System.currentTimeMillis() + backoffMillis;
+                throw new IOException("HTTP request failed with status 403");
+            }
+            writeCanonicalWave(destination);
+            return destination;
+        }
+
+        @Override
+        public long nextRateLimitRetryAtMillis() {
+            return retryAt;
         }
 
         @Override
