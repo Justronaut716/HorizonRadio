@@ -50,6 +50,11 @@ public final class YouTubeMediaModels {
         Path download(String videoId, Path destination, CancellationToken token) throws IOException;
 
         boolean isReady();
+
+        /** Earliest time a new download may be attempted; 0 when not rate-limited. */
+        default long nextRateLimitRetryAtMillis() {
+            return 0L;
+        }
     }
 
     public interface HttpRequester {

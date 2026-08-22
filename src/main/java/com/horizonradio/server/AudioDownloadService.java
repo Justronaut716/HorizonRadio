@@ -36,6 +36,7 @@ public class AudioDownloadService {
 
     private static final Logger LOGGER = Logger.getLogger(AudioDownloadService.class.getName());
     private static final long EXECUTOR_SHUTDOWN_TIMEOUT_MILLIS = 2000L;
+    private static final int MAX_RATE_LIMIT_RETRIES = 5;
 
     private final Path downloadDir;
     private final YouTubeMediaModels.AudioDownloadBackend downloadBackend;
@@ -120,7 +121,7 @@ public class AudioDownloadService {
             public Path get() {
                 if (Files.exists(filePath)) {
                     if (isCanonicalCachedWav(filePath)) {
-                        LOGGER.info("HorizonRadio: Using cached audio for " + videoId);
+                        LOGGER.log(Level.FINE, "HorizonRadio: Using cached audio for " + videoId);
                         return filePath;
                     }
                     try {
@@ -131,12 +132,7 @@ public class AudioDownloadService {
                     }
                 }
                 LOGGER.info("HorizonRadio: Downloading audio with the Java media backend for " + videoId);
-                try {
-                    return downloadBackend.download(videoId, filePath, operation);
-                } catch (IOException exception) {
-                    LOGGER.log(Level.WARNING, "Java audio download failed for " + videoId, exception);
-                    return null;
-                }
+                return downloadWithRateLimitRetry(videoId, filePath, operation);
             }
         }, downloadExecutor);
         operation.future = future;
@@ -151,6 +147,55 @@ public class AudioDownloadService {
             }
         });
         return future;
+    }
+
+    /**
+     * Downloads the audio, waiting out the backend's 403 backoff window and retrying while the
+     * network stays rate-limited, so a temporary YouTube rate limit does not fail the track.
+     */
+    private Path downloadWithRateLimitRetry(final String videoId, final Path filePath,
+        final DownloadOperation operation) {
+        for (int attempt = 0;; attempt++) {
+            try {
+                return downloadBackend.download(videoId, filePath, operation);
+            } catch (IOException exception) {
+                long now = System.currentTimeMillis();
+                long retryAt = operation.isCancelled() ? 0L : downloadBackend.nextRateLimitRetryAtMillis();
+                if (attempt >= MAX_RATE_LIMIT_RETRIES || retryAt <= now) {
+                    LOGGER.log(Level.WARNING, "Java audio download failed for " + videoId, exception);
+                    return null;
+                }
+                LOGGER.log(
+                    Level.INFO,
+                    "HorizonRadio: YouTube is rate-limiting the audio download for " + videoId
+                        + "; retrying in "
+                        + (retryAt - now + 999L) / 1000L
+                        + "s");
+                if (!sleepUntil(retryAt, operation)) {
+                    LOGGER.log(Level.WARNING, "Java audio download failed for " + videoId, exception);
+                    return null;
+                }
+            }
+        }
+    }
+
+    private static boolean sleepUntil(long untilMs, DownloadOperation operation) {
+        while (true) {
+            if (operation.isCancelled()) {
+                return false;
+            }
+            long remaining = untilMs - System.currentTimeMillis();
+            if (remaining <= 0L) {
+                return true;
+            }
+            try {
+                Thread.sleep(Math.min(remaining, 1000L));
+            } catch (InterruptedException exception) {
+                Thread.currentThread()
+                    .interrupt();
+                return false;
+            }
+        }
     }
 
     /** Cancels an in-flight Java media download for the given video, if present. */
