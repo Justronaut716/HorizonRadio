@@ -34,6 +34,10 @@ the development and release-build JDK.
   and work performed during one server tick.
 - Keep asynchronous result publication generation-safe and cancellation-aware.
 - Establish one-way package dependencies and transport-neutral state models.
+- Audit every production class, method, constructor, configuration field, and
+  resource for active reachability. Remove proven dead or test-only production
+  paths and simplify unnecessarily indirect active paths behind
+  characterization tests.
 - Split discovery, queue synchronization, playback, cache, and presentation
   responsibilities out of the two largest client classes.
 - Remove non-registered relay packets, relay audio paths, obsolete overloads,
@@ -231,6 +235,30 @@ termination operations are handled or logged rather than silently ignored.
 
 ## Legacy removal
 
+### Reachability and complexity audit
+
+Every removal candidate is classified using all applicable evidence:
+
+- direct callers and semantic IDE usage/call-hierarchy results;
+- Forge annotations, lifecycle hooks, event registration, sided proxies, and
+  packet registration;
+- reflection, serialization constructors, resources, and Gradle packaging;
+- production versus test-only references;
+- runtime coverage from the complete automated suite where instrumentation is
+  compatible with the Forge build.
+
+A zero text-reference count alone is not deletion evidence. Annotated,
+registered, reflected, serialized, or documented extension entry points remain
+active even without ordinary Java callers. Conversely, code referenced only by
+tests written to preserve an obsolete implementation is removed together with
+those tests.
+
+Active code that is unnecessarily complicated is simplified in small steps.
+Existing behavior is first captured by focused tests; then duplicated branches,
+single-value parameters, redundant adapters, inverted helper predicates,
+unnecessary state copies, and repeated resource-handling loops are consolidated.
+Large mechanical moves are not mixed with logic simplification in one change.
+
 Remove production classes and paths that are not registered and exist only for
 historical relay compatibility, including obsolete finite/radio relay packet
 serializers and their inactive `AudioPlayer` assembly paths. Remove deprecated
@@ -285,6 +313,10 @@ with characterization tests when current behavior is not already explicit.
 
 Required additions include:
 
+- a repository-wide semantic usage/call-hierarchy inventory plus explicit
+  registration, annotation, reflection, resource, and packaging scans;
+- fresh compiler/IDE inspection triage, separating Java-8 compatibility style
+  from correctness, dead-code, deprecation, nullability, and resource findings;
 - external-target tests for IPv4, IPv6, DNS results, and redirect chains;
 - bounded-response tests for declared, chunked, and unknown lengths;
 - executor saturation, cancellation, shutdown, and task-isolation tests;
@@ -302,7 +334,8 @@ remain explicit manual release gates until reproducible environments are added.
 
 ## Implementation sequence
 
-1. Establish characterization tests and repair CI packaging execution.
+1. Establish characterization tests, collect the reachability/complexity
+   inventory, and repair CI packaging execution.
 2. Add external-target validation, HTTP response limits, bounded executors, and
    bounded server scheduling.
 3. Remove unregistered relay/compatibility production paths and their obsolete
@@ -335,6 +368,13 @@ can be attributed to one cause.
 - No active configuration, constructor, documentation, or runtime path refers
   to `yt-dlp`, `youtube-dl`, external cookie extraction, or external media
   processes; only explicit negative source/package audits may name them.
+- Every remaining production class and externally visible method is justified
+  by a direct active caller, framework/serialization registration, resource
+  reference, or documented extension contract; test-only preservation is not a
+  reason to retain production code.
+- Project-owned code has no unresolved dead-code, deprecated-API, unchecked,
+  ignored-resource, or constant-condition warning without an inline rationale
+  and a corresponding compatibility need.
 - The 24 active packet registrations and their wire layouts are unchanged.
 - CI runs all ordinary tests plus packaging tests against the produced JAR with
   no unexpected skips.
