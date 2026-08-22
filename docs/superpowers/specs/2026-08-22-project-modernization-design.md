@@ -237,6 +237,21 @@ serializers and their inactive `AudioPlayer` assembly paths. Remove deprecated
 metadata-carrying constructors/accessors and compatibility transport overloads
 after all active callers use source ID plus duration or source-aware models.
 
+`yt-dlp`, `youtube-dl`, `ffmpeg`, and external-process media execution are not
+supported fallbacks. Remove the obsolete `youtubeCookiesFromBrowser` and
+`youtubeCookiesFile` configuration fields, their accessors and documentation,
+and the no-op `AudioDownloadService` constructors that accept cookie or
+dependency-check arguments. Existing JSON files need no migration adapter:
+Gson safely ignores their unknown legacy fields after the active configuration
+model stops declaring them.
+
+`AudioDownloadCommandTest` currently tests the embedded Java backend's cache
+and cancellation behavior rather than a command process. Keep its active
+coverage under an accurate cache/concurrency test name. Keep negative source
+and packaging audits that reject bundled or invoked `yt-dlp`, `youtube-dl`, or
+`ffmpeg`; those checks enforce the standalone Java-backend architecture and are
+not legacy support.
+
 Tests are retained only when they cover active behavior, migration of persisted
 user data, or the active wire contract. Tests that merely require deleted Java
 APIs or unregistered packet serializers are removed with those APIs.
@@ -317,6 +332,9 @@ can be attributed to one cause.
   responsibilities instead of implementing them directly.
 - No unregistered relay packet or inactive relay audio path remains in main
   source.
+- No active configuration, constructor, documentation, or runtime path refers
+  to `yt-dlp`, `youtube-dl`, external cookie extraction, or external media
+  processes; only explicit negative source/package audits may name them.
 - The 24 active packet registrations and their wire layouts are unchanged.
 - CI runs all ordinary tests plus packaging tests against the produced JAR with
   no unexpected skips.
