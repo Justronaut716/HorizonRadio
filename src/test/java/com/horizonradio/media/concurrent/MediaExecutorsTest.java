@@ -84,21 +84,24 @@ public class MediaExecutorsTest {
         }
 
         try {
-            executor.execute(new Runnable() {
+            try {
+                executor.execute(new Runnable() {
 
-                @Override
-                public void run() {}
-            });
-            fail("expected saturated media executor to reject the task");
-        } catch (RejectedExecutionException expected) {
-            // Expected: media work must have a bounded queue.
+                    @Override
+                    public void run() {}
+                });
+                fail("expected saturated media executor to reject the task");
+            } catch (RejectedExecutionException expected) {
+                // Expected: media work must have a bounded queue.
+            }
+            synchronized (threads) {
+                for (Thread thread : threads) {
+                    assertTrue(thread.isDaemon());
+                    assertTrue(thread.getName().startsWith(prefix));
+                }
+            }
         } finally {
             release.countDown();
-        }
-
-        for (Thread thread : threads) {
-            assertTrue(thread.isDaemon());
-            assertTrue(thread.getName().startsWith(prefix));
         }
     }
 

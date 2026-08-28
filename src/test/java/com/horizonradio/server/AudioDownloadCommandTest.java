@@ -26,7 +26,11 @@ public class AudioDownloadCommandTest {
     public void returnsAnExistingWavAsACacheHitWithoutCallingTheBackend() throws Exception {
         Path directory = Files.createTempDirectory("horizonradio-service-cache");
         RecordingBackend backend = new RecordingBackend();
-        AudioDownloadService service = new AudioDownloadService(directory, backend, MediaExecutors.newDownloadExecutor());
+        AudioDownloadService service = new AudioDownloadService(
+            directory,
+            backend,
+            MediaExecutors.newDiscoveryExecutor(),
+            MediaExecutors.newDownloadExecutor());
         try {
             Path expected = directory.resolve("dQw4w9WgXcQ.wav");
             writeCanonicalWave(expected);
@@ -47,7 +51,11 @@ public class AudioDownloadCommandTest {
         Path directory = Files.createTempDirectory("horizonradio-service-invalid-cache");
         RecordingBackend backend = new RecordingBackend();
         backend.release();
-        AudioDownloadService service = new AudioDownloadService(directory, backend, MediaExecutors.newDownloadExecutor());
+        AudioDownloadService service = new AudioDownloadService(
+            directory,
+            backend,
+            MediaExecutors.newDiscoveryExecutor(),
+            MediaExecutors.newDownloadExecutor());
         String[] ids = { "dQw4w9WgXcQ", "a234567890_", "b234567890_" };
         try {
             Files.createFile(directory.resolve(ids[0] + ".wav"));
@@ -74,7 +82,11 @@ public class AudioDownloadCommandTest {
     public void sharesOneInFlightDownloadAndCancellationRemovesIncompleteOutput() throws Exception {
         Path directory = Files.createTempDirectory("horizonradio-service-active");
         RecordingBackend backend = new RecordingBackend();
-        AudioDownloadService service = new AudioDownloadService(directory, backend, MediaExecutors.newDownloadExecutor());
+        AudioDownloadService service = new AudioDownloadService(
+            directory,
+            backend,
+            MediaExecutors.newDiscoveryExecutor(),
+            MediaExecutors.newDownloadExecutor());
         try {
             CompletableFuture<Path> first = service.download("dQw4w9WgXcQ");
             CompletableFuture<Path> second = service.download("dQw4w9WgXcQ");
@@ -106,7 +118,7 @@ public class AudioDownloadCommandTest {
                 Thread.currentThread()
                     .interrupt();
             }
-        }, MediaExecutors.newDownloadExecutor());
+        }, MediaExecutors.newDiscoveryExecutor(), MediaExecutors.newDownloadExecutor());
         AtomicReference<CompletableFuture<Path>> replacement = new AtomicReference<CompletableFuture<Path>>();
         Thread cancelling = new Thread(() -> service.cancelDownload("dQw4w9WgXcQ"), "cancel-old-generation");
         Thread replacing = new Thread(
@@ -158,6 +170,7 @@ public class AudioDownloadCommandTest {
                     cancellationEntered.countDown();
                 }
             },
+            MediaExecutors.newDiscoveryExecutor(),
             MediaExecutors.newDownloadExecutor());
         Thread cancelling = new Thread(() -> service.cancelDownload("dQw4w9WgXcQ"), "cancel-during-commit");
         try {

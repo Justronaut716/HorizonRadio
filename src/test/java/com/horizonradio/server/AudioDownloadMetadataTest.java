@@ -35,6 +35,7 @@ public class AudioDownloadMetadataTest {
             directory,
             new NoopBackend(),
             new YouTubeMetadataResolver(http),
+            MediaExecutors.newDiscoveryExecutor(),
             MediaExecutors.newDownloadExecutor());
         try {
             String result = service.extractVideoJson("https://youtu.be/dQw4w9WgXcQ")
@@ -60,6 +61,7 @@ public class AudioDownloadMetadataTest {
             directory,
             new NoopBackend(),
             new YouTubeMetadataResolver(new FixtureHttp("{\"playabilityStatus\":{\"status\":\"ERROR\"}}")),
+            MediaExecutors.newDiscoveryExecutor(),
             MediaExecutors.newDownloadExecutor());
         try {
             ClientMetadataCache cache = new ClientMetadataCache(

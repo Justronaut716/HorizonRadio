@@ -351,7 +351,10 @@ public class HorizonRadioClientTrackSyncTest {
             .synchronizedList(new java.util.ArrayList<List<String>>());
 
         private RecordingAudioDownloadService(Path directory) throws java.io.IOException {
-            super(directory, com.horizonradio.media.concurrent.MediaExecutors.newDownloadExecutor());
+            super(
+                directory,
+                com.horizonradio.media.concurrent.MediaExecutors.newDiscoveryExecutor(),
+                com.horizonradio.media.concurrent.MediaExecutors.newDownloadExecutor());
         }
 
         @Override

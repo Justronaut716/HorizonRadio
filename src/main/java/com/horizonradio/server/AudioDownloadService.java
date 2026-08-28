@@ -12,6 +12,7 @@ import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.function.Supplier;
@@ -38,59 +39,74 @@ public class AudioDownloadService {
     private final Path downloadDir;
     private final YouTubeMediaModels.AudioDownloadBackend downloadBackend;
     private final YouTubeMetadataResolver metadataResolver;
+    private final Executor discoveryExecutor;
     private final ExecutorService downloadExecutor;
     private final ConcurrentMap<String, DownloadOperation> activeDownloads = new ConcurrentHashMap<String, DownloadOperation>();
     private final CancellationInterleavingHook cancellationInterleavingHook;
 
-    public AudioDownloadService(Path downloadDir, ExecutorService downloadExecutor) throws IOException {
+    public AudioDownloadService(Path downloadDir, Executor discoveryExecutor, ExecutorService downloadExecutor)
+        throws IOException {
         this(
             downloadDir,
             new JavaAudioDownloadBackend(),
             new YouTubeMetadataResolver(),
             CancellationInterleavingHook.NONE,
+            discoveryExecutor,
             downloadExecutor);
     }
 
-    AudioDownloadService(Path downloadDir, boolean checkDependencies, ExecutorService downloadExecutor) throws IOException {
-        this(downloadDir, downloadExecutor);
+    AudioDownloadService(Path downloadDir, boolean checkDependencies, Executor discoveryExecutor,
+        ExecutorService downloadExecutor) throws IOException {
+        this(downloadDir, discoveryExecutor, downloadExecutor);
     }
 
     public AudioDownloadService(Path downloadDir, String youtubeCookiesFromBrowser, String youtubeCookiesFile,
-        ExecutorService downloadExecutor)
+        Executor discoveryExecutor, ExecutorService downloadExecutor)
         throws IOException {
-        this(downloadDir, downloadExecutor);
+        this(downloadDir, discoveryExecutor, downloadExecutor);
     }
 
     AudioDownloadService(Path downloadDir, boolean checkDependencies, String youtubeCookiesFromBrowser,
-        String youtubeCookiesFile, ExecutorService downloadExecutor) throws IOException {
-        this(downloadDir, downloadExecutor);
+        String youtubeCookiesFile, Executor discoveryExecutor, ExecutorService downloadExecutor) throws IOException {
+        this(downloadDir, discoveryExecutor, downloadExecutor);
     }
 
     AudioDownloadService(Path downloadDir, YouTubeMediaModels.AudioDownloadBackend downloadBackend,
+        Executor discoveryExecutor, ExecutorService downloadExecutor) throws IOException {
+        this(
+            downloadDir,
+            downloadBackend,
+            new YouTubeMetadataResolver(),
+            CancellationInterleavingHook.NONE,
+            discoveryExecutor,
+            downloadExecutor);
+    }
+
+    AudioDownloadService(Path downloadDir, YouTubeMediaModels.AudioDownloadBackend downloadBackend,
+        YouTubeMetadataResolver metadataResolver, Executor discoveryExecutor, ExecutorService downloadExecutor)
+        throws IOException {
+        this(downloadDir, downloadBackend, metadataResolver, CancellationInterleavingHook.NONE, discoveryExecutor, downloadExecutor);
+    }
+
+    AudioDownloadService(Path downloadDir, YouTubeMediaModels.AudioDownloadBackend downloadBackend,
+        CancellationInterleavingHook cancellationInterleavingHook, Executor discoveryExecutor,
         ExecutorService downloadExecutor) throws IOException {
-        this(downloadDir, downloadBackend, new YouTubeMetadataResolver(), CancellationInterleavingHook.NONE, downloadExecutor);
-    }
-
-    AudioDownloadService(Path downloadDir, YouTubeMediaModels.AudioDownloadBackend downloadBackend,
-        YouTubeMetadataResolver metadataResolver, ExecutorService downloadExecutor) throws IOException {
-        this(downloadDir, downloadBackend, metadataResolver, CancellationInterleavingHook.NONE, downloadExecutor);
-    }
-
-    AudioDownloadService(Path downloadDir, YouTubeMediaModels.AudioDownloadBackend downloadBackend,
-        CancellationInterleavingHook cancellationInterleavingHook, ExecutorService downloadExecutor) throws IOException {
-        this(downloadDir, downloadBackend, new YouTubeMetadataResolver(), cancellationInterleavingHook, downloadExecutor);
+        this(downloadDir, downloadBackend, new YouTubeMetadataResolver(), cancellationInterleavingHook, discoveryExecutor,
+            downloadExecutor);
     }
 
     private AudioDownloadService(Path downloadDir, YouTubeMediaModels.AudioDownloadBackend downloadBackend,
         YouTubeMetadataResolver metadataResolver, CancellationInterleavingHook cancellationInterleavingHook,
-        ExecutorService downloadExecutor)
+        Executor discoveryExecutor, ExecutorService downloadExecutor)
         throws IOException {
         if (downloadBackend == null) throw new IllegalArgumentException("Java audio download backend is required");
         if (metadataResolver == null) throw new IllegalArgumentException("YouTube metadata resolver is required");
+        if (discoveryExecutor == null) throw new IllegalArgumentException("discovery executor is required");
         if (downloadExecutor == null) throw new IllegalArgumentException("download executor is required");
         this.downloadDir = downloadDir;
         this.downloadBackend = downloadBackend;
         this.metadataResolver = metadataResolver;
+        this.discoveryExecutor = discoveryExecutor;
         this.downloadExecutor = downloadExecutor;
         this.cancellationInterleavingHook = cancellationInterleavingHook == null ? CancellationInterleavingHook.NONE
             : cancellationInterleavingHook;
@@ -287,7 +303,7 @@ public class AudioDownloadService {
                     return null;
                 }
             }
-        }, downloadExecutor);
+        }, discoveryExecutor);
     }
 
     public Path getFilePath(String videoId) {

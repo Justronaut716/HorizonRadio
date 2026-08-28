@@ -83,7 +83,10 @@ public class ClientProxy extends CommonProxy {
         try {
             File gameDirectory = configDirectory == null ? null : configDirectory.getParentFile();
             File audioDirectory = new File(gameDirectory == null ? new File(".") : gameDirectory, "horizonradio-audio");
-            AudioDownloadService audioDownloadService = new AudioDownloadService(audioDirectory.toPath(), downloadExecutor);
+            AudioDownloadService audioDownloadService = new AudioDownloadService(
+                audioDirectory.toPath(),
+                discoveryExecutor,
+                downloadExecutor);
             HorizonRadioClient.setClientAudioDownloadService(audioDownloadService);
             Runtime.getRuntime()
                 .addShutdownHook(new Thread(new Runnable() {
