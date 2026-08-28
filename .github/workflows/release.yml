@@ -43,8 +43,8 @@ jobs:
       - name: Clean build outputs
         run: ./gradlew clean --no-daemon
 
-      - name: Test and build release artifact
-        run: ./gradlew spotlessCheck test build --no-daemon
+      - name: Format, test, package, and audit
+        run: ./gradlew spotlessCheck test packagingTest build --no-daemon
 
       - name: Verify and checksum deployable JAR
         shell: bash

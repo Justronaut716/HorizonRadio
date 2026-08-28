@@ -1,5 +1,6 @@
 package com.horizonradio.server;
 
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import java.io.ByteArrayOutputStream;
@@ -20,7 +21,6 @@ import java.util.stream.Stream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
-import org.junit.Assume;
 import org.junit.Test;
 
 /** Audits production inputs and, when supplied, the standalone artifact. */
@@ -48,11 +48,8 @@ public class StandaloneMediaSourceAuditTest {
 
     @Test
     public void configuredArtifactContainsNoExternalMediaRuntimeEntries() throws Exception {
-        String artifact = System.getProperty("horizonradio.test.artifact");
-        Assume.assumeTrue("artifact property is required for package verification", artifact != null);
-
         List<String> violations = new ArrayList<String>();
-        try (ZipFile zip = new ZipFile(artifact)) {
+        try (ZipFile zip = new ZipFile(requiredArtifact().toFile())) {
             Enumeration<? extends ZipEntry> entries = zip.entries();
             while (entries.hasMoreElements()) {
                 ZipEntry entry = entries.nextElement();
@@ -73,6 +70,15 @@ public class StandaloneMediaSourceAuditTest {
         }
         Collections.sort(violations);
         assertTrue("Packaged external-media audit failed: " + violations, violations.isEmpty());
+    }
+
+    private static Path requiredArtifact() {
+        String configured = System.getProperty("horizonradio.test.artifact", "")
+            .trim();
+        assertFalse("packaging test requires horizonradio.test.artifact", configured.isEmpty());
+        Path artifact = Paths.get(configured);
+        assertTrue("packaging artifact does not exist: " + artifact, Files.isRegularFile(artifact));
+        return artifact;
     }
 
     private static List<Path> productionTextFiles() throws IOException {
