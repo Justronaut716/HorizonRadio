@@ -20,6 +20,8 @@ import java.util.concurrent.locks.LockSupport;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+import com.horizonradio.media.net.ExternalResourcePolicy;
+
 /**
  * Opens and decodes one live radio URL without buffering the station stream.
  * Each instance owns one daemon worker and reconnects the bounded streaming
@@ -581,17 +583,27 @@ public class RadioInputSession implements Closeable {
     private static final class HttpConnectionFactory implements ConnectionFactory {
 
         private static final int MAX_REDIRECTS = 5;
+        private final ExternalResourcePolicy externalResourcePolicy;
+
+        private HttpConnectionFactory() {
+            this(new ExternalResourcePolicy());
+        }
+
+        private HttpConnectionFactory(ExternalResourcePolicy externalResourcePolicy) {
+            if (externalResourcePolicy == null) {
+                throw new IllegalArgumentException("External resource policy is required");
+            }
+            this.externalResourcePolicy = externalResourcePolicy;
+        }
 
         @Override
         public RadioConnection open(URL url, Map<String, String> headers, int timeoutMillis) throws IOException {
-            if (!isHttpUrl(url)) {
-                throw new MediaException("Radio URL must use HTTP or HTTPS");
-            }
             URL current = url;
             int redirects = 0;
             while (true) {
                 HttpURLConnection connection = null;
                 try {
+                    current = externalResourcePolicy.requirePublicHttpUrl(current);
                     URLConnection opened = current.openConnection();
                     if (!(opened instanceof HttpURLConnection)) {
                         throw new MediaException("Radio URL must use HTTP or HTTPS");
@@ -617,8 +629,12 @@ public class RadioInputSession implements Closeable {
                             throw new MediaException("HTTP radio redirect has no Location");
                         }
                         URL redirected = new URL(current, location);
-                        if (!isHttpUrl(redirected)) {
-                            throw new MediaException("HTTP radio redirect must use HTTP or HTTPS");
+                        try {
+                            redirected = externalResourcePolicy.requirePublicHttpUrl(redirected);
+                        } catch (IOException exception) {
+                            throw new MediaException(
+                                "HTTP radio redirect rejected: " + exception.getMessage(),
+                                exception);
                         }
                         closeQuietly(connection.getErrorStream());
                         connection.disconnect();
@@ -639,14 +655,6 @@ public class RadioInputSession implements Closeable {
                     throw exception;
                 }
             }
-        }
-
-        private static boolean isHttpUrl(URL url) {
-            if (url == null) {
-                return false;
-            }
-            String protocol = url.getProtocol();
-            return "http".equalsIgnoreCase(protocol) || "https".equalsIgnoreCase(protocol);
         }
     }
 
