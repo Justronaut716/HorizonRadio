@@ -1,10 +1,7 @@
 package com.horizonradio.server;
 
-import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.io.Reader;
 import java.net.HttpURLConnection;
 import java.net.InetAddress;
 import java.net.URI;
@@ -25,6 +22,7 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.horizonradio.core.model.RadioStation;
+import com.horizonradio.media.net.BoundedResponseReader;
 import com.horizonradio.network.PacketBufferUtil;
 import com.horizonradio.network.packets.SelectRadioStationPacket;
 
@@ -38,6 +36,7 @@ public class RadioBrowserService {
     private static final String USER_AGENT = "HorizonRadio/1.1.0 (Radio Browser directory client)";
     private static final int CONNECT_TIMEOUT_MILLIS = 10000;
     private static final int READ_TIMEOUT_MILLIS = 15000;
+    private static final int MAX_RESPONSE_BYTES = 4 * 1024 * 1024;
     private static final int MAX_RESULTS = 50;
     private static final int MAX_QUERY_LENGTH = 100;
     private static final int MAX_STATION_NAME_BYTES = 200;
@@ -168,7 +167,8 @@ public class RadioBrowserService {
                     closeQuietly(connection.getErrorStream());
                     continue;
                 }
-                return readResponse(connection.getInputStream());
+                return BoundedResponseReader
+                    .readUtf8(connection.getInputStream(), connection.getContentLengthLong(), MAX_RESPONSE_BYTES);
             } catch (IOException exception) {
                 LOGGER.log(Level.FINE, "Radio Browser request failed for mirror", exception);
             } finally {
@@ -220,20 +220,6 @@ public class RadioBrowserService {
             LOGGER.log(Level.WARNING, "Unable to resolve Radio Browser mirrors", exception);
         }
         return mirrors;
-    }
-
-    private static String readResponse(InputStream input) throws IOException {
-        try (InputStream stream = input;
-            Reader reader = new InputStreamReader(stream, StandardCharsets.UTF_8);
-            BufferedReader bufferedReader = new BufferedReader(reader)) {
-            StringBuilder response = new StringBuilder();
-            char[] buffer = new char[4096];
-            int count;
-            while ((count = bufferedReader.read(buffer)) != -1) {
-                response.append(buffer, 0, count);
-            }
-            return response.toString();
-        }
     }
 
     private static boolean isWorking(JsonObject station) {
