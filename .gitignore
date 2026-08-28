@@ -6,6 +6,7 @@ eclipse/
 .vscode/
 out/
 *.iml
+layout.json
 .classpath
 .project
 .settings/
