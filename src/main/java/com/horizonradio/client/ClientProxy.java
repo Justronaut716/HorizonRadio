@@ -93,9 +93,13 @@ public class ClientProxy extends CommonProxy {
 
                     @Override
                     public void run() {
-                        HorizonRadioClient.cleanUpAudioCache();
-                        MediaExecutors.shutdown(discoveryExecutor);
-                        MediaExecutors.shutdown(downloadExecutor);
+                        shutdownMedia(discoveryExecutor, downloadExecutor, new Runnable() {
+
+                            @Override
+                            public void run() {
+                                HorizonRadioClient.cleanUpAudioCache();
+                            }
+                        });
                     }
                 }, "HorizonRadio-AudioCacheCleanup"));
             final ClientMediaService mediaService = new ClientMediaService(
@@ -274,6 +278,21 @@ public class ClientProxy extends CommonProxy {
 
     private void schedule(Runnable task) {
         clientTaskScheduler.schedule(task);
+    }
+
+    static void shutdownMedia(ExecutorService discoveryExecutor, ExecutorService downloadExecutor, Runnable cleanup) {
+        if (cleanup == null) {
+            throw new IllegalArgumentException("media cleanup is required");
+        }
+        try {
+            MediaExecutors.shutdown(discoveryExecutor);
+        } finally {
+            try {
+                MediaExecutors.shutdown(downloadExecutor);
+            } finally {
+                cleanup.run();
+            }
+        }
     }
 
     static void sendDebugChat(String message) {

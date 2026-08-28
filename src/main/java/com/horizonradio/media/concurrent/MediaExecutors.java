@@ -25,12 +25,33 @@ public final class MediaExecutors {
     }
 
     public static void shutdown(ExecutorService executor) {
+        shutdown(executor, SHUTDOWN_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS);
+    }
+
+    static void shutdown(ExecutorService executor, long timeout, TimeUnit timeoutUnit) {
         if (executor == null) {
             return;
         }
-        executor.shutdownNow();
+        if (timeout < 0L || timeoutUnit == null) {
+            throw new IllegalArgumentException("shutdown timeout and unit are required");
+        }
+        long deadline = System.nanoTime() + timeoutUnit.toNanos(timeout);
+        executor.shutdown();
+        boolean interrupted = awaitTermination(executor, deadline);
+        if (!executor.isTerminated()) {
+            executor.shutdownNow();
+            interrupted |= awaitTermination(executor, deadline);
+        }
+        if (interrupted) {
+            Thread.currentThread().interrupt();
+        }
+        if (!executor.isTerminated()) {
+            LOGGER.warning("HorizonRadio: Media executor did not terminate within " + SHUTDOWN_TIMEOUT_MILLIS + " ms");
+        }
+    }
+
+    private static boolean awaitTermination(ExecutorService executor, long deadline) {
         boolean interrupted = false;
-        long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(SHUTDOWN_TIMEOUT_MILLIS);
         while (!executor.isTerminated()) {
             long remaining = deadline - System.nanoTime();
             if (remaining <= 0L) {
@@ -40,15 +61,9 @@ public final class MediaExecutors {
                 executor.awaitTermination(remaining, TimeUnit.NANOSECONDS);
             } catch (InterruptedException exception) {
                 interrupted = true;
-                executor.shutdownNow();
             }
         }
-        if (interrupted) {
-            Thread.currentThread().interrupt();
-        }
-        if (!executor.isTerminated()) {
-            LOGGER.warning("HorizonRadio: Media executor did not terminate within " + SHUTDOWN_TIMEOUT_MILLIS + " ms");
-        }
+        return interrupted;
     }
 
     private static ExecutorService fixedBounded(String prefix, int workerCount, int queueSize) {

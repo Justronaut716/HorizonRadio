@@ -28,6 +28,7 @@ import com.horizonradio.network.packets.ClockSyncResponsePacket;
 import com.horizonradio.network.packets.PlaylistSyncPacket;
 import com.horizonradio.network.packets.TrackSyncPacket;
 import com.horizonradio.server.AudioDownloadService;
+import com.horizonradio.test.DirectExecutorService;
 
 public class HorizonRadioClientModeTest {
 
@@ -740,8 +741,8 @@ public class HorizonRadioClientModeTest {
         private ControlledAudioDownloadService(Path directory) throws java.io.IOException {
             super(
                 directory,
-                com.horizonradio.media.concurrent.MediaExecutors.newDiscoveryExecutor(),
-                com.horizonradio.media.concurrent.MediaExecutors.newDownloadExecutor());
+                new DirectExecutorService(),
+                new DirectExecutorService());
         }
 
         @Override

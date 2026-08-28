@@ -38,6 +38,7 @@ import com.horizonradio.network.packets.AudioChunkPacket;
 import com.horizonradio.network.packets.RadioAudioChunkPacket;
 import com.horizonradio.network.packets.RadioAudioStartPacket;
 import com.horizonradio.server.AudioDownloadService;
+import com.horizonradio.test.DirectExecutorService;
 
 public class RadioClientStateTest {
 
@@ -650,8 +651,8 @@ public class RadioClientStateTest {
         RecordingAudioDownloadService(Path directory) throws IOException {
             super(
                 directory,
-                com.horizonradio.media.concurrent.MediaExecutors.newDiscoveryExecutor(),
-                com.horizonradio.media.concurrent.MediaExecutors.newDownloadExecutor());
+                new DirectExecutorService(),
+                new DirectExecutorService());
         }
 
         @Override

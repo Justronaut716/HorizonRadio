@@ -20,9 +20,9 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.horizonradio.client.media.ClientMediaService;
 import com.horizonradio.client.media.ClientMetadataCache;
-import com.horizonradio.media.concurrent.MediaExecutors;
 import com.horizonradio.server.media.YouTubeMediaModels;
 import com.horizonradio.server.media.YouTubeMetadataResolver;
+import com.horizonradio.test.DirectExecutorService;
 
 public class AudioDownloadMetadataTest {
 
@@ -35,8 +35,8 @@ public class AudioDownloadMetadataTest {
             directory,
             new NoopBackend(),
             new YouTubeMetadataResolver(http),
-            MediaExecutors.newDiscoveryExecutor(),
-            MediaExecutors.newDownloadExecutor());
+            new DirectExecutorService(),
+            new DirectExecutorService());
         try {
             String result = service.extractVideoJson("https://youtu.be/dQw4w9WgXcQ")
                 .get(2, TimeUnit.SECONDS);
@@ -61,14 +61,14 @@ public class AudioDownloadMetadataTest {
             directory,
             new NoopBackend(),
             new YouTubeMetadataResolver(new FixtureHttp("{\"playabilityStatus\":{\"status\":\"ERROR\"}}")),
-            MediaExecutors.newDiscoveryExecutor(),
-            MediaExecutors.newDownloadExecutor());
+            new DirectExecutorService(),
+            new DirectExecutorService());
         try {
             ClientMetadataCache cache = new ClientMetadataCache(
                 new ClientMediaService(
-                    new YouTubeService(MediaExecutors.newDiscoveryExecutor()),
+                    new YouTubeService(new DirectExecutorService()),
                     service,
-                    new RadioBrowserService(MediaExecutors.newDiscoveryExecutor())));
+                    new RadioBrowserService(new DirectExecutorService())));
             try {
                 cache.video("dQw4w9WgXcQ")
                     .get(2, TimeUnit.SECONDS);
