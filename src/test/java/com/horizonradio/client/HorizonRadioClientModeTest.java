@@ -739,10 +739,7 @@ public class HorizonRadioClientModeTest {
         private PlaybackMode modeDuringCancel;
 
         private ControlledAudioDownloadService(Path directory) throws java.io.IOException {
-            super(
-                directory,
-                new DirectExecutorService(),
-                new DirectExecutorService());
+            super(directory, new DirectExecutorService(), new DirectExecutorService());
         }
 
         @Override

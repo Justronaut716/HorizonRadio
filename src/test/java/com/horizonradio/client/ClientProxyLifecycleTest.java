@@ -34,9 +34,7 @@ public class ClientProxyLifecycleTest {
             }
         });
 
-        assertEquals(
-            java.util.Arrays.asList("discovery", "download", "published", "cleanup"),
-            events);
+        assertEquals(java.util.Arrays.asList("discovery", "download", "published", "cleanup"), events);
         assertEquals(1, discovery.shutdownCalls);
         assertEquals(1, download.shutdownCalls);
         assertEquals(0, discovery.shutdownNowCalls);

@@ -61,8 +61,7 @@ public class AudioDownloadService {
     }
 
     public AudioDownloadService(Path downloadDir, String youtubeCookiesFromBrowser, String youtubeCookiesFile,
-        Executor discoveryExecutor, ExecutorService downloadExecutor)
-        throws IOException {
+        Executor discoveryExecutor, ExecutorService downloadExecutor) throws IOException {
         this(downloadDir, discoveryExecutor, downloadExecutor);
     }
 
@@ -85,20 +84,30 @@ public class AudioDownloadService {
     AudioDownloadService(Path downloadDir, YouTubeMediaModels.AudioDownloadBackend downloadBackend,
         YouTubeMetadataResolver metadataResolver, Executor discoveryExecutor, ExecutorService downloadExecutor)
         throws IOException {
-        this(downloadDir, downloadBackend, metadataResolver, CancellationInterleavingHook.NONE, discoveryExecutor, downloadExecutor);
+        this(
+            downloadDir,
+            downloadBackend,
+            metadataResolver,
+            CancellationInterleavingHook.NONE,
+            discoveryExecutor,
+            downloadExecutor);
     }
 
     AudioDownloadService(Path downloadDir, YouTubeMediaModels.AudioDownloadBackend downloadBackend,
         CancellationInterleavingHook cancellationInterleavingHook, Executor discoveryExecutor,
         ExecutorService downloadExecutor) throws IOException {
-        this(downloadDir, downloadBackend, new YouTubeMetadataResolver(), cancellationInterleavingHook, discoveryExecutor,
+        this(
+            downloadDir,
+            downloadBackend,
+            new YouTubeMetadataResolver(),
+            cancellationInterleavingHook,
+            discoveryExecutor,
             downloadExecutor);
     }
 
     private AudioDownloadService(Path downloadDir, YouTubeMediaModels.AudioDownloadBackend downloadBackend,
         YouTubeMetadataResolver metadataResolver, CancellationInterleavingHook cancellationInterleavingHook,
-        Executor discoveryExecutor, ExecutorService downloadExecutor)
-        throws IOException {
+        Executor discoveryExecutor, ExecutorService downloadExecutor) throws IOException {
         if (downloadBackend == null) throw new IllegalArgumentException("Java audio download backend is required");
         if (metadataResolver == null) throw new IllegalArgumentException("YouTube metadata resolver is required");
         if (discoveryExecutor == null) throw new IllegalArgumentException("discovery executor is required");

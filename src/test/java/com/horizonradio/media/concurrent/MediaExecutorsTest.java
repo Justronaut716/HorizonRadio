@@ -24,7 +24,10 @@ public class MediaExecutorsTest {
         try {
             ThreadPoolExecutor pool = (ThreadPoolExecutor) discovery;
             assertEquals(4, pool.getCorePoolSize());
-            assertEquals(64, pool.getQueue().remainingCapacity());
+            assertEquals(
+                64,
+                pool.getQueue()
+                    .remainingCapacity());
 
             assertSaturatesAndUsesDaemonThreads(discovery, 4, 64, "HorizonRadio-Discovery-");
         } finally {
@@ -38,7 +41,10 @@ public class MediaExecutorsTest {
         try {
             ThreadPoolExecutor pool = (ThreadPoolExecutor) download;
             assertEquals(2, pool.getCorePoolSize());
-            assertEquals(16, pool.getQueue().remainingCapacity());
+            assertEquals(
+                16,
+                pool.getQueue()
+                    .remainingCapacity());
 
             assertSaturatesAndUsesDaemonThreads(download, 2, 16, "HorizonRadio-Download-");
         } finally {
@@ -60,7 +66,8 @@ public class MediaExecutorsTest {
                     new CountDownLatch(1).await();
                 } catch (InterruptedException exception) {
                     interrupted.countDown();
-                    Thread.currentThread().interrupt();
+                    Thread.currentThread()
+                        .interrupt();
                 }
             }
         });
@@ -159,7 +166,9 @@ public class MediaExecutorsTest {
             synchronized (threads) {
                 for (Thread thread : threads) {
                     assertTrue(thread.isDaemon());
-                    assertTrue(thread.getName().startsWith(prefix));
+                    assertTrue(
+                        thread.getName()
+                            .startsWith(prefix));
                 }
             }
         } finally {
@@ -180,7 +189,8 @@ public class MediaExecutorsTest {
                 try {
                     release.await();
                 } catch (InterruptedException exception) {
-                    Thread.currentThread().interrupt();
+                    Thread.currentThread()
+                        .interrupt();
                 }
             }
         };

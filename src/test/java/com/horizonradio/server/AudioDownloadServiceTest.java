@@ -2,8 +2,8 @@ package com.horizonradio.server;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertNotSame;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -17,10 +17,10 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.AbstractExecutorService;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.Test;
@@ -41,7 +41,9 @@ public class AudioDownloadServiceTest {
             new DirectExecutor(),
             new RejectingExecutor());
         try {
-            assertNull(service.extractVideoJson("https://youtu.be/dQw4w9WgXcQ").get(2, TimeUnit.SECONDS));
+            assertNull(
+                service.extractVideoJson("https://youtu.be/dQw4w9WgXcQ")
+                    .get(2, TimeUnit.SECONDS));
         } finally {
             service.shutdown();
             deleteDirectory(directory);
@@ -302,8 +304,13 @@ public class AudioDownloadServiceTest {
             fail("expected the rejected download to fail");
         } catch (ExecutionException exception) {
             assertTrue(exception.getCause() instanceof MediaException);
-            assertEquals("media queue is full", exception.getCause().getMessage());
-            assertTrue(exception.getCause().getCause() instanceof RejectedExecutionException);
+            assertEquals(
+                "media queue is full",
+                exception.getCause()
+                    .getMessage());
+            assertTrue(
+                exception.getCause()
+                    .getCause() instanceof RejectedExecutionException);
         }
     }
 
@@ -313,8 +320,8 @@ public class AudioDownloadServiceTest {
             @Override
             public YouTubeMediaModels.HttpResponse post(URL url, Map<String, String> headers, byte[] body,
                 int timeoutMillis, long maximumBytes) {
-                byte[] response = "{\"playabilityStatus\":{\"status\":\"ERROR\"}}".getBytes(
-                    java.nio.charset.StandardCharsets.UTF_8);
+                byte[] response = "{\"playabilityStatus\":{\"status\":\"ERROR\"}}"
+                    .getBytes(java.nio.charset.StandardCharsets.UTF_8);
                 return new YouTubeMediaModels.HttpResponse(
                     url,
                     200,

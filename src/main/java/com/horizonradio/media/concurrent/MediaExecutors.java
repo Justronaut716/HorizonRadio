@@ -43,7 +43,8 @@ public final class MediaExecutors {
             interrupted |= awaitTermination(executor, deadline);
         }
         if (interrupted) {
-            Thread.currentThread().interrupt();
+            Thread.currentThread()
+                .interrupt();
         }
         if (!executor.isTerminated()) {
             LOGGER.warning("HorizonRadio: Media executor did not terminate within " + SHUTDOWN_TIMEOUT_MILLIS + " ms");

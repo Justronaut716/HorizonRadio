@@ -649,10 +649,7 @@ public class RadioClientStateTest {
         private int cleanUpCalls;
 
         RecordingAudioDownloadService(Path directory) throws IOException {
-            super(
-                directory,
-                new DirectExecutorService(),
-                new DirectExecutorService());
+            super(directory, new DirectExecutorService(), new DirectExecutorService());
         }
 
         @Override
