@@ -11,12 +11,19 @@ import java.io.Reader;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.concurrent.Executor;
+import java.util.concurrent.RejectedExecutionException;
 
 import org.junit.Test;
 
 import com.horizonradio.core.model.RadioStation;
 
 public class RadioBrowserServiceTest {
+
+    @Test(expected = RejectedExecutionException.class)
+    public void searchUsesTheInjectedDiscoveryExecutor() {
+        new RadioBrowserService(rejectingExecutor()).search("never used");
+    }
 
     @Test
     public void parseStationsKeepsUniqueWorkingStationsWithResolvedUrls() throws IOException {
@@ -162,5 +169,15 @@ public class RadioBrowserServiceTest {
             result.append(value);
         }
         return result.toString();
+    }
+
+    private static Executor rejectingExecutor() {
+        return new Executor() {
+
+            @Override
+            public void execute(Runnable task) {
+                throw new RejectedExecutionException("test executor is saturated");
+            }
+        };
     }
 }

@@ -14,6 +14,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -54,16 +55,18 @@ public class YouTubeService {
 
     private final Gson gson = new Gson();
     private final SearchPageRequester searchPageRequester;
+    private final Executor executor;
 
-    public YouTubeService() {
-        searchPageRequester = null;
+    public YouTubeService(Executor executor) {
+        this(null, executor);
     }
 
-    YouTubeService(SearchPageRequester searchPageRequester) {
-        if (searchPageRequester == null) {
-            throw new IllegalArgumentException("searchPageRequester must not be null");
+    YouTubeService(SearchPageRequester searchPageRequester, Executor executor) {
+        if (executor == null) {
+            throw new IllegalArgumentException("executor must not be null");
         }
         this.searchPageRequester = searchPageRequester;
+        this.executor = executor;
     }
 
     public CompletableFuture<List<SearchResult>> search(final String query) {
@@ -77,7 +80,7 @@ public class YouTubeService {
             public List<SearchResult> get() {
                 return searchPages(query, maxTrackDurationMs);
             }
-        });
+        }, executor);
     }
 
     public CompletableFuture<List<SearchResult>> fetchGermanTopCharts() {
@@ -99,7 +102,7 @@ public class YouTubeService {
                     return new ArrayList<SearchResult>();
                 }
             }
-        });
+        }, executor);
     }
 
     private List<SearchResult> searchPages(String query, long maxTrackDurationMs) {

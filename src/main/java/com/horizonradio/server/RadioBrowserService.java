@@ -14,6 +14,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -47,6 +48,15 @@ public class RadioBrowserService {
         MAX_RADIO_STATUS_BYTES - PLAYING_STATUS_PREFIX.getBytes(StandardCharsets.UTF_8).length);
     private static final Logger LOGGER = Logger.getLogger(RadioBrowserService.class.getName());
 
+    private final Executor executor;
+
+    public RadioBrowserService(Executor executor) {
+        if (executor == null) {
+            throw new IllegalArgumentException("executor must not be null");
+        }
+        this.executor = executor;
+    }
+
     public CompletableFuture<List<RadioStation>> search(final String query) {
         final String boundedQuery = boundQuery(query);
         return CompletableFuture.supplyAsync(new java.util.function.Supplier<List<RadioStation>>() {
@@ -56,7 +66,7 @@ public class RadioBrowserService {
                 boolean popular = boundedQuery.length() == 0;
                 return requestStations("json/stations/search", boundedQuery, popular);
             }
-        });
+        }, executor);
     }
 
     public CompletableFuture<RadioStation> lookup(final String stationUuid) {
@@ -73,7 +83,7 @@ public class RadioBrowserService {
                     false);
                 return stations.isEmpty() ? null : stations.get(0);
             }
-        });
+        }, executor);
     }
 
     public CompletableFuture<Void> countClick(final String stationUuid) {
@@ -86,7 +96,7 @@ public class RadioBrowserService {
                 }
                 request("json/url/" + encodePathSegment(stationUuid.trim()), null, false);
             }
-        });
+        }, executor);
     }
 
     public static List<RadioStation> parseStations(String json) {

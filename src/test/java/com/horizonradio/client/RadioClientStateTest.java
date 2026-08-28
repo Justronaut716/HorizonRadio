@@ -648,7 +648,7 @@ public class RadioClientStateTest {
         private int cleanUpCalls;
 
         RecordingAudioDownloadService(Path directory) throws IOException {
-            super(directory);
+            super(directory, com.horizonradio.media.concurrent.MediaExecutors.newDownloadExecutor());
         }
 
         @Override

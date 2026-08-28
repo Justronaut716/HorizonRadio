@@ -3,6 +3,7 @@ package com.horizonradio.client;
 import java.io.File;
 import java.io.IOException;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -15,6 +16,7 @@ import com.horizonradio.client.audio.AudioPlayer;
 import com.horizonradio.client.audio.ClientRadioPlayback;
 import com.horizonradio.client.media.ClientMediaService;
 import com.horizonradio.core.model.RadioStation;
+import com.horizonradio.media.concurrent.MediaExecutors;
 import com.horizonradio.network.packets.ClockSyncResponsePacket;
 import com.horizonradio.network.packets.PausePacket;
 import com.horizonradio.network.packets.PlaylistDeltaPacket;
@@ -76,10 +78,12 @@ public class ClientProxy extends CommonProxy {
         File configDirectory = event.getSuggestedConfigurationFile()
             .getParentFile();
         HorizonRadioClient.loadClientConfig(configDirectory);
+        final ExecutorService discoveryExecutor = MediaExecutors.newDiscoveryExecutor();
+        final ExecutorService downloadExecutor = MediaExecutors.newDownloadExecutor();
         try {
             File gameDirectory = configDirectory == null ? null : configDirectory.getParentFile();
             File audioDirectory = new File(gameDirectory == null ? new File(".") : gameDirectory, "horizonradio-audio");
-            AudioDownloadService audioDownloadService = new AudioDownloadService(audioDirectory.toPath());
+            AudioDownloadService audioDownloadService = new AudioDownloadService(audioDirectory.toPath(), downloadExecutor);
             HorizonRadioClient.setClientAudioDownloadService(audioDownloadService);
             Runtime.getRuntime()
                 .addShutdownHook(new Thread(new Runnable() {
@@ -87,12 +91,14 @@ public class ClientProxy extends CommonProxy {
                     @Override
                     public void run() {
                         HorizonRadioClient.cleanUpAudioCache();
+                        MediaExecutors.shutdown(discoveryExecutor);
+                        MediaExecutors.shutdown(downloadExecutor);
                     }
                 }, "HorizonRadio-AudioCacheCleanup"));
             final ClientMediaService mediaService = new ClientMediaService(
-                new YouTubeService(),
+                new YouTubeService(discoveryExecutor),
                 audioDownloadService,
-                new RadioBrowserService());
+                new RadioBrowserService(discoveryExecutor));
             HorizonRadioClient.setClientMediaService(mediaService);
             HorizonRadioClient
                 .setClientRadioPlayback(new ClientRadioPlayback(new ClientRadioPlayback.StationResolver() {
@@ -151,6 +157,8 @@ public class ClientProxy extends CommonProxy {
                     }
                 }));
         } catch (IOException exception) {
+            MediaExecutors.shutdown(discoveryExecutor);
+            MediaExecutors.shutdown(downloadExecutor);
             HorizonRadioClient.setClientMediaService(null);
             HorizonRadioClient.setClientRadioPlayback(null);
             LOGGER.log(Level.WARNING, "HorizonRadio: Failed to initialise client audio cache", exception);
