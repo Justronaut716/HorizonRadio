@@ -194,8 +194,12 @@ public class AudioDownloadService {
             try {
                 return downloadBackend.download(videoId, filePath, operation);
             } catch (IOException exception) {
+                if (operation.isCancelled()) {
+                    LOGGER.log(Level.FINE, "HorizonRadio: Audio download cancelled for " + videoId);
+                    return null;
+                }
                 long now = System.currentTimeMillis();
-                long retryAt = operation.isCancelled() ? 0L : downloadBackend.nextRateLimitRetryAtMillis();
+                long retryAt = downloadBackend.nextRateLimitRetryAtMillis();
                 if (attempt >= MAX_RATE_LIMIT_RETRIES || retryAt <= now) {
                     LOGGER.log(Level.WARNING, "Java audio download failed for " + videoId, exception);
                     return null;
@@ -207,7 +211,11 @@ public class AudioDownloadService {
                         + (retryAt - now + 999L) / 1000L
                         + "s");
                 if (!sleepUntil(retryAt, operation)) {
-                    LOGGER.log(Level.WARNING, "Java audio download failed for " + videoId, exception);
+                    if (operation.isCancelled()) {
+                        LOGGER.log(Level.FINE, "HorizonRadio: Audio download cancelled for " + videoId);
+                    } else {
+                        LOGGER.log(Level.WARNING, "Java audio download failed for " + videoId, exception);
+                    }
                     return null;
                 }
             }

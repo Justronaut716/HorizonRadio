@@ -12,6 +12,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.LongSupplier;
@@ -34,6 +36,7 @@ public final class JavaAudioDownloadBackend implements YouTubeMediaModels.AudioD
     private final AudioFormatDetector detector = new AudioFormatDetector();
     private final long maximumBytes;
     private final LongSupplier clock;
+    private final Semaphore downloadPermit = new Semaphore(1, true);
     private final AtomicInteger consecutiveRateLimitFailures = new AtomicInteger();
     private final AtomicLong nextRateLimitRetryAtMillis = new AtomicLong();
 
@@ -88,7 +91,10 @@ public final class JavaAudioDownloadBackend implements YouTubeMediaModels.AudioD
     private Path downloadLocked(String videoId, Path destination, YouTubeMediaModels.CancellationToken token)
         throws IOException {
         checkRateLimited();
+        acquireDownloadPermit(token);
         try {
+            // A waiting prefetch may have crossed into the cooldown while the active download was running.
+            checkRateLimited();
             Path result = downloadLockedOnce(videoId, destination, token);
             resetRateLimit();
             return result;
@@ -101,6 +107,21 @@ public final class JavaAudioDownloadBackend implements YouTubeMediaModels.AudioD
             resolver.invalidateVisitorCache();
             recordRateLimitFailure();
             throw failure;
+        } finally {
+            downloadPermit.release();
+        }
+    }
+
+    private void acquireDownloadPermit(YouTubeMediaModels.CancellationToken token) throws IOException {
+        while (true) {
+            checkCancelled(token);
+            try {
+                if (downloadPermit.tryAcquire(1L, TimeUnit.SECONDS)) return;
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread()
+                    .interrupt();
+                throw new MediaException("YouTube audio download cancelled", interrupted);
+            }
         }
     }
 
@@ -136,17 +157,24 @@ public final class JavaAudioDownloadBackend implements YouTubeMediaModels.AudioD
         Set<String> attemptedUrls = new HashSet<String>();
         List<IOException> failures = new ArrayList<IOException>();
         List<IOException> transportFailures = new ArrayList<IOException>();
-        Path result = tryCandidates(
-            destination,
-            token,
-            resolved.getPrimaryCandidates(),
-            attemptedUrls,
-            failures,
-            transportFailures,
-            true);
+        Path result = null;
+        boolean primaryRateLimited = false;
+        try {
+            result = tryCandidates(
+                destination,
+                token,
+                resolved.getPrimaryCandidates(),
+                attemptedUrls,
+                failures,
+                transportFailures,
+                true,
+                true);
+        } catch (RateLimitedCandidateFailure rateLimited) {
+            primaryRateLimited = true;
+        }
         if (result != null) return result;
 
-        if (!transportFailures.isEmpty()) {
+        if (!primaryRateLimited && !transportFailures.isEmpty()) {
             checkCancelled(token);
             try {
                 resolved = resolver.resolveAudioCandidates(videoId);
@@ -156,14 +184,19 @@ public final class JavaAudioDownloadBackend implements YouTubeMediaModels.AudioD
             }
             attemptedUrls.clear();
             transportFailures.clear();
-            result = tryCandidates(
-                destination,
-                token,
-                resolved.getPrimaryCandidates(),
-                attemptedUrls,
-                failures,
-                transportFailures,
-                false);
+            try {
+                result = tryCandidates(
+                    destination,
+                    token,
+                    resolved.getPrimaryCandidates(),
+                    attemptedUrls,
+                    failures,
+                    transportFailures,
+                    false,
+                    true);
+            } catch (RateLimitedCandidateFailure rateLimited) {
+                primaryRateLimited = true;
+            }
             if (result != null) return result;
         }
 
@@ -174,7 +207,20 @@ public final class JavaAudioDownloadBackend implements YouTubeMediaModels.AudioD
             failures.add(alternativeFailure);
             throw aggregateFailure(videoId, failures);
         }
-        result = tryCandidates(destination, token, alternatives, attemptedUrls, failures, transportFailures, true);
+        if (primaryRateLimited) {
+            // A different client profile can mint a usable URL with the same textual address. Its request
+            // still carries a different client context, so do not let the rejected primary URL suppress it.
+            attemptedUrls.clear();
+        }
+        result = tryCandidates(
+            destination,
+            token,
+            alternatives,
+            attemptedUrls,
+            failures,
+            transportFailures,
+            true,
+            false);
         if (result != null) return result;
         throw aggregateFailure(videoId, failures);
     }
@@ -182,6 +228,10 @@ public final class JavaAudioDownloadBackend implements YouTubeMediaModels.AudioD
     private static boolean containsHttp403(Throwable failure) {
         if (failure == null) {
             return false;
+        }
+        if (failure instanceof YouTubeMediaModels.HttpStatusException
+            && ((YouTubeMediaModels.HttpStatusException) failure).getStatusCode() == 403) {
+            return true;
         }
         if (failure.getMessage() != null && failure.getMessage()
             .contains("status 403")) {
@@ -198,9 +248,33 @@ public final class JavaAudioDownloadBackend implements YouTubeMediaModels.AudioD
         return false;
     }
 
+    private static CandidateTransportFailure transportFailure(String message, IOException failure) {
+        if (isHttp403Status(failure)) {
+            return new RateLimitedCandidateFailure(message, failure);
+        }
+        return new CandidateTransportFailure(message, failure);
+    }
+
+    private static boolean isHttp403Status(Throwable failure) {
+        if (failure == null) return false;
+        if (failure instanceof YouTubeMediaModels.HttpStatusException
+            && ((YouTubeMediaModels.HttpStatusException) failure).getStatusCode() == 403) {
+            return true;
+        }
+        if (failure.getMessage() != null && failure.getMessage()
+            .contains("status 403")) {
+            return true;
+        }
+        if (isHttp403Status(failure.getCause())) return true;
+        for (Throwable suppressed : failure.getSuppressed()) {
+            if (isHttp403Status(suppressed)) return true;
+        }
+        return false;
+    }
+
     private Path tryCandidates(Path destination, YouTubeMediaModels.CancellationToken token,
         List<YouTubeMediaModels.ResolvedAudioStream> candidates, Set<String> attemptedUrls, List<IOException> failures,
-        List<IOException> transportFailures, boolean ranged) throws IOException {
+        List<IOException> transportFailures, boolean ranged, boolean stopOnRateLimit) throws IOException {
         for (YouTubeMediaModels.ResolvedAudioStream stream : candidates) {
             checkCancelled(token);
             if (!attemptedUrls.add(
@@ -209,6 +283,10 @@ public final class JavaAudioDownloadBackend implements YouTubeMediaModels.AudioD
                 continue;
             try {
                 return downloadCandidate(stream, destination, token, ranged);
+            } catch (RateLimitedCandidateFailure failure) {
+                failures.add(failure);
+                transportFailures.add(failure);
+                if (stopOnRateLimit) throw failure;
             } catch (CandidateTransportFailure failure) {
                 failures.add(failure);
                 transportFailures.add(failure);
@@ -233,9 +311,12 @@ public final class JavaAudioDownloadBackend implements YouTubeMediaModels.AudioD
         try {
             response = openInitialResponse(stream, mediaHeaders, chunkBytes, ranged);
         } catch (IOException failure) {
-            throw new CandidateTransportFailure("Unable to open YouTube audio candidate", failure);
+            throw transportFailure("Unable to open YouTube audio candidate", failure);
         }
         try (YouTubeMediaModels.HttpResponse responseResource = response) {
+            if (responseResource.getStatusCode() == 403) {
+                throw new RateLimitedCandidateFailure("YouTube audio candidate returned HTTP 403");
+            }
             if (responseResource.getStatusCode() < 200 || responseResource.getStatusCode() >= 300
                 || !YouTubeStreamResolver.isSafeMediaUrl(responseResource.getUrl())) {
                 throw new CandidateTransportFailure("Audio candidate response is not trusted");
@@ -253,7 +334,7 @@ public final class JavaAudioDownloadBackend implements YouTubeMediaModels.AudioD
                         chunkBytes,
                         responseResource);
                 } catch (IOException failure) {
-                    throw new CandidateTransportFailure("Audio candidate range response is not trusted", failure);
+                    throw transportFailure("Audio candidate range response is not trusted", failure);
                 }
                 compressed = rangeInput;
                 expectedLength = rangeInput.getTotalBytes();
@@ -277,6 +358,9 @@ public final class JavaAudioDownloadBackend implements YouTubeMediaModels.AudioD
                 detected = detector.detect(responseResource.getContentType(), prefix);
             } catch (IOException failure) {
                 if (cancellationRequested(token)) throw failure;
+                if (isHttp403Status(failure)) {
+                    throw new RateLimitedCandidateFailure("Audio candidate returned HTTP 403 while reading", failure);
+                }
                 throw new CandidateDecodeFailure("Audio candidate could not be inspected", failure);
             }
             if (detected != stream.getFormat() || !registry.supports(detected)) {
@@ -292,6 +376,9 @@ public final class JavaAudioDownloadBackend implements YouTubeMediaModels.AudioD
                 }
             } catch (IOException failure) {
                 if (cancellationRequested(token) || deferred.hasDownstreamFailure()) throw failure;
+                if (isHttp403Status(failure)) {
+                    throw new RateLimitedCandidateFailure("Audio candidate returned HTTP 403 while decoding", failure);
+                }
                 throw new CandidateDecodeFailure("Audio candidate could not be decoded", failure);
             }
             checkCancelled(token);
@@ -467,13 +554,24 @@ public final class JavaAudioDownloadBackend implements YouTubeMediaModels.AudioD
         }
     }
 
-    private static final class CandidateTransportFailure extends IOException {
+    private static class CandidateTransportFailure extends IOException {
 
         private CandidateTransportFailure(String message) {
             super(message);
         }
 
         private CandidateTransportFailure(String message, Throwable cause) {
+            super(message, cause);
+        }
+    }
+
+    private static final class RateLimitedCandidateFailure extends CandidateTransportFailure {
+
+        private RateLimitedCandidateFailure(String message) {
+            super(message);
+        }
+
+        private RateLimitedCandidateFailure(String message, Throwable cause) {
             super(message, cause);
         }
     }

@@ -75,6 +75,21 @@ public final class YouTubeMediaModels {
         }
     }
 
+    /** Preserves the remote HTTP status so callers can distinguish a rate limit from other media failures. */
+    public static final class HttpStatusException extends MediaException {
+
+        private final int statusCode;
+
+        public HttpStatusException(int statusCode) {
+            super("HTTP request failed with status " + statusCode);
+            this.statusCode = statusCode;
+        }
+
+        public int getStatusCode() {
+            return statusCode;
+        }
+    }
+
     public enum RedirectPolicy {
         INNER_TUBE,
         MEDIA
@@ -277,7 +292,7 @@ public final class YouTubeMediaModels {
                     InputStream error = connection.getErrorStream();
                     if (error != null) error.close();
                     connection.disconnect();
-                    throw new MediaException("HTTP request failed with status " + status);
+                    throw new HttpStatusException(status);
                 }
                 long contentLength = connection.getContentLengthLong();
                 if (contentLength < 0L) {
