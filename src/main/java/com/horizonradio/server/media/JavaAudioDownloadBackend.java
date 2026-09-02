@@ -1,9 +1,15 @@
 package com.horizonradio.server.media;
 
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.URL;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -29,6 +35,8 @@ public final class JavaAudioDownloadBackend implements YouTubeMediaModels.AudioD
     private static final String MEDIA_USER_AGENT = "com.google.android.apps.youtube.vr.oculus/1.65.10 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip";
     private static final long RATE_LIMIT_BASE_MILLIS = 60000L;
     private static final long RATE_LIMIT_MAX_MILLIS = 600000L;
+    private static final int READ_BUFFER_BYTES = 64 * 1024;
+    private static final int MAX_PENDING_TRANSFERS = 8;
     private static final ConcurrentMap<Path, Object> DESTINATION_LOCKS = new ConcurrentHashMap<Path, Object>();
     private final YouTubeStreamResolver resolver;
     private final YouTubeMediaModels.HttpRequester requester;
@@ -39,6 +47,10 @@ public final class JavaAudioDownloadBackend implements YouTubeMediaModels.AudioD
     private final Semaphore downloadPermit = new Semaphore(1, true);
     private final AtomicInteger consecutiveRateLimitFailures = new AtomicInteger();
     private final AtomicLong nextRateLimitRetryAtMillis = new AtomicLong();
+    // In-progress media bodies kept on disk so a rate-limited (403) download can resume where it
+    // stopped instead of re-downloading. Keyed by video id.
+    private final ConcurrentMap<String, MediaTransfer> pendingTransfers = new ConcurrentHashMap<String, MediaTransfer>();
+    private static final Logger LOGGER = Logger.getLogger(JavaAudioDownloadBackend.class.getName());
 
     public JavaAudioDownloadBackend() {
         this(
@@ -137,6 +149,10 @@ public final class JavaAudioDownloadBackend implements YouTubeMediaModels.AudioD
         int failures = consecutiveRateLimitFailures.incrementAndGet();
         long backoff = Math.min(RATE_LIMIT_BASE_MILLIS << Math.min(failures - 1, 4), RATE_LIMIT_MAX_MILLIS);
         nextRateLimitRetryAtMillis.set(clock.getAsLong() + backoff);
+        LOGGER.log(
+            Level.WARNING,
+            "YouTube media edge returned HTTP 403; pausing media downloads for about {0}s (failure {1})",
+            new Object[] { Long.toString(backoff / 1000L), Integer.toString(failures) });
     }
 
     private void resetRateLimit() {
@@ -154,6 +170,8 @@ public final class JavaAudioDownloadBackend implements YouTubeMediaModels.AudioD
         checkCancelled(token);
         YouTubeStreamResolver.ResolvedAudioCandidates resolved = resolver.resolveAudioCandidates(videoId);
         checkCancelled(token);
+        Path resumed = resumePendingTransfer(videoId, destination, token);
+        if (resumed != null) return resumed;
         Set<String> attemptedUrls = new HashSet<String>();
         List<IOException> failures = new ArrayList<IOException>();
         List<IOException> transportFailures = new ArrayList<IOException>();
@@ -161,6 +179,7 @@ public final class JavaAudioDownloadBackend implements YouTubeMediaModels.AudioD
         boolean primaryRateLimited = false;
         try {
             result = tryCandidates(
+                videoId,
                 destination,
                 token,
                 resolved.getPrimaryCandidates(),
@@ -186,6 +205,7 @@ public final class JavaAudioDownloadBackend implements YouTubeMediaModels.AudioD
             transportFailures.clear();
             try {
                 result = tryCandidates(
+                    videoId,
                     destination,
                     token,
                     resolved.getPrimaryCandidates(),
@@ -213,6 +233,7 @@ public final class JavaAudioDownloadBackend implements YouTubeMediaModels.AudioD
             attemptedUrls.clear();
         }
         result = tryCandidates(
+            videoId,
             destination,
             token,
             alternatives,
@@ -272,7 +293,7 @@ public final class JavaAudioDownloadBackend implements YouTubeMediaModels.AudioD
         return false;
     }
 
-    private Path tryCandidates(Path destination, YouTubeMediaModels.CancellationToken token,
+    private Path tryCandidates(String videoId, Path destination, YouTubeMediaModels.CancellationToken token,
         List<YouTubeMediaModels.ResolvedAudioStream> candidates, Set<String> attemptedUrls, List<IOException> failures,
         List<IOException> transportFailures, boolean ranged, boolean stopOnRateLimit) throws IOException {
         for (YouTubeMediaModels.ResolvedAudioStream stream : candidates) {
@@ -282,7 +303,7 @@ public final class JavaAudioDownloadBackend implements YouTubeMediaModels.AudioD
                     .toExternalForm()))
                 continue;
             try {
-                return downloadCandidate(stream, destination, token, ranged);
+                return downloadCandidate(videoId, stream, destination, token, ranged, null);
             } catch (RateLimitedCandidateFailure failure) {
                 failures.add(failure);
                 transportFailures.add(failure);
@@ -297,104 +318,355 @@ public final class JavaAudioDownloadBackend implements YouTubeMediaModels.AudioD
         return null;
     }
 
-    private Path downloadCandidate(YouTubeMediaModels.ResolvedAudioStream stream, Path destination,
-        YouTubeMediaModels.CancellationToken token, boolean ranged) throws IOException {
+    private Path downloadCandidate(String videoId, YouTubeMediaModels.ResolvedAudioStream stream, Path destination,
+        YouTubeMediaModels.CancellationToken token, boolean ranged, MediaTransfer pending) throws IOException {
         checkCancelled(token);
         if (stream.getExpiresAtMillis() <= clock.getAsLong()) {
             throw new CandidateDecodeFailure("YouTube stream URL expired before download");
         }
         WavFileSink sink = null;
-        MediaRangeInputStream rangeInput = null;
-        long chunkBytes = Math.min(RANGE_CHUNK_BYTES, maximumBytes);
-        Map<String, String> mediaHeaders = mediaHeaders(stream);
-        YouTubeMediaModels.HttpResponse response;
+        Path mediaTemp = pending != null ? pending.tempFile : null;
+        String contentType = pending != null ? pending.contentType : "";
+        long startOfAttempt = 0L;
         try {
-            response = openInitialResponse(stream, mediaHeaders, chunkBytes, ranged);
-        } catch (IOException failure) {
-            throw transportFailure("Unable to open YouTube audio candidate", failure);
-        }
-        try (YouTubeMediaModels.HttpResponse responseResource = response) {
-            if (responseResource.getStatusCode() == 403) {
-                throw new RateLimitedCandidateFailure("YouTube audio candidate returned HTTP 403");
+            if (mediaTemp == null) {
+                Path parent = destination.toAbsolutePath().getParent();
+                String filePrefix = destination.getFileName().toString();
+                mediaTemp = Files.createTempFile(parent, filePrefix, ".media.part");
             }
-            if (responseResource.getStatusCode() < 200 || responseResource.getStatusCode() >= 300
-                || !YouTubeStreamResolver.isSafeMediaUrl(responseResource.getUrl())) {
-                throw new CandidateTransportFailure("Audio candidate response is not trusted");
+            startOfAttempt = Files.size(mediaTemp);
+
+            // Phase 1: stream the media body to the scratch file in bounded ranges. Every 206 slice is
+            // verified against the requested offset before it is appended, so a stale or shifted slice can
+            // never corrupt the partial body that a later download attempt will resume from.
+            TransferResult transfer = transferMediaBody(stream, mediaTemp, ranged, startOfAttempt, contentType, token);
+
+            // Phase 2: decode the stored body and publish the cache entry atomically. The network stream is
+            // fully closed by now, so a rate-limit window can no longer interleave between compressed reads
+            // and PCM publication.
+            byte[] prefixBytes;
+            try (FileInputStream prefixInput = new FileInputStream(mediaTemp.toFile())) {
+                prefixBytes = readPrefix(prefixInput, PREFIX_BYTES);
             }
-            InputStream compressed;
-            long expectedLength;
-            if (responseResource.getStatusCode() == 206) {
-                try {
-                    rangeInput = MediaRangeInputStream.open(
-                        stream.getUrl(),
-                        requester,
-                        mediaHeaders,
-                        TIMEOUT_MILLIS,
-                        maximumBytes,
-                        chunkBytes,
-                        responseResource);
-                } catch (IOException failure) {
-                    throw transportFailure("Audio candidate range response is not trusted", failure);
-                }
-                compressed = rangeInput;
-                expectedLength = rangeInput.getTotalBytes();
-            } else {
-                if (responseResource.getContentLength() < 0L || responseResource.getContentLength() > maximumBytes) {
-                    throw new CandidateTransportFailure("Audio candidate response exceeds its finite limits");
-                }
-                compressed = new BoundedInputStream(
-                    responseResource.getInputStream(),
-                    responseResource.getContentLength());
-                expectedLength = responseResource.getContentLength();
-            }
-            if (!YouTubeStreamResolver.isSafeMediaUrl(responseResource.getUrl()))
-                throw new CandidateTransportFailure("Audio response redirected to an unsafe URL");
-            CountingInputStream counted = new CountingInputStream(compressed);
-            InputStream input = new CancellationInputStream(counted, token);
-            byte[] prefix;
-            MediaFormat detected;
-            try {
-                prefix = readPrefix(input, PREFIX_BYTES);
-                detected = detector.detect(responseResource.getContentType(), prefix);
-            } catch (IOException failure) {
-                if (cancellationRequested(token)) throw failure;
-                if (isHttp403Status(failure)) {
-                    throw new RateLimitedCandidateFailure("Audio candidate returned HTTP 403 while reading", failure);
-                }
-                throw new CandidateDecodeFailure("Audio candidate could not be inspected", failure);
-            }
+            MediaFormat detected = detector.detect(transfer.contentType, prefixBytes);
             if (detected != stream.getFormat() || !registry.supports(detected)) {
                 throw new CandidateDecodeFailure("Resolved stream format does not match the audio response");
             }
+            checkCancelled(token);
             sink = new WavFileSink(destination, maximumBytes);
             DeferredFinishPcmSink deferred = new DeferredFinishPcmSink(sink, token);
-            try {
-                registry.find(detected, new java.io.ByteArrayInputStream(prefix), input)
-                    .decode(new java.io.SequenceInputStream(new java.io.ByteArrayInputStream(prefix), input), deferred);
-                if (!deferred.isFinishRequested() || counted.getBytesRead() != expectedLength) {
-                    throw new MediaException("Audio response does not exactly match its declared body length");
+            CountingInputStream counted;
+            try (FileInputStream fileInput = new FileInputStream(mediaTemp.toFile())) {
+                skipPrefixBytes(fileInput, prefixBytes.length);
+                counted = new CountingInputStream(new BoundedInputStream(fileInput, transfer.declaredBytes - prefixBytes.length));
+                InputStream input = new CancellationInputStream(counted, token);
+                try {
+                    registry.find(detected, new java.io.ByteArrayInputStream(prefixBytes), input)
+                        .decode(
+                            new java.io.SequenceInputStream(new java.io.ByteArrayInputStream(prefixBytes), input),
+                            deferred);
+                    if (!deferred.isFinishRequested()
+                        || prefixBytes.length + counted.getBytesRead() != transfer.declaredBytes) {
+                        throw new MediaException("Audio response does not exactly match its declared body length");
+                    }
+                } catch (IOException failure) {
+                    if (cancellationRequested(token) || deferred.hasDownstreamFailure()) throw failure;
+                    if (isHttp403Status(failure)) {
+                        throw new RateLimitedCandidateFailure("Audio candidate returned HTTP 403 (status 403)", failure);
+                    }
+                    throw new CandidateDecodeFailure("Audio candidate could not be decoded", failure);
                 }
-            } catch (IOException failure) {
-                if (cancellationRequested(token) || deferred.hasDownstreamFailure()) throw failure;
-                if (isHttp403Status(failure)) {
-                    throw new RateLimitedCandidateFailure("Audio candidate returned HTTP 403 while decoding", failure);
-                }
-                throw new CandidateDecodeFailure("Audio candidate could not be decoded", failure);
             }
             checkCancelled(token);
             deferred.commit();
+            MediaTransfer leftover = pendingTransfers.remove(videoId);
+            if (leftover != null && !leftover.tempFile.equals(mediaTemp)) {
+                deleteQuietly(leftover.tempFile);
+            }
+            deleteQuietly(mediaTemp);
             return destination;
-        } catch (IOException exception) {
+        } catch (IOException failure) {
             if (sink != null) {
                 try {
                     sink.abort();
                 } catch (IOException abortFailure) {
-                    exception.addSuppressed(abortFailure);
+                    failure.addSuppressed(abortFailure);
                 }
             }
-            throw exception;
-        } finally {
-            if (rangeInput != null) rangeInput.close();
+            long transferSize = startOfAttempt;
+            try {
+                transferSize = mediaTemp == null ? 0L : Files.size(mediaTemp);
+            } catch (IOException ignored) {
+                // The scratch file is gone; there is nothing to resume from.
+            }
+            if (isHttp403Status(failure) && transferSize > startOfAttempt && transferSize <= maximumBytes) {
+                // The rate-limit window opened mid-transfer: keep the verified prefix so the next attempt
+                // resumes with one Range request instead of re-downloading and re-burning the IP budget.
+                savePending(videoId, stream, contentType, mediaTemp, transferSize);
+            } else {
+                MediaTransfer current = pendingTransfers.get(videoId);
+                if (current != null && current.tempFile.equals(mediaTemp)) {
+                    // This attempt owned the pending body (a rejected or exhausted resume): the verified
+                    // prefix can no longer be trusted, so the record and the file go together.
+                    pendingTransfers.remove(videoId, current);
+                }
+                // A pending from an earlier attempt belongs to a different scratch file and stays valid.
+                deleteQuietly(mediaTemp);
+            }
+            throw failure;
+        }
+    }
+
+    private TransferResult transferMediaBody(YouTubeMediaModels.ResolvedAudioStream stream, Path mediaTemp,
+        boolean ranged, long offset, String contentType,
+        YouTubeMediaModels.CancellationToken token) throws IOException {
+        long total = -1L;
+        long chunkBytes = Math.min(RANGE_CHUNK_BYTES, maximumBytes);
+        Map<String, String> baseHeaders = mediaHeaders(stream);
+        while (true) {
+            checkCancelled(token);
+            Map<String, String> headers = new HashMap<String, String>(baseHeaders);
+            if (ranged || offset > 0L) {
+                long chunkEnd = Math.min(offset + chunkBytes - 1L, maximumBytes - 1L);
+                headers.put("Range", rangeHeader(offset, chunkEnd));
+            }
+            YouTubeMediaModels.HttpResponse response;
+            try {
+                response = requester.get(
+                    stream.getUrl(),
+                    headers,
+                    TIMEOUT_MILLIS,
+                    maximumBytes,
+                    YouTubeMediaModels.RedirectPolicy.MEDIA);
+            } catch (IOException failure) {
+                throw transportFailure("Unable to open YouTube audio candidate", failure);
+            }
+            long declared;
+            boolean rangedResponse = false;
+            long beforeResponse = offset;
+            try (YouTubeMediaModels.HttpResponse responseResource = response) {
+                if (responseResource.getStatusCode() == 403) {
+                    throw new RateLimitedCandidateFailure(
+                        "YouTube audio candidate returned HTTP 403 (status 403)",
+                        new YouTubeMediaModels.HttpStatusException(403));
+                }
+                if (responseResource.getStatusCode() < 200 || responseResource.getStatusCode() >= 300
+                    || !YouTubeStreamResolver.isSafeMediaUrl(responseResource.getUrl())) {
+                    throw new CandidateTransportFailure("Audio candidate response is not trusted");
+                }
+                if (contentType.length() == 0L && responseResource.getContentType() != null) {
+                    contentType = responseResource.getContentType();
+                }
+                declared = responseResource.getContentLength();
+                if (responseResource.getStatusCode() == 206) {
+                    long[] range = parseContentRange(responseResource.getContentRange());
+                    if (range == null || range[0] != offset || range[1] < range[0] || range[1] >= range[2]
+                        || range[2] > maximumBytes || declared != range[1] - range[0] + 1L) {
+                        throw new CandidateTransportFailure("Audio candidate range response is not trusted");
+                    }
+                    total = range[2];
+                    rangedResponse = true;
+                } else {
+                    if (declared < 0L || declared > maximumBytes) {
+                        throw new CandidateTransportFailure("Audio candidate response exceeds its finite limits");
+                    }
+                    if (offset > 0L) {
+                        // The server ignored the Range header: its complete body supersedes the partial file.
+                        Files.write(mediaTemp, new byte[0]);
+                        offset = 0L;
+                    }
+                    if (declared <= 0L) {
+                        throw new CandidateTransportFailure("Audio candidate body is empty");
+                    }
+                    total = declared;
+                }
+                long bodyLimit = rangedResponse ? Math.min(declared, total - offset) : declared;
+                try (
+                    BoundedInputStream body = new BoundedInputStream(responseResource.getInputStream(), bodyLimit);
+                    FileOutputStream output = new FileOutputStream(mediaTemp.toFile(), true)) {
+                    byte[] buffer = new byte[READ_BUFFER_BYTES];
+                    while (offset < total) {
+                        checkCancelled(token);
+                        int count = body.read(buffer);
+                        if (count < 0) break;
+                        output.write(buffer, 0, count);
+                        offset += count;
+                    }
+                }
+            }
+            if (offset >= total) {
+                return new TransferResult(total, contentType);
+            }
+            if (!rangedResponse || offset <= beforeResponse) {
+                // A complete body is one-shot and a stalled range cannot loop safely: hand the partial body
+                // to the decoder, which verifies the exact declared length before anything is published.
+                return new TransferResult(total, contentType);
+            }
+            // A 206 slice ended early (a rate-limit window closing the socket, or a transport reset). The
+            // prefix already on disk is verified and consistent, so the next iteration resumes it from the
+            // new offset instead of restarting the transfer.
+        }
+    }
+
+    private Path resumePendingTransfer(String videoId, Path destination, YouTubeMediaModels.CancellationToken token)
+        throws IOException {
+        MediaTransfer transfer = pendingTransfers.get(videoId);
+        if (transfer == null) return null;
+        if (transfer.expiresAtMillis <= clock.getAsLong()) {
+            discardPending(videoId, transfer);
+            return null;
+        }
+        long offset;
+        try {
+            offset = Files.size(transfer.tempFile);
+        } catch (IOException failure) {
+            discardPending(videoId, transfer);
+            return null;
+        }
+        if (offset <= 0L || offset > maximumBytes) {
+            discardPending(videoId, transfer);
+            return null;
+        }
+        YouTubeMediaModels.ResolvedAudioStream stream;
+        try {
+            stream = new YouTubeMediaModels.ResolvedAudioStream(
+                new URL(transfer.url),
+                transfer.format,
+                0,
+                transfer.expiresAtMillis,
+                transfer.visitorData);
+        } catch (IOException failure) {
+            discardPending(videoId, transfer);
+            return null;
+        }
+        try {
+            return downloadCandidate(videoId, stream, destination, token, true, transfer);
+        } catch (IOException failure) {
+            // downloadCandidate kept or discarded the pending body itself; a fresh candidate may retry next.
+            return null;
+        }
+    }
+
+    private void savePending(String videoId, YouTubeMediaModels.ResolvedAudioStream stream, String contentType,
+        Path mediaTemp, long offset) {
+        if (offset <= 0L || offset > maximumBytes || mediaTemp == null) {
+            // No verified progress on this attempt: an existing pending from an earlier attempt is left
+            // untouched, and there is nothing new to store.
+            return;
+        }
+        String url = stream.getUrl().toExternalForm();
+        MediaTransfer existing = pendingTransfers.get(videoId);
+        if (existing != null && existing.url.equals(url)) {
+            long existingSize;
+            try {
+                existingSize = Files.size(existing.tempFile);
+            } catch (IOException failure) {
+                existingSize = -1L;
+            }
+            if (existingSize >= offset) {
+                // An earlier attempt already stored at least this much of the same URL: keep the larger
+                // prefix and drop the smaller copy.
+                deleteQuietly(mediaTemp);
+                return;
+            }
+        }
+        MediaTransfer replaced = pendingTransfers.put(videoId, new MediaTransfer(
+            url,
+            stream.getVisitorData(),
+            contentType,
+            stream.getFormat(),
+            stream.getExpiresAtMillis(),
+            mediaTemp,
+            clock.getAsLong()));
+        if (replaced != null && !replaced.tempFile.equals(mediaTemp)) {
+            deleteQuietly(replaced.tempFile);
+        }
+        evictPendingTransfers();
+        LOGGER.log(
+            Level.INFO,
+            "Kept {0} bytes of {1} on disk to resume after the YouTube rate-limit window clears",
+            new Object[] { Long.toString(offset), videoId });
+    }
+
+    private void evictPendingTransfers() {
+        List<Map.Entry<String, MediaTransfer>> entries =
+            new ArrayList<Map.Entry<String, MediaTransfer>>(pendingTransfers.entrySet());
+        while (entries.size() > MAX_PENDING_TRANSFERS) {
+            Map.Entry<String, MediaTransfer> oldest = entries.get(0);
+            for (Map.Entry<String, MediaTransfer> entry : entries) {
+                if (entry.getValue().createdAtMillis < oldest.getValue().createdAtMillis) oldest = entry;
+            }
+            entries.remove(oldest);
+            if (pendingTransfers.remove(oldest.getKey(), oldest.getValue())) {
+                deleteQuietly(oldest.getValue().tempFile);
+            }
+        }
+    }
+
+    private void discardPending(String videoId, MediaTransfer transfer) {
+        if (pendingTransfers.remove(videoId, transfer)) {
+            deleteQuietly(transfer.tempFile);
+        }
+    }
+
+    private static void deleteQuietly(Path path) {
+        if (path == null) return;
+        try {
+            Files.deleteIfExists(path);
+        } catch (IOException ignored) {
+            // A vanished scratch file is not an error.
+        }
+    }
+
+    private static long[] parseContentRange(String contentRange) {
+        if (contentRange == null) return null;
+        String trimmed = contentRange.trim();
+        if (trimmed.length() < 6 || !trimmed.regionMatches(true, 0, "bytes", 0, 5)) return null;
+        int firstDash = trimmed.indexOf('-', 5);
+        if (firstDash < 5) return null;
+        int totalSlash = trimmed.indexOf('/', firstDash + 1);
+        if (totalSlash < 0) return null;
+        try {
+            long start = Long.parseLong(trimmed.substring(5, firstDash).trim());
+            long end = Long.parseLong(trimmed.substring(firstDash + 1, totalSlash).trim());
+            long total = Long.parseLong(trimmed.substring(totalSlash + 1).trim());
+            if (start < 0L || end < start || total <= 0L) return null;
+            return new long[] { start, end, total };
+        } catch (NumberFormatException failure) {
+            return null;
+        }
+    }
+
+    private static final class TransferResult {
+
+        final long declaredBytes;
+        final String contentType;
+
+        TransferResult(long declaredBytes, String contentType) {
+            this.declaredBytes = declaredBytes;
+            this.contentType = contentType;
+        }
+    }
+
+    private static final class MediaTransfer {
+
+        final String url;
+        final String visitorData;
+        final String contentType;
+        final MediaFormat format;
+        final long expiresAtMillis;
+        final Path tempFile;
+        final long createdAtMillis;
+
+        MediaTransfer(String url, String visitorData, String contentType, MediaFormat format,
+            long expiresAtMillis, Path tempFile, long createdAtMillis) {
+            this.url = url;
+            this.visitorData = visitorData;
+            this.contentType = contentType;
+            this.format = format;
+            this.expiresAtMillis = expiresAtMillis;
+            this.tempFile = tempFile;
+            this.createdAtMillis = createdAtMillis;
         }
     }
 
@@ -409,21 +681,25 @@ public final class JavaAudioDownloadBackend implements YouTubeMediaModels.AudioD
         return true;
     }
 
-    private YouTubeMediaModels.HttpResponse openInitialResponse(YouTubeMediaModels.ResolvedAudioStream stream,
-        Map<String, String> mediaHeaders, long chunkBytes, boolean ranged) throws IOException {
-        Map<String, String> firstHeaders = new HashMap<String, String>(mediaHeaders);
-        if (ranged) {
-            firstHeaders.put("Range", rangeHeader(0L, chunkBytes - 1L));
+    private static void skipPrefixBytes(InputStream input, long count) throws IOException {
+        long skipped = 0L;
+        byte[] scratch = new byte[4096];
+        while (skipped < count) {
+            int requested = (int) Math.min(scratch.length, count - skipped);
+            int read = input.read(scratch, 0, requested);
+            if (read < 0) break;
+            skipped += read;
         }
-        return requester
-            .get(stream.getUrl(), firstHeaders, TIMEOUT_MILLIS, maximumBytes, YouTubeMediaModels.RedirectPolicy.MEDIA);
     }
 
     private static byte[] readPrefix(InputStream input, int maximum) throws IOException {
         java.io.ByteArrayOutputStream output = new java.io.ByteArrayOutputStream();
         byte[] buffer = new byte[maximum];
-        int count = input.read(buffer);
-        if (count > 0) output.write(buffer, 0, count);
+        while (output.size() < maximum) {
+            int count = input.read(buffer, output.size(), buffer.length - output.size());
+            if (count < 0) break;
+            output.write(buffer, 0, count);
+        }
         return output.toByteArray();
     }
 
