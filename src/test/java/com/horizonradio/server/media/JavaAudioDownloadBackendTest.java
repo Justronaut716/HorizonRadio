@@ -365,20 +365,45 @@ public class JavaAudioDownloadBackendTest {
 
     @Test
     public void downloadsAudioAcrossMultipleRangesBeforePublishingTheWave() throws Exception {
-        byte[] pcm = new byte[8000000];
+        byte[] pcm = new byte[20000000];
         byte[] audio = wave(pcm);
         RangeFallbackHttp http = new RangeFallbackHttp(audio);
         JavaAudioDownloadBackend backend = new JavaAudioDownloadBackend(
             new YouTubeStreamResolver(http, new AudioDecoderRegistry(), () -> 1000000L),
             http,
             new AudioDecoderRegistry(),
-            16L * 1024L * 1024L);
+            32L * 1024L * 1024L);
         Path directory = Files.createTempDirectory("horizonradio-download-multi-range");
         Path destination = directory.resolve("dQw4w9WgXcQ.wav");
         try {
             assertEquals(destination, backend.download("dQw4w9WgXcQ", destination, () -> false));
             assertEquals(0, http.fullRequests);
             assertEquals(2, http.rangeRequests);
+            assertEquals(audio.length, Files.size(destination));
+        } finally {
+            Files.deleteIfExists(destination);
+            Files.deleteIfExists(directory);
+        }
+    }
+
+    @Test
+    public void downloadsAWholeTrackInASingleRangeRequest() throws Exception {
+        byte[] pcm = new byte[12000000];
+        byte[] audio = wave(pcm);
+        RangeFallbackHttp http = new RangeFallbackHttp(audio);
+        JavaAudioDownloadBackend backend = new JavaAudioDownloadBackend(
+            new YouTubeStreamResolver(http, new AudioDecoderRegistry(), () -> 1000000L),
+            http,
+            new AudioDecoderRegistry(),
+            32L * 1024L * 1024L);
+        Path directory = Files.createTempDirectory("horizonradio-download-single-range");
+        Path destination = directory.resolve("dQw4w9WgXcQ.wav");
+        try {
+            assertEquals(destination, backend.download("dQw4w9WgXcQ", destination, () -> false));
+            // A realistic track must be exactly one media request to googlevideo (yt-dlp parity).
+            assertEquals(0, http.fullRequests);
+            assertEquals(1, http.rangeRequests);
+            assertTrue(http.lastRange.startsWith("bytes=0-"));
             assertEquals(audio.length, Files.size(destination));
         } finally {
             Files.deleteIfExists(destination);

@@ -29,7 +29,10 @@ public final class JavaAudioDownloadBackend implements YouTubeMediaModels.AudioD
 
     private static final int TIMEOUT_MILLIS = 15000;
     private static final int PREFIX_BYTES = 44;
-    private static final long RANGE_CHUNK_BYTES = 4L * 1024L * 1024L;
+    // One range request must cover a whole default (7 min) track so the common case is exactly one
+    // HTTP request to googlevideo (yt-dlp parity). The server clamps a range that exceeds the file,
+    // so this costs nothing for smaller tracks; a dropped transfer still resumes from its offset.
+    private static final long RANGE_CHUNK_BYTES = 16L * 1024L * 1024L;
     // 192 MiB of 44.1 kHz stereo PCM covers the 15 minute default track limit with headroom.
     private static final long DEFAULT_MAXIMUM_BYTES = 192L * 1024L * 1024L;
     private static final String MEDIA_USER_AGENT = "com.google.android.apps.youtube.vr.oculus/1.65.10 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip";
