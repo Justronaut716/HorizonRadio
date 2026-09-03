@@ -8,8 +8,6 @@ import java.io.InputStream;
 import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -23,6 +21,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.LongSupplier;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 /** Downloads a freshly resolved YouTube stream through the Java decoder pipeline into an atomic WAV cache entry. */
 public final class JavaAudioDownloadBackend implements YouTubeMediaModels.AudioDownloadBackend {
@@ -335,8 +335,10 @@ public final class JavaAudioDownloadBackend implements YouTubeMediaModels.AudioD
         long startOfAttempt = 0L;
         try {
             if (mediaTemp == null) {
-                Path parent = destination.toAbsolutePath().getParent();
-                String filePrefix = destination.getFileName().toString();
+                Path parent = destination.toAbsolutePath()
+                    .getParent();
+                String filePrefix = destination.getFileName()
+                    .toString();
                 mediaTemp = Files.createTempFile(parent, filePrefix, ".media.part");
             }
             startOfAttempt = Files.size(mediaTemp);
@@ -363,7 +365,8 @@ public final class JavaAudioDownloadBackend implements YouTubeMediaModels.AudioD
             CountingInputStream counted;
             try (FileInputStream fileInput = new FileInputStream(mediaTemp.toFile())) {
                 skipPrefixBytes(fileInput, prefixBytes.length);
-                counted = new CountingInputStream(new BoundedInputStream(fileInput, transfer.declaredBytes - prefixBytes.length));
+                counted = new CountingInputStream(
+                    new BoundedInputStream(fileInput, transfer.declaredBytes - prefixBytes.length));
                 InputStream input = new CancellationInputStream(counted, token);
                 try {
                     registry.find(detected, new java.io.ByteArrayInputStream(prefixBytes), input)
@@ -377,7 +380,9 @@ public final class JavaAudioDownloadBackend implements YouTubeMediaModels.AudioD
                 } catch (IOException failure) {
                     if (cancellationRequested(token) || deferred.hasDownstreamFailure()) throw failure;
                     if (isHttp403Status(failure)) {
-                        throw new RateLimitedCandidateFailure("Audio candidate returned HTTP 403 (status 403)", failure);
+                        throw new RateLimitedCandidateFailure(
+                            "Audio candidate returned HTTP 403 (status 403)",
+                            failure);
                     }
                     throw new CandidateDecodeFailure("Audio candidate could not be decoded", failure);
                 }
@@ -423,8 +428,8 @@ public final class JavaAudioDownloadBackend implements YouTubeMediaModels.AudioD
     }
 
     private TransferResult transferMediaBody(YouTubeMediaModels.ResolvedAudioStream stream, Path mediaTemp,
-        boolean ranged, long offset, String contentType,
-        YouTubeMediaModels.CancellationToken token) throws IOException {
+        boolean ranged, long offset, String contentType, YouTubeMediaModels.CancellationToken token)
+        throws IOException {
         long total = -1L;
         long chunkBytes = Math.min(RANGE_CHUNK_BYTES, maximumBytes);
         Map<String, String> baseHeaders = mediaHeaders(stream);
@@ -465,8 +470,11 @@ public final class JavaAudioDownloadBackend implements YouTubeMediaModels.AudioD
                 declared = responseResource.getContentLength();
                 if (responseResource.getStatusCode() == 206) {
                     long[] range = parseContentRange(responseResource.getContentRange());
-                    if (range == null || range[0] != offset || range[1] < range[0] || range[1] >= range[2]
-                        || range[2] > maximumBytes || declared != range[1] - range[0] + 1L) {
+                    if (range == null || range[0] != offset
+                        || range[1] < range[0]
+                        || range[1] >= range[2]
+                        || range[2] > maximumBytes
+                        || declared != range[1] - range[0] + 1L) {
                         throw new CandidateTransportFailure("Audio candidate range response is not trusted");
                     }
                     total = range[2];
@@ -486,8 +494,7 @@ public final class JavaAudioDownloadBackend implements YouTubeMediaModels.AudioD
                     total = declared;
                 }
                 long bodyLimit = rangedResponse ? Math.min(declared, total - offset) : declared;
-                try (
-                    BoundedInputStream body = new BoundedInputStream(responseResource.getInputStream(), bodyLimit);
+                try (BoundedInputStream body = new BoundedInputStream(responseResource.getInputStream(), bodyLimit);
                     FileOutputStream output = new FileOutputStream(mediaTemp.toFile(), true)) {
                     byte[] buffer = new byte[READ_BUFFER_BYTES];
                     while (offset < total) {
@@ -559,7 +566,8 @@ public final class JavaAudioDownloadBackend implements YouTubeMediaModels.AudioD
             // untouched, and there is nothing new to store.
             return;
         }
-        String url = stream.getUrl().toExternalForm();
+        String url = stream.getUrl()
+            .toExternalForm();
         MediaTransfer existing = pendingTransfers.get(videoId);
         if (existing != null && existing.url.equals(url)) {
             long existingSize;
@@ -575,14 +583,16 @@ public final class JavaAudioDownloadBackend implements YouTubeMediaModels.AudioD
                 return;
             }
         }
-        MediaTransfer replaced = pendingTransfers.put(videoId, new MediaTransfer(
-            url,
-            stream.getVisitorData(),
-            contentType,
-            stream.getFormat(),
-            stream.getExpiresAtMillis(),
-            mediaTemp,
-            clock.getAsLong()));
+        MediaTransfer replaced = pendingTransfers.put(
+            videoId,
+            new MediaTransfer(
+                url,
+                stream.getVisitorData(),
+                contentType,
+                stream.getFormat(),
+                stream.getExpiresAtMillis(),
+                mediaTemp,
+                clock.getAsLong()));
         if (replaced != null && !replaced.tempFile.equals(mediaTemp)) {
             deleteQuietly(replaced.tempFile);
         }
@@ -594,8 +604,8 @@ public final class JavaAudioDownloadBackend implements YouTubeMediaModels.AudioD
     }
 
     private void evictPendingTransfers() {
-        List<Map.Entry<String, MediaTransfer>> entries =
-            new ArrayList<Map.Entry<String, MediaTransfer>>(pendingTransfers.entrySet());
+        List<Map.Entry<String, MediaTransfer>> entries = new ArrayList<Map.Entry<String, MediaTransfer>>(
+            pendingTransfers.entrySet());
         while (entries.size() > MAX_PENDING_TRANSFERS) {
             Map.Entry<String, MediaTransfer> oldest = entries.get(0);
             for (Map.Entry<String, MediaTransfer> entry : entries) {
@@ -632,9 +642,15 @@ public final class JavaAudioDownloadBackend implements YouTubeMediaModels.AudioD
         int totalSlash = trimmed.indexOf('/', firstDash + 1);
         if (totalSlash < 0) return null;
         try {
-            long start = Long.parseLong(trimmed.substring(5, firstDash).trim());
-            long end = Long.parseLong(trimmed.substring(firstDash + 1, totalSlash).trim());
-            long total = Long.parseLong(trimmed.substring(totalSlash + 1).trim());
+            long start = Long.parseLong(
+                trimmed.substring(5, firstDash)
+                    .trim());
+            long end = Long.parseLong(
+                trimmed.substring(firstDash + 1, totalSlash)
+                    .trim());
+            long total = Long.parseLong(
+                trimmed.substring(totalSlash + 1)
+                    .trim());
             if (start < 0L || end < start || total <= 0L) return null;
             return new long[] { start, end, total };
         } catch (NumberFormatException failure) {
@@ -663,8 +679,8 @@ public final class JavaAudioDownloadBackend implements YouTubeMediaModels.AudioD
         final Path tempFile;
         final long createdAtMillis;
 
-        MediaTransfer(String url, String visitorData, String contentType, MediaFormat format,
-            long expiresAtMillis, Path tempFile, long createdAtMillis) {
+        MediaTransfer(String url, String visitorData, String contentType, MediaFormat format, long expiresAtMillis,
+            Path tempFile, long createdAtMillis) {
             this.url = url;
             this.visitorData = visitorData;
             this.contentType = contentType;

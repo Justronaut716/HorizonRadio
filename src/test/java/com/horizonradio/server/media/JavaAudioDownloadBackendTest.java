@@ -312,8 +312,10 @@ public class JavaAudioDownloadBackendTest {
                 } catch (MediaException expected) {
                     // Every candidate was rejected with a 403 and extended the cooldown.
                 }
-                assertEquals("backoff did not escalate as expected",
-                    now.get() + expectedBackoff, backend.nextRateLimitRetryAtMillis());
+                assertEquals(
+                    "backoff did not escalate as expected",
+                    now.get() + expectedBackoff,
+                    backend.nextRateLimitRetryAtMillis());
                 // Let the current backoff elapse so the next call is a fresh counted failure, not a
                 // rate-limit fast failure.
                 now.set(backend.nextRateLimitRetryAtMillis());
@@ -617,8 +619,14 @@ public class JavaAudioDownloadBackendTest {
         try {
             assertEquals(destination, backend.download("dQw4w9WgXcQ", destination, () -> false));
             assertTrue(Arrays.equals(wav, Files.readAllBytes(destination)));
-            assertEquals(2, http.audioRequests.get("https://r1.googlevideo.com/videoplayback?expire=2000000000").intValue());
-            assertEquals(1, http.audioRequests.get("https://r2.googlevideo.com/videoplayback?expire=2000000000").intValue());
+            assertEquals(
+                2,
+                http.audioRequests.get("https://r1.googlevideo.com/videoplayback?expire=2000000000")
+                    .intValue());
+            assertEquals(
+                1,
+                http.audioRequests.get("https://r2.googlevideo.com/videoplayback?expire=2000000000")
+                    .intValue());
             // The stale partial from the forbidden profile must not survive the published cache entry.
             assertEquals(0, countPartFiles(directory));
         } finally {
@@ -1242,9 +1250,12 @@ public class JavaAudioDownloadBackendTest {
 
     private static String playerJson(String candidateUrl) {
         StringBuilder json = new StringBuilder();
-        json.append("{").append("\"streamingData\":{\"adaptiveFormats\":[{");
+        json.append("{")
+            .append("\"streamingData\":{\"adaptiveFormats\":[{");
         json.append("\"mimeType\":\"audio/wav; codecs=\\\"1\\\"\",\"bitrate\":128000,");
-        json.append("\"url\":\"").append(candidateUrl).append("\"}]}}");
+        json.append("\"url\":\"")
+            .append(candidateUrl)
+            .append("\"}]}}");
         return json.toString();
     }
 
@@ -1266,16 +1277,25 @@ public class JavaAudioDownloadBackendTest {
         public YouTubeMediaModels.HttpResponse post(URL url, Map<String, String> headers, byte[] body,
             int timeoutMillis, long maximumBytes) {
             byte[] response = playerJson(MEDIA_URL).getBytes(StandardCharsets.UTF_8);
-            return new YouTubeMediaModels.HttpResponse(url, 200, "application/json", response.length,
+            return new YouTubeMediaModels.HttpResponse(
+                url,
+                200,
+                "application/json",
+                response.length,
                 new ByteArrayInputStream(response));
         }
 
         @Override
         public YouTubeMediaModels.HttpResponse get(URL url, Map<String, String> headers, int timeoutMillis,
             long maximumBytes) throws IOException {
-            if (!url.toExternalForm().contains("videoplayback")) {
+            if (!url.toExternalForm()
+                .contains("videoplayback")) {
                 byte[] response = playerJson(MEDIA_URL).getBytes(StandardCharsets.UTF_8);
-                return new YouTubeMediaModels.HttpResponse(url, 200, "application/json", response.length,
+                return new YouTubeMediaModels.HttpResponse(
+                    url,
+                    200,
+                    "application/json",
+                    response.length,
                     new ByteArrayInputStream(response));
             }
             audioRequests++;
@@ -1320,16 +1340,25 @@ public class JavaAudioDownloadBackendTest {
         public YouTubeMediaModels.HttpResponse post(URL url, Map<String, String> headers, byte[] body,
             int timeoutMillis, long maximumBytes) {
             byte[] response = playerJson(MEDIA_URL).getBytes(StandardCharsets.UTF_8);
-            return new YouTubeMediaModels.HttpResponse(url, 200, "application/json", response.length,
+            return new YouTubeMediaModels.HttpResponse(
+                url,
+                200,
+                "application/json",
+                response.length,
                 new ByteArrayInputStream(response));
         }
 
         @Override
         public YouTubeMediaModels.HttpResponse get(URL url, Map<String, String> headers, int timeoutMillis,
             long maximumBytes) throws IOException {
-            if (!url.toExternalForm().contains("videoplayback")) {
+            if (!url.toExternalForm()
+                .contains("videoplayback")) {
                 byte[] response = playerJson(MEDIA_URL).getBytes(StandardCharsets.UTF_8);
-                return new YouTubeMediaModels.HttpResponse(url, 200, "application/json", response.length,
+                return new YouTubeMediaModels.HttpResponse(
+                    url,
+                    200,
+                    "application/json",
+                    response.length,
                     new ByteArrayInputStream(response));
             }
             audioRequests++;
@@ -1375,16 +1404,25 @@ public class JavaAudioDownloadBackendTest {
             postRequests++;
             String candidateUrl = postRequests == 1 ? PRIMARY_URL : ALTERNATIVE_URL;
             byte[] response = playerJson(candidateUrl).getBytes(StandardCharsets.UTF_8);
-            return new YouTubeMediaModels.HttpResponse(url, 200, "application/json", response.length,
+            return new YouTubeMediaModels.HttpResponse(
+                url,
+                200,
+                "application/json",
+                response.length,
                 new ByteArrayInputStream(response));
         }
 
         @Override
         public YouTubeMediaModels.HttpResponse get(URL url, Map<String, String> headers, int timeoutMillis,
             long maximumBytes) throws IOException {
-            if (!url.toExternalForm().contains("videoplayback")) {
+            if (!url.toExternalForm()
+                .contains("videoplayback")) {
                 byte[] response = playerJson(PRIMARY_URL).getBytes(StandardCharsets.UTF_8);
-                return new YouTubeMediaModels.HttpResponse(url, 200, "application/json", response.length,
+                return new YouTubeMediaModels.HttpResponse(
+                    url,
+                    200,
+                    "application/json",
+                    response.length,
                     new ByteArrayInputStream(response));
             }
             String key = url.toExternalForm();
