@@ -292,6 +292,39 @@ public class JavaAudioDownloadBackendTest {
     }
 
     @Test
+    public void capsTheRateLimitBackoffAtThirtyMinutesAfterRepeatedForbiddenFailures() throws Exception {
+        RateLimitHttp http = new RateLimitHttp();
+        AtomicLong now = new AtomicLong(1000000L);
+        JavaAudioDownloadBackend backend = new JavaAudioDownloadBackend(
+            new YouTubeStreamResolver(http, new AudioDecoderRegistry(), () -> 1000000L),
+            http,
+            new AudioDecoderRegistry(),
+            1024L,
+            now::get);
+        Path directory = Files.createTempDirectory("horizonradio-download-backoff-cap");
+        Path destination = directory.resolve("dQw4w9WgXcQ.wav");
+        long[] expectedBackoffs = { 60000L, 120000L, 240000L, 480000L, 960000L, 1800000L };
+        try {
+            for (long expectedBackoff : expectedBackoffs) {
+                try {
+                    backend.download("dQw4w9WgXcQ", destination, () -> false);
+                    fail("forbidden media should fail the download");
+                } catch (MediaException expected) {
+                    // Every candidate was rejected with a 403 and extended the cooldown.
+                }
+                assertEquals("backoff did not escalate as expected",
+                    now.get() + expectedBackoff, backend.nextRateLimitRetryAtMillis());
+                // Let the current backoff elapse so the next call is a fresh counted failure, not a
+                // rate-limit fast failure.
+                now.set(backend.nextRateLimitRetryAtMillis());
+            }
+        } finally {
+            Files.deleteIfExists(destination);
+            Files.deleteIfExists(directory);
+        }
+    }
+
+    @Test
     public void serializesConcurrentDownloadsToAvoidAYouTubeRequestBurst() throws Exception {
         BlockingHttp http = new BlockingHttp();
         JavaAudioDownloadBackend backend = new JavaAudioDownloadBackend(

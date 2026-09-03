@@ -37,7 +37,9 @@ public final class JavaAudioDownloadBackend implements YouTubeMediaModels.AudioD
     private static final long DEFAULT_MAXIMUM_BYTES = 192L * 1024L * 1024L;
     private static final String MEDIA_USER_AGENT = "com.google.android.apps.youtube.vr.oculus/1.65.10 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip";
     private static final long RATE_LIMIT_BASE_MILLIS = 60000L;
-    private static final long RATE_LIMIT_MAX_MILLIS = 600000L;
+    // A rate-limited (403) IP can stay flagged well past a few minutes; back off to 30 min so the IP
+    // can clear instead of re-tripping the limiter with immediate retries.
+    private static final long RATE_LIMIT_MAX_MILLIS = 1800000L;
     private static final int READ_BUFFER_BYTES = 64 * 1024;
     private static final int MAX_PENDING_TRANSFERS = 8;
     private static final ConcurrentMap<Path, Object> DESTINATION_LOCKS = new ConcurrentHashMap<Path, Object>();
@@ -150,7 +152,7 @@ public final class JavaAudioDownloadBackend implements YouTubeMediaModels.AudioD
 
     private void recordRateLimitFailure() {
         int failures = consecutiveRateLimitFailures.incrementAndGet();
-        long backoff = Math.min(RATE_LIMIT_BASE_MILLIS << Math.min(failures - 1, 4), RATE_LIMIT_MAX_MILLIS);
+        long backoff = Math.min(RATE_LIMIT_BASE_MILLIS << Math.min(failures - 1, 5), RATE_LIMIT_MAX_MILLIS);
         nextRateLimitRetryAtMillis.set(clock.getAsLong() + backoff);
         LOGGER.log(
             Level.WARNING,
