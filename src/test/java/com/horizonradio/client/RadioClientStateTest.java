@@ -418,7 +418,9 @@ public class RadioClientStateTest {
 
     @Test
     public void liveRadioPreservesPartialFramesAcrossPacketBoundaries() throws Exception {
-        FakeSourceDataLine line = new FakeSourceDataLine(2);
+        // Three packets complete frames (after seq 1, 2, and 6), so the line receives exactly three
+        // writes; the trailing byte 13 stays a partial frame and is never written.
+        FakeSourceDataLine line = new FakeSourceDataLine(3);
         AudioPlayer player = new AudioPlayer(new RecordingSourceLineFactory(line));
         try {
             player.startRadio(new RadioAudioStartPacket(8L, 0L, 44100, 2, 16, false));
