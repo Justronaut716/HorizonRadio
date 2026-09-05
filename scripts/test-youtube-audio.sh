@@ -16,4 +16,4 @@ tmp=$(mktemp -d "${TMPDIR:-/tmp}/horizonradio-audio-test.XXXXXX")
 trap 'rm -rf "$tmp"' EXIT
 
 javac -cp "$jar:$gson" -d "$tmp" scripts/YouTubeAudioSmokeTest.java
-exec java -cp "$jar:$gson:$tmp" YouTubeAudioSmokeTest "$@"
+timeout --foreground 60 java -cp "$jar:$gson:$tmp" YouTubeAudioSmokeTest "$@"

@@ -21,6 +21,8 @@ public final class YouTubeAudioSmokeTest {
         for (String input : inputs) {
             String videoId = input.matches("[A-Za-z0-9_-]{11}") ? input : YouTubeUrlParser.parseVideoId(input);
             Path output = outputDirectory.resolve(videoId + ".wav");
+            System.out.println("Testing " + videoId + " (one attempt, 60-second limit)...");
+            System.out.flush();
             try {
                 backend.download(videoId, output, () -> false);
                 System.out.printf("PASS %s -> %,d bytes%n", videoId, Files.size(output));
