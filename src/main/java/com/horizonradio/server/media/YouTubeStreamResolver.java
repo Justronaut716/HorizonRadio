@@ -41,6 +41,16 @@ public final class YouTubeStreamResolver {
         32,
         "Android",
         "12L");
+    private static final ClientProfile VISIONOS_CLIENT = new ClientProfile(
+        "VISIONOS",
+        "1.02",
+        "101",
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 15_7_3) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15",
+        "Apple",
+        "RealityDevice17,1",
+        0,
+        "visionOS",
+        "26.5.23O471");
     private static final ClientProfile IOS_CLIENT = new ClientProfile(
         "IOS",
         "20.10.4",
@@ -131,30 +141,63 @@ public final class YouTubeStreamResolver {
                     + "; stream requests will continue without a visitor id",
                 exception);
         }
-        IOException androidFailure;
+        IOException visionOsFailure;
+        final String resolvedVisitorData = visitorData;
         try {
-            final String resolvedVisitorData = visitorData;
             final List<YouTubeMediaModels.ResolvedAudioStream> primary = resolveAudioWithClient(
                 safeVideoId,
                 resolvedVisitorData,
-                ANDROID_VR_CLIENT);
+                VISIONOS_CLIENT);
             return new ResolvedAudioCandidates(primary, new AlternativeResolver() {
 
                 @Override
                 public List<YouTubeMediaModels.ResolvedAudioStream> resolve() throws IOException {
-                    return resolveAudioWithClient(safeVideoId, resolvedVisitorData, IOS_CLIENT);
+                    return resolveFallbackClients(safeVideoId, resolvedVisitorData);
                 }
             });
         } catch (ClientUnavailableException exception) {
+            visionOsFailure = exception;
+        }
+        try {
+            return new ResolvedAudioCandidates(
+                resolveAudioWithClient(safeVideoId, resolvedVisitorData, ANDROID_VR_CLIENT),
+                new AlternativeResolver() {
+
+                    @Override
+                    public List<YouTubeMediaModels.ResolvedAudioStream> resolve() throws IOException {
+                        return resolveAudioWithClient(safeVideoId, resolvedVisitorData, IOS_CLIENT);
+                    }
+                });
+        } catch (IOException androidFailure) {
+            try {
+                return new ResolvedAudioCandidates(
+                    resolveAudioWithClient(safeVideoId, resolvedVisitorData, IOS_CLIENT),
+                    null);
+            } catch (IOException fallbackFailure) {
+                fallbackFailure.addSuppressed(androidFailure);
+                fallbackFailure.addSuppressed(visionOsFailure);
+                if (visitorFailure != null) fallbackFailure.addSuppressed(visitorFailure);
+                throw fallbackFailure;
+            }
+        }
+    }
+
+    private List<YouTubeMediaModels.ResolvedAudioStream> resolveFallbackClients(String videoId, String visitorData)
+        throws IOException {
+        List<YouTubeMediaModels.ResolvedAudioStream> candidates = new ArrayList<YouTubeMediaModels.ResolvedAudioStream>();
+        IOException androidFailure = null;
+        try {
+            candidates.addAll(resolveAudioWithClient(videoId, visitorData, ANDROID_VR_CLIENT));
+        } catch (IOException exception) {
             androidFailure = exception;
         }
         try {
-            return new ResolvedAudioCandidates(resolveAudioWithClient(safeVideoId, visitorData, IOS_CLIENT), null);
-        } catch (IOException fallbackFailure) {
-            fallbackFailure.addSuppressed(androidFailure);
-            if (visitorFailure != null) fallbackFailure.addSuppressed(visitorFailure);
-            throw fallbackFailure;
+            candidates.addAll(resolveAudioWithClient(videoId, visitorData, IOS_CLIENT));
+        } catch (IOException iosFailure) {
+            if (androidFailure != null) iosFailure.addSuppressed(androidFailure);
+            if (candidates.isEmpty()) throw iosFailure;
         }
+        return candidates;
     }
 
     /**

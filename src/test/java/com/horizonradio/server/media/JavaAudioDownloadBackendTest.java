@@ -90,7 +90,7 @@ public class JavaAudioDownloadBackendTest {
         Path destination = directory.resolve("dQw4w9WgXcQ.wav");
         try {
             assertEquals(destination, backend.download("dQw4w9WgXcQ", destination, () -> false));
-            assertEquals(2, http.playerRequests);
+            assertEquals(3, http.playerRequests);
             assertEquals(2, http.audioRequests);
             assertOnlyDestination(directory, destination);
         } finally {
@@ -114,9 +114,9 @@ public class JavaAudioDownloadBackendTest {
             assertEquals(destination, backend.download("dQw4w9WgXcQ", destination, () -> false));
             assertEquals(
                 "a forbidden primary URL must not trigger a stale-primary request storm",
-                2,
+                4,
                 http.audioRequests);
-            assertEquals("the alternative profile is resolved exactly once", 2, http.playerRequests);
+            assertEquals("the fallback profiles are resolved exactly once", 3, http.playerRequests);
             assertEquals(52L, Files.size(destination));
         } finally {
             Files.deleteIfExists(destination);
