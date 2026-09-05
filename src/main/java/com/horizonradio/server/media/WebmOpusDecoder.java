@@ -12,7 +12,8 @@ import java.nio.charset.Charset;
  */
 public final class WebmOpusDecoder implements AudioDecoder {
 
-    private static final int MAX_INPUT_BYTES = 16 * 1024 * 1024;
+    // The backend permits tracks up to 192 MiB; valid yt-dlp audio candidates can exceed 16 MiB.
+    private static final int MAX_INPUT_BYTES = 192 * 1024 * 1024;
     private static final int MAX_ELEMENT_SIZE = 4 * 1024 * 1024;
     private static final int MAX_SEGMENT_SIZE = MAX_INPUT_BYTES;
     private static final int MAX_PACKET_SIZE = 512 * 1024;
