@@ -179,7 +179,7 @@ public class JavaAudioDownloadBackendTest {
         try {
             assertEquals(destination, backend.download("dQw4w9WgXcQ", destination, () -> false));
             assertEquals(2, http.audioRequests);
-            assertEquals(1, http.rangedAudioRequests);
+            assertEquals(0, http.rangedAudioRequests);
         } finally {
             Files.deleteIfExists(destination);
             Files.deleteIfExists(directory);
@@ -376,7 +376,7 @@ public class JavaAudioDownloadBackendTest {
     }
 
     @Test
-    public void downloadsAudioThroughABoundedRangeRequest() throws Exception {
+    public void downloadsFreshAudioWithoutARangeRequest() throws Exception {
         byte[] audio = wave(new byte[] { 1, 0, 2, 0, 3, 0, 4, 0 });
         RangeFallbackHttp http = new RangeFallbackHttp(audio);
         JavaAudioDownloadBackend backend = new JavaAudioDownloadBackend(
@@ -388,9 +388,8 @@ public class JavaAudioDownloadBackendTest {
         Path destination = directory.resolve("dQw4w9WgXcQ.wav");
         try {
             assertEquals(destination, backend.download("dQw4w9WgXcQ", destination, () -> false));
-            assertEquals(0, http.fullRequests);
-            assertEquals(1, http.rangeRequests);
-            assertTrue(http.lastRange.startsWith("bytes=0-"));
+            assertEquals(1, http.fullRequests);
+            assertEquals(0, http.rangeRequests);
             assertEquals(52, Files.size(destination));
         } finally {
             Files.deleteIfExists(destination);
@@ -399,7 +398,7 @@ public class JavaAudioDownloadBackendTest {
     }
 
     @Test
-    public void downloadsAudioAcrossMultipleRangesBeforePublishingTheWave() throws Exception {
+    public void downloadsLargeAudioInOneFullRequestBeforePublishingTheWave() throws Exception {
         byte[] pcm = new byte[20000000];
         byte[] audio = wave(pcm);
         RangeFallbackHttp http = new RangeFallbackHttp(audio);
@@ -412,8 +411,8 @@ public class JavaAudioDownloadBackendTest {
         Path destination = directory.resolve("dQw4w9WgXcQ.wav");
         try {
             assertEquals(destination, backend.download("dQw4w9WgXcQ", destination, () -> false));
-            assertEquals(0, http.fullRequests);
-            assertEquals(2, http.rangeRequests);
+            assertEquals(1, http.fullRequests);
+            assertEquals(0, http.rangeRequests);
             assertEquals(audio.length, Files.size(destination));
         } finally {
             Files.deleteIfExists(destination);
@@ -422,7 +421,7 @@ public class JavaAudioDownloadBackendTest {
     }
 
     @Test
-    public void downloadsAWholeTrackInASingleRangeRequest() throws Exception {
+    public void downloadsAWholeTrackInASingleFullRequest() throws Exception {
         byte[] pcm = new byte[12000000];
         byte[] audio = wave(pcm);
         RangeFallbackHttp http = new RangeFallbackHttp(audio);
@@ -435,10 +434,9 @@ public class JavaAudioDownloadBackendTest {
         Path destination = directory.resolve("dQw4w9WgXcQ.wav");
         try {
             assertEquals(destination, backend.download("dQw4w9WgXcQ", destination, () -> false));
-            // A realistic track must be exactly one media request to googlevideo (yt-dlp parity).
-            assertEquals(0, http.fullRequests);
-            assertEquals(1, http.rangeRequests);
-            assertTrue(http.lastRange.startsWith("bytes=0-"));
+            // A realistic fresh track must be exactly one un-ranged media request (yt-dlp parity).
+            assertEquals(1, http.fullRequests);
+            assertEquals(0, http.rangeRequests);
             assertEquals(audio.length, Files.size(destination));
         } finally {
             Files.deleteIfExists(destination);
@@ -555,12 +553,12 @@ public class JavaAudioDownloadBackendTest {
             } catch (MediaException expected) {
                 // The verified prefix must survive on disk for the retry.
             }
-            assertEquals(3, http.audioRequests);
+            assertEquals(1, http.audioRequests);
             assertTrue(backend.nextRateLimitRetryAtMillis() >= 1000000L + 60000L);
             clock.set(backend.nextRateLimitRetryAtMillis());
             assertEquals(destination, backend.download("dQw4w9WgXcQ", destination, () -> false));
             assertTrue(Arrays.equals(wav, Files.readAllBytes(destination)));
-            assertEquals(4, http.audioRequests);
+            assertEquals(2, http.audioRequests);
             // The resumed slice must start exactly where the first attempt stopped.
             assertEquals("bytes=21-1023", http.lastResumeRange);
             assertEquals(0, countPartFiles(directory));
@@ -593,9 +591,9 @@ public class JavaAudioDownloadBackendTest {
             clock.set(backend.nextRateLimitRetryAtMillis());
             assertEquals(destination, backend.download("dQw4w9WgXcQ", destination, () -> false));
             assertTrue(Arrays.equals(wav, Files.readAllBytes(destination)));
-            assertEquals(5, http.audioRequests);
-            // After the rejected resume the transfer must restart from byte zero.
-            assertEquals("bytes=0-1023", http.lastRestartRange);
+            assertEquals(4, http.audioRequests);
+            // After the rejected resume the transfer must restart as a fresh, un-ranged request.
+            assertEquals(null, http.lastRestartRange);
             assertEquals(0, countPartFiles(directory));
         } finally {
             Files.deleteIfExists(destination);
@@ -795,7 +793,7 @@ public class JavaAudioDownloadBackendTest {
             if (headers != null && headers.get("Range") != null) {
                 rangedAudioRequests++;
             }
-            if (failFirstAudioRequest && headers != null && headers.get("Range") != null) {
+            if (failFirstAudioRequest) {
                 failFirstAudioRequest = false;
                 throw new IOException("temporary media connection failure");
             }
@@ -1167,10 +1165,10 @@ public class JavaAudioDownloadBackendTest {
                 fullRequests++;
                 return new YouTubeMediaModels.HttpResponse(
                     url,
-                    403,
-                    "text/plain",
-                    0L,
-                    new ByteArrayInputStream(new byte[0]));
+                    200,
+                    "audio/wav",
+                    audio.length,
+                    new ByteArrayInputStream(audio));
             }
             rangeRequests++;
             lastRange = range;
@@ -1186,6 +1184,33 @@ public class JavaAudioDownloadBackendTest {
                 response.length,
                 new ByteArrayInputStream(response),
                 "bytes " + start + "-" + end + "/" + audio.length);
+        }
+    }
+
+    private static final class FailAfterBytesInputStream extends java.io.InputStream {
+
+        private final byte[] bytes;
+        private final int failureOffset;
+        private int offset;
+
+        private FailAfterBytesInputStream(byte[] bytes, int failureOffset) {
+            this.bytes = bytes;
+            this.failureOffset = failureOffset;
+        }
+
+        @Override
+        public int read(byte[] target, int targetOffset, int length) throws IOException {
+            if (offset >= failureOffset) throw new YouTubeMediaModels.HttpStatusException(403);
+            int count = Math.min(length, failureOffset - offset);
+            System.arraycopy(bytes, offset, target, targetOffset, count);
+            offset += count;
+            return count;
+        }
+
+        @Override
+        public int read() throws IOException {
+            byte[] one = new byte[1];
+            return read(one, 0, 1) < 0 ? -1 : one[0] & 0xff;
         }
     }
 
@@ -1300,13 +1325,19 @@ public class JavaAudioDownloadBackendTest {
             }
             audioRequests++;
             if (audioRequests == 1) {
-                return ranged("bytes 0-20/52", 0, 21);
-            }
-            if (audioRequests == 2 || audioRequests == 3) {
-                throw new YouTubeMediaModels.HttpStatusException(403);
+                return interruptedFullResponse();
             }
             lastResumeRange = headers.get("Range");
             return ranged("bytes 21-51/52", 21, audio.length - 21);
+        }
+
+        private YouTubeMediaModels.HttpResponse interruptedFullResponse() {
+            return new YouTubeMediaModels.HttpResponse(
+                mediaUrl,
+                200,
+                "audio/wav",
+                audio.length,
+                new FailAfterBytesInputStream(audio, 21));
         }
 
         private YouTubeMediaModels.HttpResponse ranged(String contentRange, int offset, int length) {
@@ -1363,13 +1394,31 @@ public class JavaAudioDownloadBackendTest {
             }
             audioRequests++;
             if (audioRequests == 1) {
-                return ranged("bytes 0-20/52", 0, 21);
+                return interruptedFullResponse();
             }
-            if (audioRequests == 2 || audioRequests == 3 || audioRequests == 4) {
+            if (audioRequests == 2 || audioRequests == 3) {
                 throw new YouTubeMediaModels.HttpStatusException(403);
             }
             lastRestartRange = headers.get("Range");
-            return ranged("bytes 0-51/52", 0, audio.length);
+            return fullResponse();
+        }
+
+        private YouTubeMediaModels.HttpResponse interruptedFullResponse() {
+            return new YouTubeMediaModels.HttpResponse(
+                mediaUrl,
+                200,
+                "audio/wav",
+                audio.length,
+                new FailAfterBytesInputStream(audio, 21));
+        }
+
+        private YouTubeMediaModels.HttpResponse fullResponse() {
+            return new YouTubeMediaModels.HttpResponse(
+                mediaUrl,
+                200,
+                "audio/wav",
+                audio.length,
+                new ByteArrayInputStream(audio));
         }
 
         private YouTubeMediaModels.HttpResponse ranged(String contentRange, int offset, int length) {

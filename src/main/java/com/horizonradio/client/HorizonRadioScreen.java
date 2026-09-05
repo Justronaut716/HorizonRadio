@@ -74,6 +74,7 @@ public class HorizonRadioScreen extends GuiScreen {
     private static final int BUTTON_RADIO_TAB = 11;
     private static final int BUTTON_FAVORITE = 12;
     private static final int BUTTON_PLAYLIST_DISCOVERY_TAB = 13;
+    private static final int BUTTON_SETTINGS = 14;
     private static final int QUEUE_BUTTON_WIDTH = 20;
     private static final int QUEUE_BUTTON_HEIGHT = 18;
     private static final int QUEUE_BUTTON_COLUMN_WIDTH = 26;
@@ -114,6 +115,7 @@ public class HorizonRadioScreen extends GuiScreen {
     private GuiTextField playlistUrlField;
     private ControlButton searchButton;
     private ControlButton refreshChartsButton;
+    private GuiButton settingsButton;
     private HorizonRadioVolumeSlider volumeSlider;
     private List<SearchResult> chartResults = new ArrayList<SearchResult>();
     private final Set<String> pendingChartAdds = new HashSet<String>();
@@ -272,6 +274,14 @@ public class HorizonRadioScreen extends GuiScreen {
             TAB_BUTTON_HEIGHT,
             ICON_LOOP);
         addButton(refreshChartsButton);
+        settingsButton = new GuiButton(
+            BUTTON_SETTINGS,
+            panelLeft + PANEL_WIDTH - 75,
+            panelTop - 28,
+            70,
+            20,
+            "Settings");
+        addButton(settingsButton);
         addControlButtons(panelLeft, panelTop);
         volumeSlider = new HorizonRadioVolumeSlider(
             3,
@@ -750,6 +760,9 @@ public class HorizonRadioScreen extends GuiScreen {
             currentTab = PLAYLIST_DISCOVERY_TAB;
         } else if (button.id == BUTTON_RADIO_TAB) {
             openRadio();
+        } else if (button.id == BUTTON_SETTINGS) {
+            Minecraft.getMinecraft()
+                .displayGuiScreen(new HorizonRadioSettingsScreen(this));
         } else if (button.id == BUTTON_REFRESH_CHARTS && !isChartRefreshBusy()) {
             beginChartLoading();
             HorizonRadioClient.sendChartsRequest(chartRegionCode, true);

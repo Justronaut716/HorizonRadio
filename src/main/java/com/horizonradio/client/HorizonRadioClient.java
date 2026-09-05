@@ -80,6 +80,9 @@ public final class HorizonRadioClient {
     private static ClientFavorites clientFavorites = new ClientFavorites();
     private static AudioDownloadService clientAudioDownloadService;
     private static ClientMediaService clientMediaService;
+    private static boolean youtubeAudioEnabled = HorizonRadioClientConfig.DEFAULT_YOUTUBE_AUDIO_ENABLED;
+    private static volatile boolean youtubeAudioTestRunning;
+    private static volatile String youtubeAudioTestStatus = "Not tested";
     private static ClientMetadataCache clientMetadataCache;
     private static final Set<String> requestedVideoMetadata = new HashSet<String>();
     private static final Set<String> requestedStationMetadata = new HashSet<String>();
@@ -1089,6 +1092,8 @@ public final class HorizonRadioClient {
     static synchronized void loadClientConfig(File configDirectory) {
         clientConfig = HorizonRadioClientConfig.load(configDirectory);
         clientFavorites = clientConfig.getFavorites();
+        youtubeAudioEnabled = clientConfig.isYoutubeAudioEnabled();
+        youtubeAudioTestStatus = "Not tested";
         AudioPlayer.getInstance()
             .setVolume(clientConfig.getVolume());
         setActivePlaybackMode(clientConfig.getPlaybackMode());
@@ -1110,7 +1115,8 @@ public final class HorizonRadioClient {
                 AudioPlayer.getInstance()
                     .getVolume(),
                 clientFavorites,
-                playbackMode);
+                playbackMode,
+                youtubeAudioEnabled);
         }
     }
 
@@ -1120,7 +1126,8 @@ public final class HorizonRadioClient {
                 AudioPlayer.getInstance()
                     .getVolume(),
                 clientFavorites,
-                playbackMode);
+                playbackMode,
+                youtubeAudioEnabled);
         }
     }
 
@@ -1130,8 +1137,87 @@ public final class HorizonRadioClient {
                 AudioPlayer.getInstance()
                     .getVolume(),
                 clientFavorites,
-                playbackMode);
+                playbackMode,
+                youtubeAudioEnabled);
         }
+    }
+
+    public static synchronized boolean isYoutubeAudioEnabled() {
+        return youtubeAudioEnabled;
+    }
+
+    public static synchronized void setYoutubeAudioEnabled(boolean enabled) {
+        youtubeAudioEnabled = enabled;
+        if (!enabled && clientAudioDownloadService != null && activeTrackVideoId != null) {
+            clientAudioDownloadService.cancelDownload(activeTrackVideoId);
+        }
+        if (clientConfig != null) {
+            clientConfig.save(
+                AudioPlayer.getInstance()
+                    .getVolume(),
+                clientFavorites,
+                playbackMode,
+                youtubeAudioEnabled);
+        }
+    }
+
+    public static String getYoutubeAudioTestStatus() {
+        return youtubeAudioTestRunning ? "Testing YouTube audio..." : youtubeAudioTestStatus;
+    }
+
+    public static synchronized void startYoutubeAudioTest() {
+        if (youtubeAudioTestRunning) {
+            return;
+        }
+        if (!youtubeAudioEnabled) {
+            youtubeAudioTestStatus = "Enable YouTube audio downloads first.";
+            return;
+        }
+        if (clientAudioDownloadService == null) {
+            youtubeAudioTestStatus = "Audio downloader is not available.";
+            return;
+        }
+        youtubeAudioTestRunning = true;
+        youtubeAudioTestStatus = "Testing YouTube audio...";
+        CompletableFuture<Path> test;
+        try {
+            test = clientAudioDownloadService.download("jNQXAC9IVRw");
+        } catch (RuntimeException exception) {
+            youtubeAudioTestRunning = false;
+            youtubeAudioTestStatus = "Failed - " + shortFailureMessage(exception);
+            return;
+        }
+        if (test == null) {
+            youtubeAudioTestRunning = false;
+            youtubeAudioTestStatus = "Failed - audio downloader returned no test.";
+            return;
+        }
+        test.whenComplete(new BiConsumer<Path, Throwable>() {
+
+            @Override
+            public void accept(Path path, Throwable failure) {
+                ClientProxy.scheduleOnClientThread(new Runnable() {
+
+                    @Override
+                    public void run() {
+                        synchronized (HorizonRadioClient.class) {
+                            youtubeAudioTestRunning = false;
+                            youtubeAudioTestStatus = failure == null ? "Working - test audio downloaded."
+                                : "Failed - " + shortFailureMessage(failure);
+                        }
+                    }
+                });
+            }
+        });
+    }
+
+    private static String shortFailureMessage(Throwable failure) {
+        Throwable current = failure;
+        while (current.getCause() != null && current.getCause() != current) current = current.getCause();
+        String message = current.getMessage();
+        if (message == null || message.length() == 0) return current.getClass()
+            .getSimpleName();
+        return message.length() > 70 ? message.substring(0, 67) + "..." : message;
     }
 
     public static synchronized void setVolume(float value) {
@@ -1475,6 +1561,10 @@ public final class HorizonRadioClient {
 
         requestActiveVideoMetadata(packet.getGeneration(), packet.getVideoId());
 
+        if (!youtubeAudioEnabled) {
+            debugChat("YouTube-Audio-Downloads sind in den Einstellungen deaktiviert.");
+            return;
+        }
         if (clientAudioDownloadService == null) {
             debugChat("Kein lokaler Audio-Downloader verfügbar.");
             return;
@@ -2091,7 +2181,7 @@ public final class HorizonRadioClient {
     }
 
     private static void requestLocalAudioDownload(String videoId) {
-        if (videoId == null || clientAudioDownloadService == null) {
+        if (videoId == null || !youtubeAudioEnabled || clientAudioDownloadService == null) {
             return;
         }
         try {
@@ -2709,6 +2799,10 @@ public final class HorizonRadioClient {
             .beginLocalTrack(videoId, safePositionMs, paused ? 0L : clientNowMs, paused);
         requestActiveVideoMetadata(generation, videoId);
 
+        if (!youtubeAudioEnabled) {
+            failPrivateFiniteStart(generation, videoId, "YouTube-Audio-Downloads sind deaktiviert.");
+            return;
+        }
         if (clientAudioDownloadService == null) {
             failPrivateFiniteStart(generation, videoId, "Kein lokaler Audio-Downloader verfügbar.");
             return;
