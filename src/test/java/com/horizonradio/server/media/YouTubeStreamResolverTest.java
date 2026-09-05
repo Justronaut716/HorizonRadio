@@ -35,7 +35,7 @@ public class YouTubeStreamResolverTest {
             stream.getUrl()
                 .getHost());
         assertTrue(http.requestBody.contains("dQw4w9WgXcQ"));
-        assertTrue(http.requestBody.contains("VISIONOS"));
+        assertTrue(http.requestBody.contains("ANDROID"));
     }
 
     @Test
@@ -60,7 +60,7 @@ public class YouTubeStreamResolverTest {
     }
 
     @Test
-    public void exposesOrderedPrimaryCandidatesAndLazilyResolvesFallbackProfiles() throws Exception {
+    public void exposesOrderedPrimaryCandidatesAndLazilyResolvesTheIosFallback() throws Exception {
         FakeHttp http = new FakeHttp(
             "{\"streamingData\":{\"adaptiveFormats\":["
                 + "{\"mimeType\":\"audio/mp4; codecs=\\\"mp4a.40.2\\\"\",\"bitrate\":128000,"
@@ -88,17 +88,17 @@ public class YouTubeStreamResolverTest {
 
         List<YouTubeMediaModels.ResolvedAudioStream> alternative = resolved.resolveAlternativeCandidates();
 
-        assertEquals(3, alternative.size());
+        assertEquals(1, alternative.size());
         assertEquals(
             MediaFormat.WEBM_OPUS,
-            alternative.get(2)
+            alternative.get(0)
                 .getFormat());
-        assertEquals(3, http.playerRequests);
+        assertEquals(2, http.playerRequests);
         assertEquals(
-            3,
+            1,
             resolved.resolveAlternativeCandidates()
                 .size());
-        assertEquals(3, http.playerRequests);
+        assertEquals(2, http.playerRequests);
     }
 
     @Test
@@ -108,7 +108,6 @@ public class YouTubeStreamResolverTest {
                 + "{\"mimeType\":\"audio/mp4; codecs=\\\"mp4a.40.2\\\"\",\"bitrate\":128000,"
                 + "\"url\":\"https://r1.googlevideo.com/videoplayback?expire=2000\"}]}}");
         http.iosResponse = "{\"playabilityStatus\":{\"status\":\"LOGIN_REQUIRED\"}}";
-        http.androidResponse = "{\"playabilityStatus\":{\"status\":\"LOGIN_REQUIRED\"}}";
         YouTubeStreamResolver resolver = new YouTubeStreamResolver(http, new AudioDecoderRegistry(), () -> 1000000L);
 
         YouTubeStreamResolver.ResolvedAudioCandidates resolved = resolver.resolveAudioCandidates("dQw4w9WgXcQ");
@@ -119,9 +118,9 @@ public class YouTubeStreamResolverTest {
         } catch (MediaException expected) {
             // A failed lazy lookup must remain retryable.
         }
-        assertEquals(3, http.playerRequests);
+        assertEquals(2, http.playerRequests);
 
-        http.iosResponse = "{\"streamingData\":{\"adaptiveFormats\":[ "
+        http.iosResponse = "{\"streamingData\":{\"adaptiveFormats\":["
             + "{\"mimeType\":\"audio/webm; codecs=\\\"opus\\\"\",\"bitrate\":160000,"
             + "\"url\":\"https://r2.googlevideo.com/videoplayback?expire=2000\"}]}}";
 
@@ -129,11 +128,11 @@ public class YouTubeStreamResolverTest {
             1,
             resolved.resolveAlternativeCandidates()
                 .size());
-        assertEquals(5, http.playerRequests);
+        assertEquals(3, http.playerRequests);
     }
 
     @Test
-    public void sendsCompleteVisionOsPlayerContextAndClientHeaders() throws Exception {
+    public void sendsCompleteAndroidPlayerContextAndClientHeaders() throws Exception {
         FakeHttp http = new FakeHttp(
             "{\"streamingData\":{\"adaptiveFormats\":["
                 + "{\"mimeType\":\"audio/mp4; codecs=\\\"mp4a.40.2\\\"\",\"bitrate\":128000,"
@@ -145,31 +144,35 @@ public class YouTubeStreamResolverTest {
         JsonObject client = request.getAsJsonObject("context")
             .getAsJsonObject("client");
         assertEquals(
-            "VISIONOS",
+            "ANDROID_VR",
             client.get("clientName")
                 .getAsString());
         assertEquals(
-            "1.02",
+            "1.65.10",
             client.get("clientVersion")
                 .getAsString());
         assertEquals(
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 15_7_3) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15",
+            "com.google.android.apps.youtube.vr.oculus/1.65.10 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip",
             client.get("userAgent")
                 .getAsString());
         assertEquals(
-            "Apple",
+            "Oculus",
             client.get("deviceMake")
                 .getAsString());
         assertEquals(
-            "RealityDevice17,1",
+            "Quest 3",
             client.get("deviceModel")
                 .getAsString());
         assertEquals(
-            "visionOS",
+            32,
+            client.get("androidSdkVersion")
+                .getAsInt());
+        assertEquals(
+            "Android",
             client.get("osName")
                 .getAsString());
         assertEquals(
-            "26.5.23O471",
+            "12L",
             client.get("osVersion")
                 .getAsString());
         assertEquals(
@@ -188,13 +191,13 @@ public class YouTubeStreamResolverTest {
         assertTrue(
             request.get("racyCheckOk")
                 .getAsBoolean());
-        assertEquals("101", http.requestHeaders.get("X-YouTube-Client-Name"));
-        assertEquals("1.02", http.requestHeaders.get("X-YouTube-Client-Version"));
+        assertEquals("28", http.requestHeaders.get("X-YouTube-Client-Name"));
+        assertEquals("1.65.10", http.requestHeaders.get("X-YouTube-Client-Version"));
         assertEquals("test-visitor", http.requestHeaders.get("X-Goog-Visitor-Id"));
     }
 
     @Test
-    public void usesVisitorBoundVisionOsPlayerContextForDownloadableStreams() throws Exception {
+    public void usesVisitorBoundAndroidVrPlayerContextForDownloadableStreams() throws Exception {
         FakeHttp http = new FakeHttp(
             "{\"streamingData\":{\"adaptiveFormats\":["
                 + "{\"mimeType\":\"audio/webm; codecs=\\\"opus\\\"\",\"bitrate\":128000,"
@@ -210,15 +213,15 @@ public class YouTubeStreamResolverTest {
         JsonObject client = request.getAsJsonObject("context")
             .getAsJsonObject("client");
         assertEquals(
-            "VISIONOS",
+            "ANDROID_VR",
             client.get("clientName")
                 .getAsString());
         assertEquals(
-            "1.02",
+            "1.65.10",
             client.get("clientVersion")
                 .getAsString());
-        assertEquals("101", http.requestHeaders.get("X-YouTube-Client-Name"));
-        assertEquals("1.02", http.requestHeaders.get("X-YouTube-Client-Version"));
+        assertEquals("28", http.requestHeaders.get("X-YouTube-Client-Name"));
+        assertEquals("1.65.10", http.requestHeaders.get("X-YouTube-Client-Version"));
         assertEquals("visitor-token", http.requestHeaders.get("X-Goog-Visitor-Id"));
         assertEquals(
             "HTML5_PREF_WANTS",
@@ -256,7 +259,6 @@ public class YouTubeStreamResolverTest {
 
     @Test
     public void fallsBackToIosPlayerWhenAndroidPlayerIsUnavailable() throws Exception {
-        // VisionOS and Android are tried before the iOS fallback.
         FakeHttp http = new FakeHttp(
             "{\"playabilityStatus\":{\"status\":\"LOGIN_REQUIRED\",\"reason\":\"Sign in to confirm you are not a bot\"}}");
         http.iosResponse = "{\"streamingData\":{\"adaptiveFormats\":["
@@ -269,7 +271,7 @@ public class YouTubeStreamResolverTest {
             () -> 1000000L).resolveAudio("dQw4w9WgXcQ");
 
         assertEquals(MediaFormat.M4A, stream.getFormat());
-        assertEquals(3, http.playerRequests);
+        assertEquals(2, http.playerRequests);
         assertEquals("IOS", http.lastClientName);
     }
 
@@ -288,7 +290,7 @@ public class YouTubeStreamResolverTest {
             () -> 1000000L).resolveAudio("dQw4w9WgXcQ");
 
         assertEquals(MediaFormat.M4A, stream.getFormat());
-        assertEquals(3, http.playerRequests);
+        assertEquals(2, http.playerRequests);
         assertEquals("IOS", http.lastClientName);
     }
 
@@ -537,7 +539,6 @@ public class YouTubeStreamResolverTest {
         private final byte[] response;
         private final long declaredLength;
         private String visitorPage = "{\"VISITOR_DATA\":\"test-visitor\"}";
-        private String androidResponse;
         private String iosResponse;
         private boolean failVisitorPage;
         private int watchRequests;
@@ -567,12 +568,11 @@ public class YouTubeStreamResolverTest {
                 .getAsJsonObject("client")
                 .get("clientName")
                 .getAsString();
-            String selectedResponse = "IOS".equals(lastClientName) && iosResponse != null ? iosResponse
-                : "ANDROID_VR".equals(lastClientName) && androidResponse != null ? androidResponse
-                    : new String(response, StandardCharsets.UTF_8);
-            byte[] playerResponse = selectedResponse.getBytes(StandardCharsets.UTF_8);
-            long responseLength = selectedResponse.equals(new String(response, StandardCharsets.UTF_8)) ? declaredLength
-                : playerResponse.length;
+            byte[] playerResponse = "IOS".equals(lastClientName) && iosResponse != null
+                ? iosResponse.getBytes(StandardCharsets.UTF_8)
+                : response;
+            long responseLength = "IOS".equals(lastClientName) && iosResponse != null ? playerResponse.length
+                : declaredLength;
             lastPlayerInput = new CloseTrackingInputStream(playerResponse);
             return new YouTubeMediaModels.HttpResponse(url, 200, "application/json", responseLength, lastPlayerInput);
         }

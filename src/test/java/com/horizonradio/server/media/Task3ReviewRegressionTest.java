@@ -385,19 +385,21 @@ public class Task3ReviewRegressionTest {
         int segmentEnd = segmentData + readEbmlSize(WEBM_OPUS, sizeOffset);
         assertEquals(WEBM_OPUS.length, segmentEnd);
 
-        byte[][] padding = { webmVoid(3_500_000), webmVoid(3_500_000), webmVoid(3_500_000), webmVoid(3_500_000),
-            webmVoid(300_000) };
-        int paddingLength = 0;
-        for (byte[] part : padding) paddingLength += part.length;
-        byte[] result = new byte[WEBM_OPUS.length + paddingLength];
+        byte[] firstPadding = webmVoid(4_000_000);
+        byte[] secondPadding = webmVoid(300_000);
+        byte[] result = new byte[WEBM_OPUS.length + firstPadding.length + secondPadding.length];
         System.arraycopy(WEBM_OPUS, 0, result, 0, segmentEnd);
         int paddingOffset = segmentEnd;
-        for (byte[] part : padding) {
-            System.arraycopy(part, 0, result, paddingOffset, part.length);
-            paddingOffset += part.length;
-        }
+        System.arraycopy(firstPadding, 0, result, paddingOffset, firstPadding.length);
+        paddingOffset += firstPadding.length;
+        System.arraycopy(secondPadding, 0, result, paddingOffset, secondPadding.length);
+        paddingOffset += secondPadding.length;
         System.arraycopy(WEBM_OPUS, segmentEnd, result, paddingOffset, WEBM_OPUS.length - segmentEnd);
-        writeEbmlSize(result, sizeOffset, sizeLength, readEbmlSize(WEBM_OPUS, sizeOffset) + paddingLength);
+        writeEbmlSize(
+            result,
+            sizeOffset,
+            sizeLength,
+            readEbmlSize(WEBM_OPUS, sizeOffset) + firstPadding.length + secondPadding.length);
         return result;
     }
 

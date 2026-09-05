@@ -41,16 +41,6 @@ public final class YouTubeStreamResolver {
         32,
         "Android",
         "12L");
-    private static final ClientProfile VISIONOS_CLIENT = new ClientProfile(
-        "VISIONOS",
-        "1.02",
-        "101",
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 15_7_3) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15",
-        "Apple",
-        "RealityDevice17,1",
-        0,
-        "visionOS",
-        "26.5.23O471");
     private static final ClientProfile IOS_CLIENT = new ClientProfile(
         "IOS",
         "20.10.4",
@@ -141,63 +131,30 @@ public final class YouTubeStreamResolver {
                     + "; stream requests will continue without a visitor id",
                 exception);
         }
-        IOException visionOsFailure;
-        final String resolvedVisitorData = visitorData;
+        IOException androidFailure;
         try {
+            final String resolvedVisitorData = visitorData;
             final List<YouTubeMediaModels.ResolvedAudioStream> primary = resolveAudioWithClient(
                 safeVideoId,
                 resolvedVisitorData,
-                VISIONOS_CLIENT);
+                ANDROID_VR_CLIENT);
             return new ResolvedAudioCandidates(primary, new AlternativeResolver() {
 
                 @Override
                 public List<YouTubeMediaModels.ResolvedAudioStream> resolve() throws IOException {
-                    return resolveFallbackClients(safeVideoId, resolvedVisitorData);
+                    return resolveAudioWithClient(safeVideoId, resolvedVisitorData, IOS_CLIENT);
                 }
             });
         } catch (ClientUnavailableException exception) {
-            visionOsFailure = exception;
-        }
-        try {
-            return new ResolvedAudioCandidates(
-                resolveAudioWithClient(safeVideoId, resolvedVisitorData, ANDROID_VR_CLIENT),
-                new AlternativeResolver() {
-
-                    @Override
-                    public List<YouTubeMediaModels.ResolvedAudioStream> resolve() throws IOException {
-                        return resolveAudioWithClient(safeVideoId, resolvedVisitorData, IOS_CLIENT);
-                    }
-                });
-        } catch (IOException androidFailure) {
-            try {
-                return new ResolvedAudioCandidates(
-                    resolveAudioWithClient(safeVideoId, resolvedVisitorData, IOS_CLIENT),
-                    null);
-            } catch (IOException fallbackFailure) {
-                fallbackFailure.addSuppressed(androidFailure);
-                fallbackFailure.addSuppressed(visionOsFailure);
-                if (visitorFailure != null) fallbackFailure.addSuppressed(visitorFailure);
-                throw fallbackFailure;
-            }
-        }
-    }
-
-    private List<YouTubeMediaModels.ResolvedAudioStream> resolveFallbackClients(String videoId, String visitorData)
-        throws IOException {
-        List<YouTubeMediaModels.ResolvedAudioStream> candidates = new ArrayList<YouTubeMediaModels.ResolvedAudioStream>();
-        IOException androidFailure = null;
-        try {
-            candidates.addAll(resolveAudioWithClient(videoId, visitorData, ANDROID_VR_CLIENT));
-        } catch (IOException exception) {
             androidFailure = exception;
         }
         try {
-            candidates.addAll(resolveAudioWithClient(videoId, visitorData, IOS_CLIENT));
-        } catch (IOException iosFailure) {
-            if (androidFailure != null) iosFailure.addSuppressed(androidFailure);
-            if (candidates.isEmpty()) throw iosFailure;
+            return new ResolvedAudioCandidates(resolveAudioWithClient(safeVideoId, visitorData, IOS_CLIENT), null);
+        } catch (IOException fallbackFailure) {
+            fallbackFailure.addSuppressed(androidFailure);
+            if (visitorFailure != null) fallbackFailure.addSuppressed(visitorFailure);
+            throw fallbackFailure;
         }
-        return candidates;
     }
 
     /**
@@ -245,7 +202,7 @@ public final class YouTubeStreamResolver {
                     response.getContentLength(),
                     MAX_PLAYER_BYTES,
                     "InnerTube player response"));
-            return select(root, resolveTransformPlans(root), visitorData, client.userAgent);
+            return select(root, resolveTransformPlans(root), visitorData);
         }
     }
 
@@ -319,7 +276,7 @@ public final class YouTubeStreamResolver {
     }
 
     private List<YouTubeMediaModels.ResolvedAudioStream> select(JsonObject root, TransformPlans transformPlans,
-        String visitorData, String userAgent) throws IOException {
+        String visitorData) throws IOException {
         JsonObject streaming = object(root, "streamingData");
         JsonArray formats = streaming == null ? null : streaming.getAsJsonArray("adaptiveFormats");
         if (formats == null || formats.size() == 0)
@@ -328,7 +285,7 @@ public final class YouTubeStreamResolver {
         List<Candidate> candidates = new ArrayList<Candidate>();
         for (JsonElement element : formats) {
             if (!element.isJsonObject()) continue;
-            Candidate candidate = candidate(element.getAsJsonObject(), rootExpiry, transformPlans, userAgent);
+            Candidate candidate = candidate(element.getAsJsonObject(), rootExpiry, transformPlans);
             if (candidate != null && registry.supports(candidate.format)) candidates.add(candidate);
         }
         if (candidates.isEmpty())
@@ -352,15 +309,13 @@ public final class YouTubeStreamResolver {
                     candidate.format,
                     candidate.bitrate,
                     candidate.expiresAtMillis,
-                    visitorData,
-                    candidate.userAgent));
+                    visitorData));
         }
         if (resolved.isEmpty()) throw new MediaException("YouTube stream URLs have expired");
         return Collections.unmodifiableList(resolved);
     }
 
-    private Candidate candidate(JsonObject format, long rootExpiry, TransformPlans transformPlans, String userAgent)
-        throws IOException {
+    private Candidate candidate(JsonObject format, long rootExpiry, TransformPlans transformPlans) throws IOException {
         String mime = string(format, "mimeType").toLowerCase(Locale.ROOT);
         MediaFormat mediaFormat = fromMime(mime);
         if (mediaFormat == MediaFormat.UNKNOWN || !mime.startsWith("audio/")) return null;
@@ -370,7 +325,7 @@ public final class YouTubeStreamResolver {
         long expiry = minPositive(rootExpiry, urlExpiry);
         if (expiry == Long.MAX_VALUE) throw new MediaException("YouTube stream URL has no finite expiry");
         int bitrate = Math.max(0, integer(format, "bitrate"));
-        return new Candidate(url, mediaFormat, bitrate, expiry, preference(mediaFormat), userAgent);
+        return new Candidate(url, mediaFormat, bitrate, expiry, preference(mediaFormat));
     }
 
     private URL streamUrl(JsonObject format, TransformPlans transformPlans) throws IOException {
@@ -725,16 +680,13 @@ public final class YouTubeStreamResolver {
         private final int bitrate;
         private final long expiresAtMillis;
         private final int preference;
-        private final String userAgent;
 
-        private Candidate(URL url, MediaFormat format, int bitrate, long expiresAtMillis, int preference,
-            String userAgent) {
+        private Candidate(URL url, MediaFormat format, int bitrate, long expiresAtMillis, int preference) {
             this.url = url;
             this.format = format;
             this.bitrate = bitrate;
             this.expiresAtMillis = expiresAtMillis;
             this.preference = preference;
-            this.userAgent = userAgent;
         }
     }
 
