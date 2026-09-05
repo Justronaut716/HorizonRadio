@@ -546,7 +546,8 @@ public final class JavaAudioDownloadBackend implements YouTubeMediaModels.AudioD
                 transfer.format,
                 0,
                 transfer.expiresAtMillis,
-                transfer.visitorData);
+                transfer.visitorData,
+                transfer.userAgent);
         } catch (IOException failure) {
             discardPending(videoId, transfer);
             return null;
@@ -588,6 +589,7 @@ public final class JavaAudioDownloadBackend implements YouTubeMediaModels.AudioD
             new MediaTransfer(
                 url,
                 stream.getVisitorData(),
+                stream.getUserAgent(),
                 contentType,
                 stream.getFormat(),
                 stream.getExpiresAtMillis(),
@@ -673,16 +675,18 @@ public final class JavaAudioDownloadBackend implements YouTubeMediaModels.AudioD
 
         final String url;
         final String visitorData;
+        final String userAgent;
         final String contentType;
         final MediaFormat format;
         final long expiresAtMillis;
         final Path tempFile;
         final long createdAtMillis;
 
-        MediaTransfer(String url, String visitorData, String contentType, MediaFormat format, long expiresAtMillis,
-            Path tempFile, long createdAtMillis) {
+        MediaTransfer(String url, String visitorData, String userAgent, String contentType, MediaFormat format,
+            long expiresAtMillis, Path tempFile, long createdAtMillis) {
             this.url = url;
             this.visitorData = visitorData;
+            this.userAgent = userAgent;
             this.contentType = contentType;
             this.format = format;
             this.expiresAtMillis = expiresAtMillis;
@@ -738,11 +742,9 @@ public final class JavaAudioDownloadBackend implements YouTubeMediaModels.AudioD
         headers.put("Accept", "*/*");
         headers.put("Origin", "https://www.youtube.com");
         headers.put("Referer", "https://www.youtube.com/");
-        headers.put("User-Agent", MEDIA_USER_AGENT);
-        if (stream.getVisitorData()
-            .length() > 0) {
-            headers.put("X-Goog-Visitor-Id", stream.getVisitorData());
-        }
+        String userAgent = stream.getUserAgent();
+        headers.put("User-Agent", userAgent.length() > 0 ? userAgent : MEDIA_USER_AGENT);
+        headers.put("Accept-Encoding", "identity");
         return headers;
     }
 

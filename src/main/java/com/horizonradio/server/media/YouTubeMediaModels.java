@@ -163,17 +163,24 @@ public final class YouTubeMediaModels {
         private final int bitrate;
         private final long expiresAtMillis;
         private final String visitorData;
+        private final String userAgent;
 
         public ResolvedAudioStream(URL url, MediaFormat format, int bitrate, long expiresAtMillis) {
-            this(url, format, bitrate, expiresAtMillis, "");
+            this(url, format, bitrate, expiresAtMillis, "", "");
         }
 
         public ResolvedAudioStream(URL url, MediaFormat format, int bitrate, long expiresAtMillis, String visitorData) {
+            this(url, format, bitrate, expiresAtMillis, visitorData, "");
+        }
+
+        public ResolvedAudioStream(URL url, MediaFormat format, int bitrate, long expiresAtMillis, String visitorData,
+            String userAgent) {
             this.url = url;
             this.format = format;
             this.bitrate = bitrate;
             this.expiresAtMillis = expiresAtMillis;
             this.visitorData = visitorData == null ? "" : visitorData;
+            this.userAgent = userAgent == null ? "" : userAgent;
         }
 
         public URL getUrl() {
@@ -194,6 +201,10 @@ public final class YouTubeMediaModels {
 
         public String getVisitorData() {
             return visitorData;
+        }
+
+        public String getUserAgent() {
+            return userAgent;
         }
     }
 

@@ -223,7 +223,7 @@ public class JavaAudioDownloadBackendTest {
             now.addAndGet(60000L);
             assertEquals(destination, backend.download("dQw4w9WgXcQ", destination, () -> false));
             assertEquals(2, http.watchRequests);
-            assertEquals("visitor-2", http.lastAudioVisitorId);
+            assertEquals(3, http.audioRequests);
         } finally {
             Files.deleteIfExists(destination);
             Files.deleteIfExists(directory);
@@ -390,6 +390,8 @@ public class JavaAudioDownloadBackendTest {
             assertEquals(destination, backend.download("dQw4w9WgXcQ", destination, () -> false));
             assertEquals(1, http.fullRequests);
             assertEquals(0, http.rangeRequests);
+            assertTrue(http.lastAudioUserAgent.contains("Safari"));
+            assertEquals("null", http.lastAudioVisitorId);
             assertEquals(52, Files.size(destination));
         } finally {
             Files.deleteIfExists(destination);
@@ -740,6 +742,8 @@ public class JavaAudioDownloadBackendTest {
         private boolean failFirstAudioRequest;
         private int audioRequests;
         private int rangedAudioRequests;
+        private String lastAudioUserAgent = "";
+        private String lastAudioVisitorId = "";
 
         private FakeHttp(byte[] audio) {
             this(audio, null, audio.length);
@@ -790,6 +794,8 @@ public class JavaAudioDownloadBackendTest {
                     new ByteArrayInputStream(visitor));
             }
             audioRequests++;
+            lastAudioUserAgent = headers == null ? "" : String.valueOf(headers.get("User-Agent"));
+            lastAudioVisitorId = headers == null ? "" : String.valueOf(headers.get("X-Goog-Visitor-Id"));
             if (headers != null && headers.get("Range") != null) {
                 rangedAudioRequests++;
             }
@@ -1018,7 +1024,7 @@ public class JavaAudioDownloadBackendTest {
             }
             audioRequests++;
             lastAudioVisitorId = headers == null ? "" : String.valueOf(headers.get("X-Goog-Visitor-Id"));
-            if ("visitor-1".equals(lastAudioVisitorId)) {
+            if (audioRequests <= 2) {
                 throw new YouTubeMediaModels.HttpStatusException(403);
             }
             return new YouTubeMediaModels.HttpResponse(
@@ -1129,6 +1135,8 @@ public class JavaAudioDownloadBackendTest {
         private int fullRequests;
         private int rangeRequests;
         private String lastRange = "";
+        private String lastAudioUserAgent = "";
+        private String lastAudioVisitorId = "";
 
         private RangeFallbackHttp(byte[] audio) {
             this.audio = audio;
@@ -1160,6 +1168,8 @@ public class JavaAudioDownloadBackendTest {
                     visitor.length,
                     new ByteArrayInputStream(visitor));
             }
+            lastAudioUserAgent = headers == null ? "" : String.valueOf(headers.get("User-Agent"));
+            lastAudioVisitorId = headers == null ? "" : String.valueOf(headers.get("X-Goog-Visitor-Id"));
             String range = headers == null ? null : headers.get("Range");
             if (range == null) {
                 fullRequests++;

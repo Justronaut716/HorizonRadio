@@ -245,7 +245,7 @@ public final class YouTubeStreamResolver {
                     response.getContentLength(),
                     MAX_PLAYER_BYTES,
                     "InnerTube player response"));
-            return select(root, resolveTransformPlans(root), visitorData);
+            return select(root, resolveTransformPlans(root), visitorData, client.userAgent);
         }
     }
 
@@ -319,7 +319,7 @@ public final class YouTubeStreamResolver {
     }
 
     private List<YouTubeMediaModels.ResolvedAudioStream> select(JsonObject root, TransformPlans transformPlans,
-        String visitorData) throws IOException {
+        String visitorData, String userAgent) throws IOException {
         JsonObject streaming = object(root, "streamingData");
         JsonArray formats = streaming == null ? null : streaming.getAsJsonArray("adaptiveFormats");
         if (formats == null || formats.size() == 0)
@@ -328,7 +328,7 @@ public final class YouTubeStreamResolver {
         List<Candidate> candidates = new ArrayList<Candidate>();
         for (JsonElement element : formats) {
             if (!element.isJsonObject()) continue;
-            Candidate candidate = candidate(element.getAsJsonObject(), rootExpiry, transformPlans);
+            Candidate candidate = candidate(element.getAsJsonObject(), rootExpiry, transformPlans, userAgent);
             if (candidate != null && registry.supports(candidate.format)) candidates.add(candidate);
         }
         if (candidates.isEmpty())
@@ -352,13 +352,15 @@ public final class YouTubeStreamResolver {
                     candidate.format,
                     candidate.bitrate,
                     candidate.expiresAtMillis,
-                    visitorData));
+                    visitorData,
+                    candidate.userAgent));
         }
         if (resolved.isEmpty()) throw new MediaException("YouTube stream URLs have expired");
         return Collections.unmodifiableList(resolved);
     }
 
-    private Candidate candidate(JsonObject format, long rootExpiry, TransformPlans transformPlans) throws IOException {
+    private Candidate candidate(JsonObject format, long rootExpiry, TransformPlans transformPlans, String userAgent)
+        throws IOException {
         String mime = string(format, "mimeType").toLowerCase(Locale.ROOT);
         MediaFormat mediaFormat = fromMime(mime);
         if (mediaFormat == MediaFormat.UNKNOWN || !mime.startsWith("audio/")) return null;
@@ -368,7 +370,7 @@ public final class YouTubeStreamResolver {
         long expiry = minPositive(rootExpiry, urlExpiry);
         if (expiry == Long.MAX_VALUE) throw new MediaException("YouTube stream URL has no finite expiry");
         int bitrate = Math.max(0, integer(format, "bitrate"));
-        return new Candidate(url, mediaFormat, bitrate, expiry, preference(mediaFormat));
+        return new Candidate(url, mediaFormat, bitrate, expiry, preference(mediaFormat), userAgent);
     }
 
     private URL streamUrl(JsonObject format, TransformPlans transformPlans) throws IOException {
@@ -723,13 +725,16 @@ public final class YouTubeStreamResolver {
         private final int bitrate;
         private final long expiresAtMillis;
         private final int preference;
+        private final String userAgent;
 
-        private Candidate(URL url, MediaFormat format, int bitrate, long expiresAtMillis, int preference) {
+        private Candidate(URL url, MediaFormat format, int bitrate, long expiresAtMillis, int preference,
+            String userAgent) {
             this.url = url;
             this.format = format;
             this.bitrate = bitrate;
             this.expiresAtMillis = expiresAtMillis;
             this.preference = preference;
+            this.userAgent = userAgent;
         }
     }
 
