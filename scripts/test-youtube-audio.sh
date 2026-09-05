@@ -9,7 +9,7 @@ if ! command -v java >/dev/null 2>&1; then
   exit 2
 fi
 
-./gradlew -q jar
+./gradlew -q jar --rerun-tasks
 jar=$(find build/libs -maxdepth 1 -name 'horizonradio-*.jar' ! -name '*sources*' -printf '%T@ %p\n' | sort -nr | head -1 | cut -d' ' -f2-)
 gson=$(find "$HOME/.gradle/caches/modules-2/files-2.1/com.google.code.gson" -name 'gson-*.jar' ! -name '*sources*' | sort -V | tail -1)
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/horizonradio-audio-test.XXXXXX")
