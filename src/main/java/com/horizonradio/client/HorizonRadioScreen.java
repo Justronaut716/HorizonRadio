@@ -68,6 +68,9 @@ public class HorizonRadioScreen extends GuiScreen {
     private static final int MODE_TOP_OFFSET = BODY_TOP_OFFSET + 5;
     private static final int SECTION_TOP_OFFSET = 90;
     private static final int CONTENT_LIST_TOP_OFFSET = 103;
+    private static final int RADIO_SEARCH_CONTROL_Y_OFFSET = MODE_TOP_OFFSET;
+    private static final int RADIO_LIST_TOP_OFFSET = RADIO_SEARCH_CONTROL_Y_OFFSET + SEARCH_CONTROL_HEIGHT + 5;
+    private static final int RADIO_LIST_TOP_WITH_PROGRESS_OFFSET = CONTENT_LIST_TOP_OFFSET;
     private static final int QUEUE_TOP_OFFSET = 41;
     private static final int QUEUE_LIST_TOP_OFFSET = 67;
     private static final int VOLUME_HEIGHT = 11;
@@ -373,6 +376,7 @@ public class HorizonRadioScreen extends GuiScreen {
         chartsTabButton.setActive(currentTab == CHARTS_TAB);
         searchTabButton.setActive(currentTab == SEARCH_TAB);
         playlistsTabButton.setActive(currentTab == PLAYLIST_DISCOVERY_TAB);
+        updateModeVisibility();
         updateChartRefreshButtonState();
         updateControlVisibility();
         if (usesSharedSearchField()) {
@@ -499,7 +503,8 @@ public class HorizonRadioScreen extends GuiScreen {
     private void drawActiveTabBorder(int panelLeft, int panelTop) {
         GuiButton activeHeader = currentTab == RADIO_TAB ? radioTabButton : songsTabButton;
         GuiButton activeMode = currentTab == CHARTS_TAB ? chartsTabButton
-            : (currentTab == SEARCH_TAB ? searchTabButton : playlistsTabButton);
+            : (currentTab == SEARCH_TAB ? searchTabButton
+                : (currentTab == PLAYLIST_DISCOVERY_TAB ? playlistsTabButton : null));
         drawButtonBorder(activeHeader, 0xFFFFFFFF);
         drawButtonBorder(activeMode, 0xFFFFFFFF);
     }
@@ -782,7 +787,6 @@ public class HorizonRadioScreen extends GuiScreen {
         if (shouldDrawProgressBar(resultsLoading)) {
             drawProgressBar(left, top, radioProgress);
         }
-        drawString(fontRendererObj, "Stations", contentLeft + 5, top + SECTION_TOP_OFFSET, 0xFFF0F0F0);
         int listTop = top + radioListTopOffset(resultsLoading);
         if (results.isEmpty()) {
             String emptyMessage = resultsLoading ? "Loading stations..."
@@ -1869,7 +1873,15 @@ public class HorizonRadioScreen extends GuiScreen {
     }
 
     static int radioListTopOffset(boolean radioLoading) {
-        return radioLoading ? CONTENT_LIST_TOP_OFFSET : SEARCH_LIST_TOP_WITHOUT_PROGRESS_OFFSET;
+        return radioLoading ? RADIO_LIST_TOP_WITH_PROGRESS_OFFSET : RADIO_LIST_TOP_OFFSET;
+    }
+
+    static int radioSearchControlYOffset() {
+        return RADIO_SEARCH_CONTROL_Y_OFFSET;
+    }
+
+    static boolean shouldShowSongModeButtons(int tab) {
+        return tab != RADIO_TAB;
     }
 
     boolean hasSearchResultsRevealPending() {
@@ -2586,6 +2598,26 @@ public class HorizonRadioScreen extends GuiScreen {
 
     private boolean hasRadioStatus() {
         return radioStatus().length() > 0;
+    }
+
+    private void updateModeVisibility() {
+        boolean showSongModes = shouldShowSongModeButtons(currentTab);
+        setVisible(chartsTabButton, showSongModes);
+        setVisible(searchTabButton, showSongModes);
+        setVisible(playlistsTabButton, showSongModes);
+        setVisible(refreshChartsButton, currentTab == CHARTS_TAB);
+
+        int searchOffset = currentTab == RADIO_TAB ? RADIO_SEARCH_CONTROL_Y_OFFSET : SEARCH_CONTROL_Y_OFFSET;
+        int top = panelTop();
+        if (searchField != null) {
+            searchField.yPosition = top + searchOffset;
+        }
+        if (playlistUrlField != null) {
+            playlistUrlField.yPosition = top + searchOffset;
+        }
+        if (searchButton != null) {
+            searchButton.yPosition = top + searchOffset - 1;
+        }
     }
 
     private void updateControlVisibility() {

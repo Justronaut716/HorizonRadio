@@ -6,6 +6,7 @@ final class HorizonRadioUiLayout {
     static final int REFERENCE_PANEL_WIDTH = 360;
     static final int REFERENCE_PANEL_HEIGHT = 322;
     private static final int SCREEN_MARGIN = 10;
+    private static final float MAX_SCALE = 1.10F;
     private static final int HEADER_BOTTOM = 36;
     private static final int BODY_BOTTOM = 245;
     private static final int CONTENT_LEFT_INSET = 8;
@@ -32,7 +33,7 @@ final class HorizonRadioUiLayout {
         this.screenHeight = Math.max(1, screenHeight);
         float widthScale = (this.screenWidth - 2.0f * SCREEN_MARGIN) / REFERENCE_PANEL_WIDTH;
         float heightScale = (this.screenHeight - 2.0f * SCREEN_MARGIN) / REFERENCE_PANEL_HEIGHT;
-        scale = Math.min(1.0f, Math.max(0.1f, Math.min(widthScale, heightScale)));
+        scale = Math.min(MAX_SCALE, Math.max(0.1f, Math.min(widthScale, heightScale)));
         scaledPanelWidth = Math.max(1, Math.round(REFERENCE_PANEL_WIDTH * scale));
         scaledPanelHeight = Math.max(1, Math.round(REFERENCE_PANEL_HEIGHT * scale));
         scaledPanelLeft = (this.screenWidth - scaledPanelWidth) / 2;

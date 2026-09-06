@@ -19,11 +19,20 @@ public class HorizonRadioUiLayoutTest {
 
         assertEquals(360, layout.panelWidth());
         assertEquals(322, layout.panelHeight());
-        assertEquals(1.0f, layout.scale(), 0.0001f);
-        assertEquals(140, layout.panelLeft());
-        assertEquals(19, layout.panelTop());
+        assertEquals(340.0F / 322.0F, layout.scale(), 0.0001f);
+        assertEquals(380, layout.scaledPanelWidth());
+        assertEquals(340, layout.scaledPanelHeight());
+        assertEquals(130, layout.panelLeft());
+        assertEquals(10, layout.panelTop());
         assertTrue(layout.queueLeft() > layout.contentLeft());
         assertTrue(layout.footerTop() > layout.bodyTop());
+    }
+
+    @Test
+    public void largeViewportsUseOnlyALimitedPanelUpscale() {
+        HorizonRadioUiLayout layout = HorizonRadioUiLayout.create(1920, 1080);
+
+        assertEquals(1.10F, layout.scale(), 0.0001F);
     }
 
     @Test

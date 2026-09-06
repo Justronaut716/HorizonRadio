@@ -295,8 +295,13 @@ public class GuiLayoutTest {
 
     @Test
     public void radioListUsesProgressSpaceOnlyWhileLoading() {
-        assertEquals(screenConstant("CONTENT_LIST_TOP_OFFSET"), HorizonRadioScreen.radioListTopOffset(true));
-        assertEquals(screenConstant("CONTENT_LIST_TOP_OFFSET"), HorizonRadioScreen.radioListTopOffset(false));
+        assertEquals(
+            screenConstant("RADIO_LIST_TOP_WITH_PROGRESS_OFFSET"),
+            HorizonRadioScreen.radioListTopOffset(true));
+        assertEquals(screenConstant("RADIO_LIST_TOP_OFFSET"), HorizonRadioScreen.radioListTopOffset(false));
+        assertEquals(screenConstant("RADIO_SEARCH_CONTROL_Y_OFFSET"), HorizonRadioScreen.radioSearchControlYOffset());
+        assertFalse(HorizonRadioScreen.shouldShowSongModeButtons(4));
+        assertTrue(HorizonRadioScreen.shouldShowSongModeButtons(0));
     }
 
     @Test
@@ -982,7 +987,7 @@ public class GuiLayoutTest {
         screen.selectRadioTab();
         screen.updateRadioResults(singleRadioStation());
 
-        screen.click(screen.resultRowCenterX(), screen.resultRowCenterY());
+        screen.click(screen.resultRowCenterX(), screen.radioRowCenterY());
 
         assertEquals("radio-uuid", transport.selectedRadioUuid);
         assertNull(transport.playNowRequest);
@@ -1052,11 +1057,13 @@ public class GuiLayoutTest {
         screen.selectRadioTab();
         screen.updateRadioResults(radioStations(12));
 
-        screen.click(screen.radioScrollbarX(), screen.prototypePanelTop() + screenConstant("CONTENT_LIST_TOP_OFFSET"));
+        screen.click(
+            screen.radioScrollbarX(),
+            screen.prototypePanelTop() + screenConstant("RADIO_LIST_TOP_WITH_PROGRESS_OFFSET"));
         screen
             .moveHeldMouse(screen.radioScrollbarX(), screen.prototypePanelTop() + screenConstant("BODY_BOTTOM_OFFSET"));
         screen.release(screen.radioScrollbarX(), screen.prototypePanelTop() + screenConstant("BODY_BOTTOM_OFFSET"));
-        screen.click(screen.resultRowCenterX(), screen.resultRowCenterY());
+        screen.click(screen.resultRowCenterX(), screen.radioRowCenterY());
 
         assertEquals("radio-uuid-6", transport.selectedRadioUuid);
     }
@@ -1551,6 +1558,11 @@ public class GuiLayoutTest {
             return prototypePanelTop() + screenConstant("CONTENT_LIST_TOP_OFFSET") + screenConstant("ROW_HEIGHT") / 2;
         }
 
+        private int radioRowCenterY() {
+            return prototypePanelTop() + screenConstant("RADIO_LIST_TOP_WITH_PROGRESS_OFFSET")
+                + screenConstant("ROW_HEIGHT") / 2;
+        }
+
         private int queueRowCenterX() {
             return prototypePanelLeft() + screenConstant("QUEUE_LEFT_INSET") + 35;
         }
@@ -1599,15 +1611,25 @@ public class GuiLayoutTest {
         }
 
         private void click(int mouseX, int mouseY) {
-            mouseClicked(mouseX, mouseY, 0);
+            mouseClicked(toPhysicalX(mouseX), toPhysicalY(mouseY), 0);
         }
 
         private void moveHeldMouse(int mouseX, int mouseY) {
-            mouseClickMove(mouseX, mouseY, 0, 1L);
+            mouseClickMove(toPhysicalX(mouseX), toPhysicalY(mouseY), 0, 1L);
         }
 
         private void release(int mouseX, int mouseY) {
-            mouseMovedOrUp(mouseX, mouseY, 0);
+            mouseMovedOrUp(toPhysicalX(mouseX), toPhysicalY(mouseY), 0);
+        }
+
+        private int toPhysicalX(int logicalX) {
+            HorizonRadioUiLayout layout = HorizonRadioUiLayout.create(width, height);
+            return layout.panelLeft() + Math.round((logicalX - layout.referencePanelLeft()) * layout.scale());
+        }
+
+        private int toPhysicalY(int logicalY) {
+            HorizonRadioUiLayout layout = HorizonRadioUiLayout.create(width, height);
+            return layout.panelTop() + Math.round((logicalY - layout.referencePanelTop()) * layout.scale());
         }
 
         private void initialize() {
