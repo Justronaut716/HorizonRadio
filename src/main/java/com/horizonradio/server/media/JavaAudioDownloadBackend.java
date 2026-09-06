@@ -29,12 +29,11 @@ public final class JavaAudioDownloadBackend implements YouTubeMediaModels.AudioD
 
     private static final int TIMEOUT_MILLIS = 15000;
     private static final int PREFIX_BYTES = 44;
-    // Fresh downloads intentionally use one un-ranged HTTP request, as the reference downloader does.
-    // Ranges are reserved for resuming a verified partial transfer because large initial ranges can be
-    // rejected by YouTube's audio edge.
-    private static final long RANGE_CHUNK_BYTES = 16L * 1024L * 1024L;
-    // 192 MiB of 44.1 kHz stereo PCM covers the 15 minute default track limit with headroom.
-    private static final long DEFAULT_MAXIMUM_BYTES = 192L * 1024L * 1024L;
+    // YouTube's reference downloader uses bounded HTTP ranges for fresh downloads. Without a Range header,
+    // the media edge may return a deliberately throttled body.
+    private static final long RANGE_CHUNK_BYTES = 10L * 1024L * 1024L;
+    // 384 MiB of output space covers the long tracks used by the client while retaining a finite limit.
+    private static final long DEFAULT_MAXIMUM_BYTES = 384L * 1024L * 1024L;
     private static final String MEDIA_USER_AGENT = "com.google.android.apps.youtube.vr.oculus/1.65.10 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip";
     private static final long RATE_LIMIT_BASE_MILLIS = 60000L;
     // A rate-limited (403) IP can stay flagged well past a few minutes; back off to 30 min so the IP
@@ -191,7 +190,7 @@ public final class JavaAudioDownloadBackend implements YouTubeMediaModels.AudioD
                 attemptedUrls,
                 failures,
                 transportFailures,
-                false,
+                true,
                 true);
         } catch (RateLimitedCandidateFailure rateLimited) {
             primaryRateLimited = true;
@@ -217,7 +216,7 @@ public final class JavaAudioDownloadBackend implements YouTubeMediaModels.AudioD
                     attemptedUrls,
                     failures,
                     transportFailures,
-                    false,
+                    true,
                     true);
             } catch (RateLimitedCandidateFailure rateLimited) {
                 primaryRateLimited = true;
@@ -245,7 +244,7 @@ public final class JavaAudioDownloadBackend implements YouTubeMediaModels.AudioD
             attemptedUrls,
             failures,
             transportFailures,
-            false,
+            true,
             false);
         if (result != null) return result;
         throw aggregateFailure(videoId, failures);
@@ -546,7 +545,8 @@ public final class JavaAudioDownloadBackend implements YouTubeMediaModels.AudioD
                 transfer.format,
                 0,
                 transfer.expiresAtMillis,
-                transfer.visitorData);
+                transfer.visitorData,
+                transfer.userAgent);
         } catch (IOException failure) {
             discardPending(videoId, transfer);
             return null;
@@ -588,6 +588,7 @@ public final class JavaAudioDownloadBackend implements YouTubeMediaModels.AudioD
             new MediaTransfer(
                 url,
                 stream.getVisitorData(),
+                stream.getUserAgent(),
                 contentType,
                 stream.getFormat(),
                 stream.getExpiresAtMillis(),
@@ -673,16 +674,18 @@ public final class JavaAudioDownloadBackend implements YouTubeMediaModels.AudioD
 
         final String url;
         final String visitorData;
+        final String userAgent;
         final String contentType;
         final MediaFormat format;
         final long expiresAtMillis;
         final Path tempFile;
         final long createdAtMillis;
 
-        MediaTransfer(String url, String visitorData, String contentType, MediaFormat format, long expiresAtMillis,
-            Path tempFile, long createdAtMillis) {
+        MediaTransfer(String url, String visitorData, String userAgent, String contentType, MediaFormat format,
+            long expiresAtMillis, Path tempFile, long createdAtMillis) {
             this.url = url;
             this.visitorData = visitorData;
+            this.userAgent = userAgent;
             this.contentType = contentType;
             this.format = format;
             this.expiresAtMillis = expiresAtMillis;
@@ -738,11 +741,8 @@ public final class JavaAudioDownloadBackend implements YouTubeMediaModels.AudioD
         headers.put("Accept", "*/*");
         headers.put("Origin", "https://www.youtube.com");
         headers.put("Referer", "https://www.youtube.com/");
-        headers.put("User-Agent", MEDIA_USER_AGENT);
-        if (stream.getVisitorData()
-            .length() > 0) {
-            headers.put("X-Goog-Visitor-Id", stream.getVisitorData());
-        }
+        String userAgent = stream.getUserAgent();
+        headers.put("User-Agent", userAgent.length() == 0 ? MEDIA_USER_AGENT : userAgent);
         return headers;
     }
 

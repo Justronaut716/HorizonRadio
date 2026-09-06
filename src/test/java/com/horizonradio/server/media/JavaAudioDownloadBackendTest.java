@@ -28,6 +28,28 @@ import org.junit.Test;
 public class JavaAudioDownloadBackendTest {
 
     @Test
+    public void sendsTheResolverClientIdentityWithTheMediaRequest() throws Exception {
+        FakeHttp http = new FakeHttp(wave(new byte[] { 1, 0, 2, 0, 3, 0, 4, 0 }));
+        JavaAudioDownloadBackend backend = new JavaAudioDownloadBackend(
+            new YouTubeStreamResolver(http, new AudioDecoderRegistry(), () -> 1000000L),
+            http,
+            new AudioDecoderRegistry(),
+            1024L);
+        Path directory = Files.createTempDirectory("horizonradio-download-headers");
+        Path destination = directory.resolve("dQw4w9WgXcQ.wav");
+        try {
+            backend.download("dQw4w9WgXcQ", destination, () -> false);
+            assertEquals(
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 15_7_3) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15",
+                http.lastAudioHeaders.get("User-Agent"));
+            assertEquals(null, http.lastAudioHeaders.get("X-Goog-Visitor-Id"));
+        } finally {
+            Files.deleteIfExists(destination);
+            Files.deleteIfExists(directory);
+        }
+    }
+
+    @Test
     public void resolvesFreshFixtureAudioAndAtomicallyPublishesNormalizedWave() throws Exception {
         FakeHttp http = new FakeHttp(wave(new byte[] { 1, 0, 2, 0, 3, 0, 4, 0 }));
         YouTubeStreamResolver resolver = new YouTubeStreamResolver(http, new AudioDecoderRegistry(), () -> 1000000L);
@@ -155,15 +177,15 @@ public class JavaAudioDownloadBackendTest {
     }
 
     @Test
-    public void defaultDownloadBudgetCoversConfiguredSevenMinuteTracks() throws Exception {
+    public void defaultDownloadBudgetCoversConfiguredLongTracks() throws Exception {
         JavaAudioDownloadBackend backend = new JavaAudioDownloadBackend();
         java.lang.reflect.Field budget = JavaAudioDownloadBackend.class.getDeclaredField("maximumBytes");
         budget.setAccessible(true);
 
-        long normalizedSevenMinuteWaveBytes = 44L + 176400L * 7L * 60L;
+        long normalizedLongWaveBytes = 44L + 176400L * 22L * 60L;
         assertTrue(
-            "default media budget is too small for a seven-minute normalized track",
-            budget.getLong(backend) >= normalizedSevenMinuteWaveBytes);
+            "default media budget is too small for a long normalized track",
+            budget.getLong(backend) >= normalizedLongWaveBytes);
     }
 
     @Test
@@ -179,7 +201,7 @@ public class JavaAudioDownloadBackendTest {
         try {
             assertEquals(destination, backend.download("dQw4w9WgXcQ", destination, () -> false));
             assertEquals(2, http.audioRequests);
-            assertEquals(0, http.rangedAudioRequests);
+            assertEquals(2, http.rangedAudioRequests);
         } finally {
             Files.deleteIfExists(destination);
             Files.deleteIfExists(directory);
@@ -223,7 +245,8 @@ public class JavaAudioDownloadBackendTest {
             now.addAndGet(60000L);
             assertEquals(destination, backend.download("dQw4w9WgXcQ", destination, () -> false));
             assertEquals(2, http.watchRequests);
-            assertEquals("visitor-2", http.lastAudioVisitorId);
+            assertEquals("visitor-2", http.lastPlayerVisitorId);
+            assertEquals("", http.lastAudioVisitorId);
         } finally {
             Files.deleteIfExists(destination);
             Files.deleteIfExists(directory);
@@ -376,7 +399,7 @@ public class JavaAudioDownloadBackendTest {
     }
 
     @Test
-    public void downloadsFreshAudioWithoutARangeRequest() throws Exception {
+    public void downloadsFreshAudioWithARangeRequest() throws Exception {
         byte[] audio = wave(new byte[] { 1, 0, 2, 0, 3, 0, 4, 0 });
         RangeFallbackHttp http = new RangeFallbackHttp(audio);
         JavaAudioDownloadBackend backend = new JavaAudioDownloadBackend(
@@ -388,8 +411,8 @@ public class JavaAudioDownloadBackendTest {
         Path destination = directory.resolve("dQw4w9WgXcQ.wav");
         try {
             assertEquals(destination, backend.download("dQw4w9WgXcQ", destination, () -> false));
-            assertEquals(1, http.fullRequests);
-            assertEquals(0, http.rangeRequests);
+            assertEquals(0, http.fullRequests);
+            assertEquals(1, http.rangeRequests);
             assertEquals(52, Files.size(destination));
         } finally {
             Files.deleteIfExists(destination);
@@ -398,7 +421,7 @@ public class JavaAudioDownloadBackendTest {
     }
 
     @Test
-    public void downloadsLargeAudioInOneFullRequestBeforePublishingTheWave() throws Exception {
+    public void downloadsLargeAudioInRangeChunksBeforePublishingTheWave() throws Exception {
         byte[] pcm = new byte[20000000];
         byte[] audio = wave(pcm);
         RangeFallbackHttp http = new RangeFallbackHttp(audio);
@@ -411,8 +434,8 @@ public class JavaAudioDownloadBackendTest {
         Path destination = directory.resolve("dQw4w9WgXcQ.wav");
         try {
             assertEquals(destination, backend.download("dQw4w9WgXcQ", destination, () -> false));
-            assertEquals(1, http.fullRequests);
-            assertEquals(0, http.rangeRequests);
+            assertEquals(0, http.fullRequests);
+            assertEquals(2, http.rangeRequests);
             assertEquals(audio.length, Files.size(destination));
         } finally {
             Files.deleteIfExists(destination);
@@ -421,7 +444,7 @@ public class JavaAudioDownloadBackendTest {
     }
 
     @Test
-    public void downloadsAWholeTrackInASingleFullRequest() throws Exception {
+    public void downloadsAWholeTrackInRangeChunks() throws Exception {
         byte[] pcm = new byte[12000000];
         byte[] audio = wave(pcm);
         RangeFallbackHttp http = new RangeFallbackHttp(audio);
@@ -434,9 +457,8 @@ public class JavaAudioDownloadBackendTest {
         Path destination = directory.resolve("dQw4w9WgXcQ.wav");
         try {
             assertEquals(destination, backend.download("dQw4w9WgXcQ", destination, () -> false));
-            // A realistic fresh track must be exactly one un-ranged media request (yt-dlp parity).
-            assertEquals(1, http.fullRequests);
-            assertEquals(0, http.rangeRequests);
+            assertEquals(0, http.fullRequests);
+            assertEquals(2, http.rangeRequests);
             assertEquals(audio.length, Files.size(destination));
         } finally {
             Files.deleteIfExists(destination);
@@ -592,8 +614,8 @@ public class JavaAudioDownloadBackendTest {
             assertEquals(destination, backend.download("dQw4w9WgXcQ", destination, () -> false));
             assertTrue(Arrays.equals(wav, Files.readAllBytes(destination)));
             assertEquals(4, http.audioRequests);
-            // After the rejected resume the transfer must restart as a fresh, un-ranged request.
-            assertEquals(null, http.lastRestartRange);
+            // The restart still uses the same bounded-range transfer strategy, starting from byte zero.
+            assertEquals("bytes=0-1023", http.lastRestartRange);
             assertEquals(0, countPartFiles(directory));
         } finally {
             Files.deleteIfExists(destination);
@@ -740,6 +762,7 @@ public class JavaAudioDownloadBackendTest {
         private boolean failFirstAudioRequest;
         private int audioRequests;
         private int rangedAudioRequests;
+        private Map<String, String> lastAudioHeaders;
 
         private FakeHttp(byte[] audio) {
             this(audio, null, audio.length);
@@ -790,6 +813,7 @@ public class JavaAudioDownloadBackendTest {
                     new ByteArrayInputStream(visitor));
             }
             audioRequests++;
+            lastAudioHeaders = headers == null ? null : new java.util.HashMap<String, String>(headers);
             if (headers != null && headers.get("Range") != null) {
                 rangedAudioRequests++;
             }
@@ -986,11 +1010,13 @@ public class JavaAudioDownloadBackendTest {
         private final byte[] audio = wave(new byte[] { 1, 0, 2, 0, 3, 0, 4, 0 });
         private int watchRequests;
         private int audioRequests;
+        private String lastPlayerVisitorId = "";
         private String lastAudioVisitorId = "";
 
         @Override
         public YouTubeMediaModels.HttpResponse post(URL url, Map<String, String> headers, byte[] body,
             int timeoutMillis, long maximumBytes) {
+            lastPlayerVisitorId = headers == null ? "" : String.valueOf(headers.get("X-Goog-Visitor-Id"));
             String json = "{\"streamingData\":{\"adaptiveFormats\":[{\"mimeType\":\"audio/wav; codecs=\\\"1\\\"\","
                 + "\"bitrate\":128000,\"url\":\"https://r1.googlevideo.com/videoplayback?expire=2000000000\"}]}}";
             byte[] response = json.getBytes(StandardCharsets.UTF_8);
@@ -1017,8 +1043,9 @@ public class JavaAudioDownloadBackendTest {
                     new ByteArrayInputStream(visitor));
             }
             audioRequests++;
-            lastAudioVisitorId = headers == null ? "" : String.valueOf(headers.get("X-Goog-Visitor-Id"));
-            if ("visitor-1".equals(lastAudioVisitorId)) {
+            lastAudioVisitorId = headers == null || headers.get("X-Goog-Visitor-Id") == null ? ""
+                : String.valueOf(headers.get("X-Goog-Visitor-Id"));
+            if ("visitor-1".equals(lastPlayerVisitorId)) {
                 throw new YouTubeMediaModels.HttpStatusException(403);
             }
             return new YouTubeMediaModels.HttpResponse(

@@ -201,7 +201,7 @@ public final class YouTubeStreamResolver {
                     response.getContentLength(),
                     MAX_PLAYER_BYTES,
                     "InnerTube player response"));
-            return select(root, resolveTransformPlans(root), visitorData);
+            return select(root, resolveTransformPlans(root), visitorData, client.userAgent);
         }
     }
 
@@ -275,7 +275,7 @@ public final class YouTubeStreamResolver {
     }
 
     private List<YouTubeMediaModels.ResolvedAudioStream> select(JsonObject root, TransformPlans transformPlans,
-        String visitorData) throws IOException {
+        String visitorData, String userAgent) throws IOException {
         JsonObject streaming = object(root, "streamingData");
         JsonArray formats = streaming == null ? null : streaming.getAsJsonArray("adaptiveFormats");
         if (formats == null || formats.size() == 0)
@@ -308,7 +308,8 @@ public final class YouTubeStreamResolver {
                     candidate.format,
                     candidate.bitrate,
                     candidate.expiresAtMillis,
-                    visitorData));
+                    visitorData,
+                    userAgent));
         }
         if (resolved.isEmpty()) throw new MediaException("YouTube stream URLs have expired");
         return Collections.unmodifiableList(resolved);
