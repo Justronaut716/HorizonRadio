@@ -34,6 +34,24 @@ public class YouTubeMediaModelsTest {
     }
 
     @Test
+    public void prefersIpv6WhenNoStackPreferenceWasConfigured() {
+        String previousPreferIpv4Stack = System.getProperty("java.net.preferIPv4Stack");
+        String previousPreferIpv6Addresses = System.getProperty("java.net.preferIPv6Addresses");
+        try {
+            System.clearProperty("java.net.preferIPv4Stack");
+            System.clearProperty("java.net.preferIPv6Addresses");
+
+            YouTubeMediaModels.preferIpv6ForClientMedia();
+
+            assertEquals("false", System.getProperty("java.net.preferIPv4Stack"));
+            assertEquals("true", System.getProperty("java.net.preferIPv6Addresses"));
+        } finally {
+            restoreSystemProperty("java.net.preferIPv4Stack", previousPreferIpv4Stack);
+            restoreSystemProperty("java.net.preferIPv6Addresses", previousPreferIpv6Addresses);
+        }
+    }
+
+    @Test
     public void acceptsUnknownLengthInnerTubeResponsesWhenTheBodyStaysWithinTheLimit() throws Exception {
         URL source = new URL("https://www.youtube.com/youtubei/v1/player");
         UnknownLengthConnection connection = new UnknownLengthConnection(source, new byte[] { '{', '}' });

@@ -2,23 +2,74 @@ package com.horizonradio.server;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.net.URL;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.AbstractExecutorService;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.Test;
 
+import com.horizonradio.server.media.MediaException;
 import com.horizonradio.server.media.YouTubeMediaModels;
+import com.horizonradio.server.media.YouTubeMetadataResolver;
 
 public class AudioDownloadServiceTest {
+
+    @Test
+    public void metadataUsesDiscoveryExecutorWhenDownloadExecutorRejectsWork() throws Exception {
+        Path directory = Files.createTempDirectory("horizonradio-service-metadata-executor");
+        AudioDownloadService service = new AudioDownloadService(
+            directory,
+            new FailingBackend(),
+            errorMetadataResolver(),
+            new DirectExecutor(),
+            new RejectingExecutor());
+        try {
+            assertNull(
+                service.extractVideoJson("https://youtu.be/dQw4w9WgXcQ")
+                    .get(2, TimeUnit.SECONDS));
+        } finally {
+            service.shutdown();
+            deleteDirectory(directory);
+        }
+    }
+
+    @Test
+    public void rejectedDownloadSubmissionFailsAndDoesNotRemainActive() throws Exception {
+        Path directory = Files.createTempDirectory("horizonradio-service-rejected-download");
+        AudioDownloadService service = new AudioDownloadService(
+            directory,
+            new FailingBackend(),
+            new DirectExecutor(),
+            new RejectingExecutor());
+        try {
+            java.util.concurrent.CompletableFuture<Path> first = service.download("dQw4w9WgXcQ");
+            java.util.concurrent.CompletableFuture<Path> second = service.download("dQw4w9WgXcQ");
+
+            assertRejectedForQueueFull(first);
+            assertRejectedForQueueFull(second);
+            assertNotSame("a rejected operation must be removed from active downloads", first, second);
+        } finally {
+            service.shutdown();
+            deleteDirectory(directory);
+        }
+    }
 
     @Test
     public void cleansUpAllCachedTracksWhenTheServiceStarts() throws Exception {
@@ -29,7 +80,11 @@ public class AudioDownloadServiceTest {
         Files.write(first, new byte[60]);
         Files.write(second, new byte[60]);
         Files.write(partial, new byte[200]);
-        AudioDownloadService service = new AudioDownloadService(directory, new FailingBackend());
+        AudioDownloadService service = new AudioDownloadService(
+            directory,
+            new FailingBackend(),
+            new DirectExecutor(),
+            new DirectExecutor());
         try {
             // The constructor clears the session-scoped cache, covering clients whose previous
             // run was killed and left files behind.
@@ -45,7 +100,11 @@ public class AudioDownloadServiceTest {
     @Test
     public void deletesEveryCachedFileWhenCleaningUpTheCache() throws Exception {
         Path directory = Files.createTempDirectory("horizonradio-service-cleanup");
-        AudioDownloadService service = new AudioDownloadService(directory, new FailingBackend());
+        AudioDownloadService service = new AudioDownloadService(
+            directory,
+            new FailingBackend(),
+            new DirectExecutor(),
+            new DirectExecutor());
         try {
             Path first = directory.resolve("a234567890_.wav");
             Path second = directory.resolve("b234567890_.wav");
@@ -70,7 +129,11 @@ public class AudioDownloadServiceTest {
     public void keepsCachedTracksAvailableForReplayWithinTheSession() throws Exception {
         Path directory = Files.createTempDirectory("horizonradio-service-replay");
         FailingBackend backend = new FailingBackend();
-        AudioDownloadService service = new AudioDownloadService(directory, backend);
+        AudioDownloadService service = new AudioDownloadService(
+            directory,
+            backend,
+            new DirectExecutor(),
+            new DirectExecutor());
         try {
             Path cached = directory.resolve("dQw4w9WgXcQ.wav");
             writeCanonicalWave(cached);
@@ -89,7 +152,11 @@ public class AudioDownloadServiceTest {
     @Test
     public void keepsOnlyTheListedTracksAndLeavesInFlightParts() throws Exception {
         Path directory = Files.createTempDirectory("horizonradio-service-keep");
-        AudioDownloadService service = new AudioDownloadService(directory, new FailingBackend());
+        AudioDownloadService service = new AudioDownloadService(
+            directory,
+            new FailingBackend(),
+            new DirectExecutor(),
+            new DirectExecutor());
         try {
             Path keep = directory.resolve("a234567890_.wav");
             Path prune = directory.resolve("b234567890_.wav");
@@ -116,7 +183,11 @@ public class AudioDownloadServiceTest {
     @Test
     public void emptyKeepSetDeletesEveryCachedTrack() throws Exception {
         Path directory = Files.createTempDirectory("horizonradio-service-empty-keep");
-        AudioDownloadService service = new AudioDownloadService(directory, new FailingBackend());
+        AudioDownloadService service = new AudioDownloadService(
+            directory,
+            new FailingBackend(),
+            new DirectExecutor(),
+            new DirectExecutor());
         try {
             Path first = directory.resolve("a234567890_.wav");
             Path second = directory.resolve("b234567890_.wav");
@@ -137,7 +208,11 @@ public class AudioDownloadServiceTest {
     public void retriesAfterTheRateLimitBackoffWindow() throws Exception {
         Path directory = Files.createTempDirectory("horizonradio-service-rate-retry");
         RateLimitedBackend backend = new RateLimitedBackend(2, 150L);
-        AudioDownloadService service = new AudioDownloadService(directory, backend);
+        AudioDownloadService service = new AudioDownloadService(
+            directory,
+            backend,
+            new DirectExecutor(),
+            new DirectExecutor());
         try {
             Path result = service.download("dQw4w9WgXcQ")
                 .get(15, TimeUnit.SECONDS);
@@ -154,7 +229,11 @@ public class AudioDownloadServiceTest {
     public void givesUpAfterTheMaximumRateLimitRetries() throws Exception {
         Path directory = Files.createTempDirectory("horizonradio-service-rate-giveup");
         RateLimitedBackend backend = new RateLimitedBackend(Integer.MAX_VALUE, 50L);
-        AudioDownloadService service = new AudioDownloadService(directory, backend);
+        AudioDownloadService service = new AudioDownloadService(
+            directory,
+            backend,
+            new DirectExecutor(),
+            new DirectExecutor());
         try {
             assertNull(
                 service.download("dQw4w9WgXcQ")
@@ -215,6 +294,122 @@ public class AudioDownloadServiceTest {
         @Override
         public boolean isReady() {
             return true;
+        }
+    }
+
+    private static void assertRejectedForQueueFull(java.util.concurrent.CompletableFuture<Path> future)
+        throws Exception {
+        try {
+            future.get();
+            fail("expected the rejected download to fail");
+        } catch (ExecutionException exception) {
+            assertTrue(exception.getCause() instanceof MediaException);
+            assertEquals(
+                "media queue is full",
+                exception.getCause()
+                    .getMessage());
+            assertTrue(
+                exception.getCause()
+                    .getCause() instanceof RejectedExecutionException);
+        }
+    }
+
+    private static YouTubeMetadataResolver errorMetadataResolver() {
+        return new YouTubeMetadataResolver(new YouTubeMediaModels.HttpRequester() {
+
+            @Override
+            public YouTubeMediaModels.HttpResponse post(URL url, Map<String, String> headers, byte[] body,
+                int timeoutMillis, long maximumBytes) {
+                byte[] response = "{\"playabilityStatus\":{\"status\":\"ERROR\"}}"
+                    .getBytes(java.nio.charset.StandardCharsets.UTF_8);
+                return new YouTubeMediaModels.HttpResponse(
+                    url,
+                    200,
+                    "application/json",
+                    response.length,
+                    new ByteArrayInputStream(response));
+            }
+
+            @Override
+            public YouTubeMediaModels.HttpResponse get(URL url, Map<String, String> headers, int timeoutMillis,
+                long maximumBytes) {
+                throw new AssertionError("metadata must not perform GET requests");
+            }
+        });
+    }
+
+    private static final class RejectingExecutor extends AbstractExecutorService {
+
+        private boolean shutdown;
+
+        @Override
+        public void shutdown() {
+            shutdown = true;
+        }
+
+        @Override
+        public List<Runnable> shutdownNow() {
+            shutdown = true;
+            return Collections.emptyList();
+        }
+
+        @Override
+        public boolean isShutdown() {
+            return shutdown;
+        }
+
+        @Override
+        public boolean isTerminated() {
+            return shutdown;
+        }
+
+        @Override
+        public boolean awaitTermination(long timeout, TimeUnit unit) {
+            return shutdown;
+        }
+
+        @Override
+        public void execute(Runnable task) {
+            throw new RejectedExecutionException("test executor is saturated");
+        }
+    }
+
+    private static final class DirectExecutor extends AbstractExecutorService {
+
+        private boolean shutdown;
+
+        @Override
+        public void shutdown() {
+            shutdown = true;
+        }
+
+        @Override
+        public List<Runnable> shutdownNow() {
+            shutdown = true;
+            return Collections.emptyList();
+        }
+
+        @Override
+        public boolean isShutdown() {
+            return shutdown;
+        }
+
+        @Override
+        public boolean isTerminated() {
+            return shutdown;
+        }
+
+        @Override
+        public boolean awaitTermination(long timeout, TimeUnit unit) {
+            return shutdown;
+        }
+
+        @Override
+        public void execute(Runnable task) {
+            if (shutdown) {
+                throw new RejectedExecutionException("executor is shut down");
+            }
+            task.run();
         }
     }
 

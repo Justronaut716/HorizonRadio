@@ -26,6 +26,7 @@ import com.google.gson.JsonParseException;
 public final class HorizonRadioClientConfig {
 
     public static final float DEFAULT_VOLUME = 1.0f;
+    public static final boolean DEFAULT_YOUTUBE_AUDIO_ENABLED = true;
     public static final String FILE_NAME = "horizonradio-client.json";
 
     private static final Logger LOGGER = Logger.getLogger(HorizonRadioClientConfig.class.getName());
@@ -35,19 +36,26 @@ public final class HorizonRadioClientConfig {
     private final float volume;
     private final ClientFavorites favorites;
     private final PlaybackMode playbackMode;
+    private final boolean youtubeAudioEnabled;
 
     private HorizonRadioClientConfig(File configFile, float volume, ClientFavorites favorites,
-        PlaybackMode playbackMode) {
+        PlaybackMode playbackMode, boolean youtubeAudioEnabled) {
         this.configFile = configFile;
         this.volume = volume;
         this.favorites = favorites == null ? new ClientFavorites() : favorites;
         this.playbackMode = playbackMode == null ? PlaybackMode.SERVER : playbackMode;
+        this.youtubeAudioEnabled = youtubeAudioEnabled;
     }
 
     public static HorizonRadioClientConfig load(File configDirectory) {
         File configFile = configDirectory == null ? null : new File(configDirectory, FILE_NAME);
         if (configFile == null || !configFile.isFile()) {
-            return new HorizonRadioClientConfig(configFile, DEFAULT_VOLUME, new ClientFavorites(), PlaybackMode.SERVER);
+            return new HorizonRadioClientConfig(
+                configFile,
+                DEFAULT_VOLUME,
+                new ClientFavorites(),
+                PlaybackMode.SERVER,
+                DEFAULT_YOUTUBE_AUDIO_ENABLED);
         }
 
         try (Reader reader = new BufferedReader(
@@ -58,7 +66,8 @@ public final class HorizonRadioClientConfig {
                     configFile,
                     readVolume(object),
                     readFavorites(object),
-                    readPlaybackMode(object));
+                    readPlaybackMode(object),
+                    readYoutubeAudioEnabled(object));
             }
         } catch (IOException exception) {
             LOGGER.log(Level.WARNING, "Could not load HorizonRadio client configuration", exception);
@@ -68,7 +77,12 @@ public final class HorizonRadioClientConfig {
             LOGGER.log(Level.WARNING, "Could not read HorizonRadio client configuration", exception);
         }
 
-        return new HorizonRadioClientConfig(configFile, DEFAULT_VOLUME, new ClientFavorites(), PlaybackMode.SERVER);
+        return new HorizonRadioClientConfig(
+            configFile,
+            DEFAULT_VOLUME,
+            new ClientFavorites(),
+            PlaybackMode.SERVER,
+            DEFAULT_YOUTUBE_AUDIO_ENABLED);
     }
 
     public float getVolume() {
@@ -83,15 +97,23 @@ public final class HorizonRadioClientConfig {
         return playbackMode;
     }
 
+    public boolean isYoutubeAudioEnabled() {
+        return youtubeAudioEnabled;
+    }
+
     public void save(float value) {
-        save(value, favorites, playbackMode);
+        save(value, favorites, playbackMode, youtubeAudioEnabled);
     }
 
     public void save(float value, ClientFavorites favoriteState) {
-        save(value, favoriteState, playbackMode);
+        save(value, favoriteState, playbackMode, youtubeAudioEnabled);
     }
 
     public void save(float value, ClientFavorites favoriteState, PlaybackMode mode) {
+        save(value, favoriteState, mode, youtubeAudioEnabled);
+    }
+
+    public void save(float value, ClientFavorites favoriteState, PlaybackMode mode, boolean youtubeAudioEnabled) {
         if (configFile == null) {
             return;
         }
@@ -110,6 +132,7 @@ public final class HorizonRadioClientConfig {
         object.add("favoriteRadios", radioArray(safeFavorites));
         PlaybackMode safeMode = mode == null || mode == PlaybackMode.GROUP ? PlaybackMode.SERVER : mode;
         object.addProperty("playbackMode", safeMode.getPersistedName());
+        object.addProperty("youtubeAudioEnabled", youtubeAudioEnabled);
         try (Writer writer = new OutputStreamWriter(new FileOutputStream(temporaryFile), StandardCharsets.UTF_8)) {
             GSON.toJson(object, writer);
         } catch (IOException exception) {
@@ -131,6 +154,18 @@ public final class HorizonRadioClientConfig {
         } catch (IOException exception) {
             LOGGER.log(Level.WARNING, "Could not replace HorizonRadio client configuration", exception);
             temporaryFile.delete();
+        }
+    }
+
+    private static boolean readYoutubeAudioEnabled(JsonObject object) {
+        JsonElement value = object.get("youtubeAudioEnabled");
+        if (value == null || value.isJsonNull() || !value.isJsonPrimitive()) {
+            return DEFAULT_YOUTUBE_AUDIO_ENABLED;
+        }
+        try {
+            return value.getAsBoolean();
+        } catch (RuntimeException exception) {
+            return DEFAULT_YOUTUBE_AUDIO_ENABLED;
         }
     }
 

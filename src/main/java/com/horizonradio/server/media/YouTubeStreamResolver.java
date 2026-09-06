@@ -30,17 +30,16 @@ import com.google.gson.JsonObject;
 /** Resolves one bounded, supported YouTube adaptive audio stream without downloading it. */
 public final class YouTubeStreamResolver {
 
-    private static final String CLIENT_USER_AGENT = "com.google.android.apps.youtube.vr.oculus/1.65.10 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip";
-    private static final ClientProfile ANDROID_VR_CLIENT = new ClientProfile(
-        "ANDROID_VR",
-        "1.65.10",
-        "28",
-        CLIENT_USER_AGENT,
-        "Oculus",
-        "Quest 3",
-        32,
-        "Android",
-        "12L");
+    private static final ClientProfile VISIONOS_CLIENT = new ClientProfile(
+        "VISIONOS",
+        "1.02",
+        "101",
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 15_7_3) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15",
+        "Apple",
+        "RealityDevice17,1",
+        0,
+        "visionOS",
+        "26.5.23O471");
     private static final ClientProfile IOS_CLIENT = new ClientProfile(
         "IOS",
         "20.10.4",
@@ -131,13 +130,13 @@ public final class YouTubeStreamResolver {
                     + "; stream requests will continue without a visitor id",
                 exception);
         }
-        IOException androidFailure;
+        IOException visionOsFailure;
         try {
             final String resolvedVisitorData = visitorData;
             final List<YouTubeMediaModels.ResolvedAudioStream> primary = resolveAudioWithClient(
                 safeVideoId,
                 resolvedVisitorData,
-                ANDROID_VR_CLIENT);
+                VISIONOS_CLIENT);
             return new ResolvedAudioCandidates(primary, new AlternativeResolver() {
 
                 @Override
@@ -146,12 +145,12 @@ public final class YouTubeStreamResolver {
                 }
             });
         } catch (ClientUnavailableException exception) {
-            androidFailure = exception;
+            visionOsFailure = exception;
         }
         try {
             return new ResolvedAudioCandidates(resolveAudioWithClient(safeVideoId, visitorData, IOS_CLIENT), null);
         } catch (IOException fallbackFailure) {
-            fallbackFailure.addSuppressed(androidFailure);
+            fallbackFailure.addSuppressed(visionOsFailure);
             if (visitorFailure != null) fallbackFailure.addSuppressed(visitorFailure);
             throw fallbackFailure;
         }
@@ -202,7 +201,7 @@ public final class YouTubeStreamResolver {
                     response.getContentLength(),
                     MAX_PLAYER_BYTES,
                     "InnerTube player response"));
-            return select(root, resolveTransformPlans(root), visitorData);
+            return select(root, resolveTransformPlans(root), visitorData, client.userAgent);
         }
     }
 
@@ -276,7 +275,7 @@ public final class YouTubeStreamResolver {
     }
 
     private List<YouTubeMediaModels.ResolvedAudioStream> select(JsonObject root, TransformPlans transformPlans,
-        String visitorData) throws IOException {
+        String visitorData, String userAgent) throws IOException {
         JsonObject streaming = object(root, "streamingData");
         JsonArray formats = streaming == null ? null : streaming.getAsJsonArray("adaptiveFormats");
         if (formats == null || formats.size() == 0)
@@ -309,7 +308,8 @@ public final class YouTubeStreamResolver {
                     candidate.format,
                     candidate.bitrate,
                     candidate.expiresAtMillis,
-                    visitorData));
+                    visitorData,
+                    userAgent));
         }
         if (resolved.isEmpty()) throw new MediaException("YouTube stream URLs have expired");
         return Collections.unmodifiableList(resolved);

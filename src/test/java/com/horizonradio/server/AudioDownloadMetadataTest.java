@@ -22,6 +22,7 @@ import com.horizonradio.client.media.ClientMediaService;
 import com.horizonradio.client.media.ClientMetadataCache;
 import com.horizonradio.server.media.YouTubeMediaModels;
 import com.horizonradio.server.media.YouTubeMetadataResolver;
+import com.horizonradio.test.DirectExecutorService;
 
 public class AudioDownloadMetadataTest {
 
@@ -33,7 +34,9 @@ public class AudioDownloadMetadataTest {
         AudioDownloadService service = new AudioDownloadService(
             directory,
             new NoopBackend(),
-            new YouTubeMetadataResolver(http));
+            new YouTubeMetadataResolver(http),
+            new DirectExecutorService(),
+            new DirectExecutorService());
         try {
             String result = service.extractVideoJson("https://youtu.be/dQw4w9WgXcQ")
                 .get(2, TimeUnit.SECONDS);
@@ -57,10 +60,15 @@ public class AudioDownloadMetadataTest {
         AudioDownloadService service = new AudioDownloadService(
             directory,
             new NoopBackend(),
-            new YouTubeMetadataResolver(new FixtureHttp("{\"playabilityStatus\":{\"status\":\"ERROR\"}}")));
+            new YouTubeMetadataResolver(new FixtureHttp("{\"playabilityStatus\":{\"status\":\"ERROR\"}}")),
+            new DirectExecutorService(),
+            new DirectExecutorService());
         try {
             ClientMetadataCache cache = new ClientMetadataCache(
-                new ClientMediaService(new YouTubeService(), service, new RadioBrowserService()));
+                new ClientMediaService(
+                    new YouTubeService(new DirectExecutorService()),
+                    service,
+                    new RadioBrowserService(new DirectExecutorService())));
             try {
                 cache.video("dQw4w9WgXcQ")
                     .get(2, TimeUnit.SECONDS);

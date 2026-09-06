@@ -14,12 +14,40 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
 import org.junit.Test;
 
 public class JavaAudioDownloadBackendTest {
+
+    @Test
+    public void sendsTheResolverClientIdentityWithTheMediaRequest() throws Exception {
+        FakeHttp http = new FakeHttp(wave(new byte[] { 1, 0, 2, 0, 3, 0, 4, 0 }));
+        JavaAudioDownloadBackend backend = new JavaAudioDownloadBackend(
+            new YouTubeStreamResolver(http, new AudioDecoderRegistry(), () -> 1000000L),
+            http,
+            new AudioDecoderRegistry(),
+            1024L);
+        Path directory = Files.createTempDirectory("horizonradio-download-headers");
+        Path destination = directory.resolve("dQw4w9WgXcQ.wav");
+        try {
+            backend.download("dQw4w9WgXcQ", destination, () -> false);
+            assertEquals(
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 15_7_3) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15",
+                http.lastAudioHeaders.get("User-Agent"));
+            assertEquals(null, http.lastAudioHeaders.get("X-Goog-Visitor-Id"));
+        } finally {
+            Files.deleteIfExists(destination);
+            Files.deleteIfExists(directory);
+        }
+    }
 
     @Test
     public void resolvesFreshFixtureAudioAndAtomicallyPublishesNormalizedWave() throws Exception {
@@ -94,6 +122,31 @@ public class JavaAudioDownloadBackendTest {
     }
 
     @Test
+    public void switchesToAlternativeProfileAfterForbiddenPrimaryCandidateWithoutRefreshingStaleUrls()
+        throws Exception {
+        ForbiddenPrimaryHttp http = new ForbiddenPrimaryHttp();
+        JavaAudioDownloadBackend backend = new JavaAudioDownloadBackend(
+            new YouTubeStreamResolver(http, new AudioDecoderRegistry(), () -> 1000000L),
+            http,
+            new AudioDecoderRegistry(),
+            1024L);
+        Path directory = Files.createTempDirectory("horizonradio-download-403-profile-fallback");
+        Path destination = directory.resolve("dQw4w9WgXcQ.wav");
+        try {
+            assertEquals(destination, backend.download("dQw4w9WgXcQ", destination, () -> false));
+            assertEquals(
+                "a forbidden primary URL must not trigger a stale-primary request storm",
+                2,
+                http.audioRequests);
+            assertEquals("the alternative profile is resolved exactly once", 2, http.playerRequests);
+            assertEquals(52L, Files.size(destination));
+        } finally {
+            Files.deleteIfExists(destination);
+            Files.deleteIfExists(directory);
+        }
+    }
+
+    @Test
     public void reportsFiniteCandidateFailureWithoutPublishingPartialOutput() throws Exception {
         CandidateFallbackHttp http = new CandidateFallbackHttp(
             playerResponse(
@@ -124,15 +177,15 @@ public class JavaAudioDownloadBackendTest {
     }
 
     @Test
-    public void defaultDownloadBudgetCoversConfiguredSevenMinuteTracks() throws Exception {
+    public void defaultDownloadBudgetCoversConfiguredLongTracks() throws Exception {
         JavaAudioDownloadBackend backend = new JavaAudioDownloadBackend();
         java.lang.reflect.Field budget = JavaAudioDownloadBackend.class.getDeclaredField("maximumBytes");
         budget.setAccessible(true);
 
-        long normalizedSevenMinuteWaveBytes = 44L + 176400L * 7L * 60L;
+        long normalizedLongWaveBytes = 44L + 176400L * 22L * 60L;
         assertTrue(
-            "default media budget is too small for a seven-minute normalized track",
-            budget.getLong(backend) >= normalizedSevenMinuteWaveBytes);
+            "default media budget is too small for a long normalized track",
+            budget.getLong(backend) >= normalizedLongWaveBytes);
     }
 
     @Test
@@ -148,7 +201,7 @@ public class JavaAudioDownloadBackendTest {
         try {
             assertEquals(destination, backend.download("dQw4w9WgXcQ", destination, () -> false));
             assertEquals(2, http.audioRequests);
-            assertEquals(1, http.rangedAudioRequests);
+            assertEquals(2, http.rangedAudioRequests);
         } finally {
             Files.deleteIfExists(destination);
             Files.deleteIfExists(directory);
@@ -192,7 +245,8 @@ public class JavaAudioDownloadBackendTest {
             now.addAndGet(60000L);
             assertEquals(destination, backend.download("dQw4w9WgXcQ", destination, () -> false));
             assertEquals(2, http.watchRequests);
-            assertEquals("visitor-2", http.lastAudioVisitorId);
+            assertEquals("visitor-2", http.lastPlayerVisitorId);
+            assertEquals("", http.lastAudioVisitorId);
         } finally {
             Files.deleteIfExists(destination);
             Files.deleteIfExists(directory);
@@ -219,7 +273,7 @@ public class JavaAudioDownloadBackendTest {
             } catch (MediaException expected) {
                 // Every candidate was rejected with a 403.
             }
-            assertTrue(http.audioRequests > 0);
+            assertEquals("one candidate per profile is enough to open the cooldown", 2, http.audioRequests);
             assertRateLimitedFastFailure(backend, destination, http);
 
             // After the base backoff elapses, a retry is allowed and fails again, doubling the backoff.
@@ -260,6 +314,76 @@ public class JavaAudioDownloadBackendTest {
         }
     }
 
+    @Test
+    public void capsTheRateLimitBackoffAtThirtyMinutesAfterRepeatedForbiddenFailures() throws Exception {
+        RateLimitHttp http = new RateLimitHttp();
+        AtomicLong now = new AtomicLong(1000000L);
+        JavaAudioDownloadBackend backend = new JavaAudioDownloadBackend(
+            new YouTubeStreamResolver(http, new AudioDecoderRegistry(), () -> 1000000L),
+            http,
+            new AudioDecoderRegistry(),
+            1024L,
+            now::get);
+        Path directory = Files.createTempDirectory("horizonradio-download-backoff-cap");
+        Path destination = directory.resolve("dQw4w9WgXcQ.wav");
+        long[] expectedBackoffs = { 60000L, 120000L, 240000L, 480000L, 960000L, 1800000L };
+        try {
+            for (long expectedBackoff : expectedBackoffs) {
+                try {
+                    backend.download("dQw4w9WgXcQ", destination, () -> false);
+                    fail("forbidden media should fail the download");
+                } catch (MediaException expected) {
+                    // Every candidate was rejected with a 403 and extended the cooldown.
+                }
+                assertEquals(
+                    "backoff did not escalate as expected",
+                    now.get() + expectedBackoff,
+                    backend.nextRateLimitRetryAtMillis());
+                // Let the current backoff elapse so the next call is a fresh counted failure, not a
+                // rate-limit fast failure.
+                now.set(backend.nextRateLimitRetryAtMillis());
+            }
+        } finally {
+            Files.deleteIfExists(destination);
+            Files.deleteIfExists(directory);
+        }
+    }
+
+    @Test
+    public void serializesConcurrentDownloadsToAvoidAYouTubeRequestBurst() throws Exception {
+        BlockingHttp http = new BlockingHttp();
+        JavaAudioDownloadBackend backend = new JavaAudioDownloadBackend(
+            new YouTubeStreamResolver(http, new AudioDecoderRegistry(), () -> 1000000L),
+            http,
+            new AudioDecoderRegistry(),
+            1024L);
+        Path directory = Files.createTempDirectory("horizonradio-download-serialized");
+        Path firstDestination = directory.resolve("dQw4w9WgXcQ.wav");
+        Path secondDestination = directory.resolve("a234567890_.wav");
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<Path> first = executor.submit(() -> backend.download("dQw4w9WgXcQ", firstDestination, () -> false));
+            assertTrue(http.firstAudioEntered.await(1, TimeUnit.SECONDS));
+            Future<Path> second = executor
+                .submit(() -> backend.download("a234567890_", secondDestination, () -> false));
+
+            assertFalse(
+                "the second download must wait until the first has left the media gate",
+                http.secondAudioEntered.await(200, TimeUnit.MILLISECONDS));
+            http.releaseFirst.countDown();
+
+            assertEquals(firstDestination, first.get(2, TimeUnit.SECONDS));
+            assertEquals(secondDestination, second.get(2, TimeUnit.SECONDS));
+            assertEquals(1, http.maximumConcurrentAudio.get());
+        } finally {
+            http.releaseFirst.countDown();
+            executor.shutdownNow();
+            Files.deleteIfExists(firstDestination);
+            Files.deleteIfExists(secondDestination);
+            Files.deleteIfExists(directory);
+        }
+    }
+
     private static void assertRateLimitedFastFailure(JavaAudioDownloadBackend backend, Path destination,
         RateLimitHttp http) throws Exception {
         int requestsBefore = http.watchRequests + http.audioRequests;
@@ -275,7 +399,7 @@ public class JavaAudioDownloadBackendTest {
     }
 
     @Test
-    public void downloadsAudioThroughABoundedRangeRequest() throws Exception {
+    public void downloadsFreshAudioWithARangeRequest() throws Exception {
         byte[] audio = wave(new byte[] { 1, 0, 2, 0, 3, 0, 4, 0 });
         RangeFallbackHttp http = new RangeFallbackHttp(audio);
         JavaAudioDownloadBackend backend = new JavaAudioDownloadBackend(
@@ -289,7 +413,6 @@ public class JavaAudioDownloadBackendTest {
             assertEquals(destination, backend.download("dQw4w9WgXcQ", destination, () -> false));
             assertEquals(0, http.fullRequests);
             assertEquals(1, http.rangeRequests);
-            assertTrue(http.lastRange.startsWith("bytes=0-"));
             assertEquals(52, Files.size(destination));
         } finally {
             Files.deleteIfExists(destination);
@@ -298,16 +421,39 @@ public class JavaAudioDownloadBackendTest {
     }
 
     @Test
-    public void downloadsAudioAcrossMultipleRangesBeforePublishingTheWave() throws Exception {
-        byte[] pcm = new byte[8000000];
+    public void downloadsLargeAudioInRangeChunksBeforePublishingTheWave() throws Exception {
+        byte[] pcm = new byte[20000000];
         byte[] audio = wave(pcm);
         RangeFallbackHttp http = new RangeFallbackHttp(audio);
         JavaAudioDownloadBackend backend = new JavaAudioDownloadBackend(
             new YouTubeStreamResolver(http, new AudioDecoderRegistry(), () -> 1000000L),
             http,
             new AudioDecoderRegistry(),
-            16L * 1024L * 1024L);
+            32L * 1024L * 1024L);
         Path directory = Files.createTempDirectory("horizonradio-download-multi-range");
+        Path destination = directory.resolve("dQw4w9WgXcQ.wav");
+        try {
+            assertEquals(destination, backend.download("dQw4w9WgXcQ", destination, () -> false));
+            assertEquals(0, http.fullRequests);
+            assertEquals(2, http.rangeRequests);
+            assertEquals(audio.length, Files.size(destination));
+        } finally {
+            Files.deleteIfExists(destination);
+            Files.deleteIfExists(directory);
+        }
+    }
+
+    @Test
+    public void downloadsAWholeTrackInRangeChunks() throws Exception {
+        byte[] pcm = new byte[12000000];
+        byte[] audio = wave(pcm);
+        RangeFallbackHttp http = new RangeFallbackHttp(audio);
+        JavaAudioDownloadBackend backend = new JavaAudioDownloadBackend(
+            new YouTubeStreamResolver(http, new AudioDecoderRegistry(), () -> 1000000L),
+            http,
+            new AudioDecoderRegistry(),
+            32L * 1024L * 1024L);
+        Path directory = Files.createTempDirectory("horizonradio-download-single-range");
         Path destination = directory.resolve("dQw4w9WgXcQ.wav");
         try {
             assertEquals(destination, backend.download("dQw4w9WgXcQ", destination, () -> false));
@@ -409,6 +555,147 @@ public class JavaAudioDownloadBackendTest {
         }
     }
 
+    @Test
+    public void resumesPartialMediaAfter403AndPublishesNormalizedWave() throws Exception {
+        byte[] wav = wave(new byte[] { 1, 0, 2, 0, 3, 0, 4, 0 });
+        AtomicLong clock = new AtomicLong(1000000L);
+        ResumeAfter403Http http = new ResumeAfter403Http(wav);
+        JavaAudioDownloadBackend backend = new JavaAudioDownloadBackend(
+            new YouTubeStreamResolver(http, new AudioDecoderRegistry(), () -> clock.get()),
+            http,
+            new AudioDecoderRegistry(),
+            1024L,
+            () -> clock.get());
+        Path directory = Files.createTempDirectory("horizonradio-download-resume");
+        Path destination = directory.resolve("dQw4w9WgXcQ.wav");
+        try {
+            try {
+                backend.download("dQw4w9WgXcQ", destination, () -> false);
+                fail("Expected the mid-body 403 to fail the first attempt");
+            } catch (MediaException expected) {
+                // The verified prefix must survive on disk for the retry.
+            }
+            assertEquals(1, http.audioRequests);
+            assertTrue(backend.nextRateLimitRetryAtMillis() >= 1000000L + 60000L);
+            clock.set(backend.nextRateLimitRetryAtMillis());
+            assertEquals(destination, backend.download("dQw4w9WgXcQ", destination, () -> false));
+            assertTrue(Arrays.equals(wav, Files.readAllBytes(destination)));
+            assertEquals(2, http.audioRequests);
+            // The resumed slice must start exactly where the first attempt stopped.
+            assertEquals("bytes=21-1023", http.lastResumeRange);
+            assertEquals(0, countPartFiles(directory));
+        } finally {
+            Files.deleteIfExists(destination);
+            Files.deleteIfExists(directory);
+        }
+    }
+
+    @Test
+    public void preservesProgressWhenAResumedTransferIsRateLimitedAgain() throws Exception {
+        byte[] wav = wave(new byte[] { 1, 0, 2, 0, 3, 0, 4, 0 });
+        AtomicLong clock = new AtomicLong(1000000L);
+        ResumeAfter403Http http = new ResumeAfter403Http(wav, 2, 26);
+        JavaAudioDownloadBackend backend = new JavaAudioDownloadBackend(
+            new YouTubeStreamResolver(http, new AudioDecoderRegistry(), () -> clock.get()),
+            http,
+            new AudioDecoderRegistry(),
+            1024L,
+            () -> clock.get());
+        Path directory = Files.createTempDirectory("horizonradio-download-resume-twice");
+        Path destination = directory.resolve("dQw4w9WgXcQ.wav");
+        try {
+            for (int attempt = 0; attempt < 2; attempt++) {
+                try {
+                    backend.download("dQw4w9WgXcQ", destination, () -> false);
+                    fail("Expected the mid-body 403 to fail the attempt");
+                } catch (MediaException expected) {
+                    // The verified prefix must survive every rate-limited attempt.
+                }
+                clock.set(backend.nextRateLimitRetryAtMillis());
+            }
+            assertEquals(destination, backend.download("dQw4w9WgXcQ", destination, () -> false));
+            assertTrue(Arrays.equals(wav, Files.readAllBytes(destination)));
+            assertTrue(http.audioRequests >= 3);
+            assertEquals("bytes=26-1023", http.lastResumeRange);
+        } finally {
+            Files.deleteIfExists(destination);
+            Files.deleteIfExists(directory);
+        }
+    }
+
+    @Test
+    public void restartsFromZeroWhenTheServerRejectsTheResume() throws Exception {
+        byte[] wav = wave(new byte[] { 1, 0, 2, 0, 3, 0, 4, 0 });
+        AtomicLong clock = new AtomicLong(1000000L);
+        ResumeRejectedHttp http = new ResumeRejectedHttp(wav);
+        JavaAudioDownloadBackend backend = new JavaAudioDownloadBackend(
+            new YouTubeStreamResolver(http, new AudioDecoderRegistry(), () -> clock.get()),
+            http,
+            new AudioDecoderRegistry(),
+            1024L,
+            () -> clock.get());
+        Path directory = Files.createTempDirectory("horizonradio-download-resume-rejected");
+        Path destination = directory.resolve("dQw4w9WgXcQ.wav");
+        try {
+            try {
+                backend.download("dQw4w9WgXcQ", destination, () -> false);
+                fail("Expected the mid-body 403 to fail the first attempt");
+            } catch (MediaException expected) {
+                // The partial body is discarded once the server rejects the resumed range.
+            }
+            clock.set(backend.nextRateLimitRetryAtMillis());
+            assertEquals(destination, backend.download("dQw4w9WgXcQ", destination, () -> false));
+            assertTrue(Arrays.equals(wav, Files.readAllBytes(destination)));
+            assertEquals(4, http.audioRequests);
+            // The restart still uses the same bounded-range transfer strategy, starting from byte zero.
+            assertEquals("bytes=0-1023", http.lastRestartRange);
+            assertEquals(0, countPartFiles(directory));
+        } finally {
+            Files.deleteIfExists(destination);
+            Files.deleteIfExists(directory);
+        }
+    }
+
+    @Test
+    public void publishesViaAlternativeProfileAndCleansTheStalePartial() throws Exception {
+        byte[] wav = wave(new byte[] { 1, 0, 2, 0, 3, 0, 4, 0 });
+        AtomicLong clock = new AtomicLong(1000000L);
+        AlternativeProfileHttp http = new AlternativeProfileHttp(wav);
+        JavaAudioDownloadBackend backend = new JavaAudioDownloadBackend(
+            new YouTubeStreamResolver(http, new AudioDecoderRegistry(), () -> clock.get()),
+            http,
+            new AudioDecoderRegistry(),
+            1024L,
+            () -> clock.get());
+        Path directory = Files.createTempDirectory("horizonradio-download-resume-alternative");
+        Path destination = directory.resolve("dQw4w9WgXcQ.wav");
+        try {
+            assertEquals(destination, backend.download("dQw4w9WgXcQ", destination, () -> false));
+            assertTrue(Arrays.equals(wav, Files.readAllBytes(destination)));
+            assertEquals(
+                2,
+                http.audioRequests.get("https://r1.googlevideo.com/videoplayback?expire=2000000000")
+                    .intValue());
+            assertEquals(
+                1,
+                http.audioRequests.get("https://r2.googlevideo.com/videoplayback?expire=2000000000")
+                    .intValue());
+            // The stale partial from the forbidden profile must not survive the published cache entry.
+            assertEquals(0, countPartFiles(directory));
+        } finally {
+            Files.deleteIfExists(destination);
+            Files.deleteIfExists(directory);
+        }
+    }
+
+    private static int countPartFiles(Path directory) throws IOException {
+        int count = 0;
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(directory, "*.media.part")) {
+            for (Path ignored : stream) count++;
+        }
+        return count;
+    }
+
     private static void assertBodyRejected(byte[] body, long declaredLength) throws Exception {
         FakeHttp http = new FakeHttp(body, null, declaredLength);
         JavaAudioDownloadBackend backend = new JavaAudioDownloadBackend(
@@ -508,6 +795,7 @@ public class JavaAudioDownloadBackendTest {
         private boolean failFirstAudioRequest;
         private int audioRequests;
         private int rangedAudioRequests;
+        private Map<String, String> lastAudioHeaders;
 
         private FakeHttp(byte[] audio) {
             this(audio, null, audio.length);
@@ -558,12 +846,13 @@ public class JavaAudioDownloadBackendTest {
                     new ByteArrayInputStream(visitor));
             }
             audioRequests++;
+            lastAudioHeaders = headers == null ? null : new java.util.HashMap<String, String>(headers);
             if (headers != null && headers.get("Range") != null) {
                 rangedAudioRequests++;
             }
-            if (failFirstAudioRequest && headers != null && headers.get("Range") != null) {
+            if (failFirstAudioRequest) {
                 failFirstAudioRequest = false;
-                throw new MediaException("HTTP request failed with status 403");
+                throw new IOException("temporary media connection failure");
             }
             return new YouTubeMediaModels.HttpResponse(
                 audioResponseUrl == null ? url : audioResponseUrl,
@@ -627,16 +916,140 @@ public class JavaAudioDownloadBackendTest {
         }
     }
 
+    private static final class ForbiddenPrimaryHttp implements YouTubeMediaModels.HttpRequester {
+
+        private final byte[] audio = wave(new byte[] { 1, 0, 2, 0, 3, 0, 4, 0 });
+        private int playerRequests;
+        private int audioRequests;
+
+        @Override
+        public YouTubeMediaModels.HttpResponse post(URL url, Map<String, String> headers, byte[] body,
+            int timeoutMillis, long maximumBytes) {
+            playerRequests++;
+            boolean ios = new String(body, StandardCharsets.UTF_8).contains("\"clientName\":\"IOS\"");
+            String response = ios ? wavPlayerResponse("https://r2.googlevideo.com/fallback?expire=2000000000")
+                : playerResponse(
+                    "https://r1.googlevideo.com/blocked-one?expire=2000000000",
+                    "https://r1.googlevideo.com/blocked-two?expire=2000000000");
+            byte[] bytes = response.getBytes(StandardCharsets.UTF_8);
+            return new YouTubeMediaModels.HttpResponse(
+                url,
+                200,
+                "application/json",
+                bytes.length,
+                new ByteArrayInputStream(bytes));
+        }
+
+        @Override
+        public YouTubeMediaModels.HttpResponse get(URL url, Map<String, String> headers, int timeoutMillis,
+            long maximumBytes) throws IOException {
+            if ("/watch".equals(url.getPath())) {
+                byte[] visitor = "{\"VISITOR_DATA\":\"test-visitor\"}".getBytes(StandardCharsets.UTF_8);
+                return new YouTubeMediaModels.HttpResponse(
+                    url,
+                    200,
+                    "text/html",
+                    visitor.length,
+                    new ByteArrayInputStream(visitor));
+            }
+            audioRequests++;
+            if (url.getPath()
+                .contains("blocked")) {
+                throw new YouTubeMediaModels.HttpStatusException(403);
+            }
+            return new YouTubeMediaModels.HttpResponse(
+                url,
+                200,
+                "audio/wav",
+                audio.length,
+                new ByteArrayInputStream(audio));
+        }
+    }
+
+    private static final class BlockingHttp implements YouTubeMediaModels.HttpRequester {
+
+        private final byte[] audio = wave(new byte[] { 1, 0, 2, 0, 3, 0, 4, 0 });
+        private final CountDownLatch firstAudioEntered = new CountDownLatch(1);
+        private final CountDownLatch secondAudioEntered = new CountDownLatch(1);
+        private final CountDownLatch releaseFirst = new CountDownLatch(1);
+        private final AtomicInteger concurrentAudio = new AtomicInteger();
+        private final AtomicInteger maximumConcurrentAudio = new AtomicInteger();
+        private final AtomicInteger audioRequests = new AtomicInteger();
+
+        @Override
+        public YouTubeMediaModels.HttpResponse post(URL url, Map<String, String> headers, byte[] body,
+            int timeoutMillis, long maximumBytes) {
+            String json = wavPlayerResponse("https://r1.googlevideo.com/serialized?expire=2000000000");
+            byte[] response = json.getBytes(StandardCharsets.UTF_8);
+            return new YouTubeMediaModels.HttpResponse(
+                url,
+                200,
+                "application/json",
+                response.length,
+                new ByteArrayInputStream(response));
+        }
+
+        @Override
+        public YouTubeMediaModels.HttpResponse get(URL url, Map<String, String> headers, int timeoutMillis,
+            long maximumBytes) throws IOException {
+            if ("/watch".equals(url.getPath())) {
+                byte[] visitor = "{\"VISITOR_DATA\":\"test-visitor\"}".getBytes(StandardCharsets.UTF_8);
+                return new YouTubeMediaModels.HttpResponse(
+                    url,
+                    200,
+                    "text/html",
+                    visitor.length,
+                    new ByteArrayInputStream(visitor));
+            }
+            int request = audioRequests.incrementAndGet();
+            if (request == 1) {
+                firstAudioEntered.countDown();
+            } else {
+                secondAudioEntered.countDown();
+            }
+            int concurrent = concurrentAudio.incrementAndGet();
+            updateMaximum(concurrent);
+            try {
+                if (request == 1) {
+                    try {
+                        releaseFirst.await(2, TimeUnit.SECONDS);
+                    } catch (InterruptedException exception) {
+                        Thread.currentThread()
+                            .interrupt();
+                        throw new IOException("test media request interrupted", exception);
+                    }
+                }
+                return new YouTubeMediaModels.HttpResponse(
+                    url,
+                    200,
+                    "audio/wav",
+                    audio.length,
+                    new ByteArrayInputStream(audio));
+            } finally {
+                concurrentAudio.decrementAndGet();
+            }
+        }
+
+        private void updateMaximum(int candidate) {
+            while (true) {
+                int current = maximumConcurrentAudio.get();
+                if (candidate <= current || maximumConcurrentAudio.compareAndSet(current, candidate)) return;
+            }
+        }
+    }
+
     private static final class Visitor403Http implements YouTubeMediaModels.HttpRequester {
 
         private final byte[] audio = wave(new byte[] { 1, 0, 2, 0, 3, 0, 4, 0 });
         private int watchRequests;
         private int audioRequests;
+        private String lastPlayerVisitorId = "";
         private String lastAudioVisitorId = "";
 
         @Override
         public YouTubeMediaModels.HttpResponse post(URL url, Map<String, String> headers, byte[] body,
             int timeoutMillis, long maximumBytes) {
+            lastPlayerVisitorId = headers == null ? "" : String.valueOf(headers.get("X-Goog-Visitor-Id"));
             String json = "{\"streamingData\":{\"adaptiveFormats\":[{\"mimeType\":\"audio/wav; codecs=\\\"1\\\"\","
                 + "\"bitrate\":128000,\"url\":\"https://r1.googlevideo.com/videoplayback?expire=2000000000\"}]}}";
             byte[] response = json.getBytes(StandardCharsets.UTF_8);
@@ -663,9 +1076,10 @@ public class JavaAudioDownloadBackendTest {
                     new ByteArrayInputStream(visitor));
             }
             audioRequests++;
-            lastAudioVisitorId = headers == null ? "" : String.valueOf(headers.get("X-Goog-Visitor-Id"));
-            if ("visitor-1".equals(lastAudioVisitorId)) {
-                throw new MediaException("HTTP request failed with status 403");
+            lastAudioVisitorId = headers == null || headers.get("X-Goog-Visitor-Id") == null ? ""
+                : String.valueOf(headers.get("X-Goog-Visitor-Id"));
+            if ("visitor-1".equals(lastPlayerVisitorId)) {
+                throw new YouTubeMediaModels.HttpStatusException(403);
             }
             return new YouTubeMediaModels.HttpResponse(
                 url,
@@ -712,7 +1126,7 @@ public class JavaAudioDownloadBackendTest {
             }
             audioRequests++;
             if (failAudio) {
-                throw new MediaException("HTTP request failed with status 403");
+                throw new YouTubeMediaModels.HttpStatusException(403);
             }
             return new YouTubeMediaModels.HttpResponse(
                 url,
@@ -811,10 +1225,10 @@ public class JavaAudioDownloadBackendTest {
                 fullRequests++;
                 return new YouTubeMediaModels.HttpResponse(
                     url,
-                    403,
-                    "text/plain",
-                    0L,
-                    new ByteArrayInputStream(new byte[0]));
+                    200,
+                    "audio/wav",
+                    audio.length,
+                    new ByteArrayInputStream(audio));
             }
             rangeRequests++;
             lastRange = range;
@@ -830,6 +1244,33 @@ public class JavaAudioDownloadBackendTest {
                 response.length,
                 new ByteArrayInputStream(response),
                 "bytes " + start + "-" + end + "/" + audio.length);
+        }
+    }
+
+    private static final class FailAfterBytesInputStream extends java.io.InputStream {
+
+        private final byte[] bytes;
+        private final int failureOffset;
+        private int offset;
+
+        private FailAfterBytesInputStream(byte[] bytes, int failureOffset) {
+            this.bytes = bytes;
+            this.failureOffset = failureOffset;
+        }
+
+        @Override
+        public int read(byte[] target, int targetOffset, int length) throws IOException {
+            if (offset >= failureOffset) throw new YouTubeMediaModels.HttpStatusException(403);
+            int count = Math.min(length, failureOffset - offset);
+            System.arraycopy(bytes, offset, target, targetOffset, count);
+            offset += count;
+            return count;
+        }
+
+        @Override
+        public int read() throws IOException {
+            byte[] one = new byte[1];
+            return read(one, 0, 1) < 0 ? -1 : one[0] & 0xff;
         }
     }
 
@@ -890,5 +1331,269 @@ public class JavaAudioDownloadBackendTest {
 
     private static void leInt(byte[] bytes, int offset, int value) {
         for (int i = 0; i < 4; i++) bytes[offset + i] = (byte) (value >>> (i * 8));
+    }
+
+    private static String playerJson(String candidateUrl) {
+        StringBuilder json = new StringBuilder();
+        json.append("{")
+            .append("\"streamingData\":{\"adaptiveFormats\":[{");
+        json.append("\"mimeType\":\"audio/wav; codecs=\\\"1\\\"\",\"bitrate\":128000,");
+        json.append("\"url\":\"")
+            .append(candidateUrl)
+            .append("\"}]}}");
+        return json.toString();
+    }
+
+    private static final class ResumeAfter403Http implements YouTubeMediaModels.HttpRequester {
+
+        private static final String MEDIA_URL = "https://r1.googlevideo.com/videoplayback?expire=2000000000";
+
+        private final byte[] audio;
+        private final URL mediaUrl;
+        private final int failuresBeforeSuccess;
+        private final int requiredSuccessOffset;
+        private int audioRequests;
+        private String lastResumeRange;
+
+        ResumeAfter403Http(byte[] audio) throws java.net.MalformedURLException {
+            this(audio, 1, -1);
+        }
+
+        ResumeAfter403Http(byte[] audio, int failuresBeforeSuccess) throws java.net.MalformedURLException {
+            this(audio, failuresBeforeSuccess, -1);
+        }
+
+        ResumeAfter403Http(byte[] audio, int failuresBeforeSuccess, int requiredSuccessOffset)
+            throws java.net.MalformedURLException {
+            this.audio = audio;
+            this.mediaUrl = new URL(MEDIA_URL);
+            this.failuresBeforeSuccess = failuresBeforeSuccess;
+            this.requiredSuccessOffset = requiredSuccessOffset;
+        }
+
+        @Override
+        public YouTubeMediaModels.HttpResponse post(URL url, Map<String, String> headers, byte[] body,
+            int timeoutMillis, long maximumBytes) {
+            byte[] response = playerJson(MEDIA_URL).getBytes(StandardCharsets.UTF_8);
+            return new YouTubeMediaModels.HttpResponse(
+                url,
+                200,
+                "application/json",
+                response.length,
+                new ByteArrayInputStream(response));
+        }
+
+        @Override
+        public YouTubeMediaModels.HttpResponse get(URL url, Map<String, String> headers, int timeoutMillis,
+            long maximumBytes) throws IOException {
+            if (!url.toExternalForm()
+                .contains("videoplayback")) {
+                byte[] response = playerJson(MEDIA_URL).getBytes(StandardCharsets.UTF_8);
+                return new YouTubeMediaModels.HttpResponse(
+                    url,
+                    200,
+                    "application/json",
+                    response.length,
+                    new ByteArrayInputStream(response));
+            }
+            audioRequests++;
+            lastResumeRange = headers.get("Range");
+            int offset = rangeStart(headers);
+            if (audioRequests <= failuresBeforeSuccess) {
+                if (offset == 0) return interruptedFullResponse();
+                byte[] suffix = suffix(offset);
+                return new YouTubeMediaModels.HttpResponse(
+                    mediaUrl,
+                    206,
+                    "audio/wav",
+                    suffix.length,
+                    new FailAfterBytesInputStream(suffix, Math.min(5, suffix.length)),
+                    "bytes " + offset + "-" + (audio.length - 1) + "/" + audio.length);
+            }
+            if (requiredSuccessOffset >= 0 && offset != requiredSuccessOffset) {
+                throw new YouTubeMediaModels.HttpStatusException(403);
+            }
+            return ranged(offset, audio.length - offset);
+        }
+
+        private int rangeStart(Map<String, String> headers) {
+            String range = headers.get("Range");
+            if (range == null) return 0;
+            return Integer.parseInt(range.substring("bytes=".length(), range.indexOf('-')));
+        }
+
+        private byte[] suffix(int offset) {
+            byte[] suffix = new byte[audio.length - offset];
+            System.arraycopy(audio, offset, suffix, 0, suffix.length);
+            return suffix;
+        }
+
+        private YouTubeMediaModels.HttpResponse interruptedFullResponse() {
+            return new YouTubeMediaModels.HttpResponse(
+                mediaUrl,
+                200,
+                "audio/wav",
+                audio.length,
+                new FailAfterBytesInputStream(audio, 21));
+        }
+
+        private YouTubeMediaModels.HttpResponse ranged(int offset, int length) {
+            byte[] body = new byte[length];
+            System.arraycopy(audio, offset, body, 0, length);
+            return new YouTubeMediaModels.HttpResponse(
+                mediaUrl,
+                206,
+                "audio/wav",
+                body.length,
+                new ByteArrayInputStream(body),
+                "bytes " + offset + "-" + (offset + length - 1) + "/" + audio.length);
+        }
+    }
+
+    private static final class ResumeRejectedHttp implements YouTubeMediaModels.HttpRequester {
+
+        private static final String MEDIA_URL = "https://r1.googlevideo.com/videoplayback?expire=2000000000";
+
+        private final byte[] audio;
+        private final URL mediaUrl;
+        private int audioRequests;
+        private String lastRestartRange;
+
+        ResumeRejectedHttp(byte[] audio) throws java.net.MalformedURLException {
+            this.audio = audio;
+            this.mediaUrl = new URL(MEDIA_URL);
+        }
+
+        @Override
+        public YouTubeMediaModels.HttpResponse post(URL url, Map<String, String> headers, byte[] body,
+            int timeoutMillis, long maximumBytes) {
+            byte[] response = playerJson(MEDIA_URL).getBytes(StandardCharsets.UTF_8);
+            return new YouTubeMediaModels.HttpResponse(
+                url,
+                200,
+                "application/json",
+                response.length,
+                new ByteArrayInputStream(response));
+        }
+
+        @Override
+        public YouTubeMediaModels.HttpResponse get(URL url, Map<String, String> headers, int timeoutMillis,
+            long maximumBytes) throws IOException {
+            if (!url.toExternalForm()
+                .contains("videoplayback")) {
+                byte[] response = playerJson(MEDIA_URL).getBytes(StandardCharsets.UTF_8);
+                return new YouTubeMediaModels.HttpResponse(
+                    url,
+                    200,
+                    "application/json",
+                    response.length,
+                    new ByteArrayInputStream(response));
+            }
+            audioRequests++;
+            if (audioRequests == 1) {
+                return interruptedFullResponse();
+            }
+            if (audioRequests == 2 || audioRequests == 3) {
+                throw new YouTubeMediaModels.HttpStatusException(403);
+            }
+            lastRestartRange = headers.get("Range");
+            return fullResponse();
+        }
+
+        private YouTubeMediaModels.HttpResponse interruptedFullResponse() {
+            return new YouTubeMediaModels.HttpResponse(
+                mediaUrl,
+                200,
+                "audio/wav",
+                audio.length,
+                new FailAfterBytesInputStream(audio, 21));
+        }
+
+        private YouTubeMediaModels.HttpResponse fullResponse() {
+            return new YouTubeMediaModels.HttpResponse(
+                mediaUrl,
+                200,
+                "audio/wav",
+                audio.length,
+                new ByteArrayInputStream(audio));
+        }
+
+        private YouTubeMediaModels.HttpResponse ranged(String contentRange, int offset, int length) {
+            byte[] body = new byte[length];
+            System.arraycopy(audio, offset, body, 0, length);
+            return new YouTubeMediaModels.HttpResponse(
+                mediaUrl,
+                206,
+                "audio/wav",
+                body.length,
+                new ByteArrayInputStream(body),
+                contentRange);
+        }
+    }
+
+    private static final class AlternativeProfileHttp implements YouTubeMediaModels.HttpRequester {
+
+        private static final String PRIMARY_URL = "https://r1.googlevideo.com/videoplayback?expire=2000000000";
+        private static final String ALTERNATIVE_URL = "https://r2.googlevideo.com/videoplayback?expire=2000000000";
+
+        private final byte[] audio;
+        private final Map<String, Integer> audioRequests = new java.util.HashMap<String, Integer>();
+        private int postRequests;
+
+        AlternativeProfileHttp(byte[] audio) {
+            this.audio = audio;
+        }
+
+        @Override
+        public YouTubeMediaModels.HttpResponse post(URL url, Map<String, String> headers, byte[] body,
+            int timeoutMillis, long maximumBytes) {
+            postRequests++;
+            String candidateUrl = postRequests == 1 ? PRIMARY_URL : ALTERNATIVE_URL;
+            byte[] response = playerJson(candidateUrl).getBytes(StandardCharsets.UTF_8);
+            return new YouTubeMediaModels.HttpResponse(
+                url,
+                200,
+                "application/json",
+                response.length,
+                new ByteArrayInputStream(response));
+        }
+
+        @Override
+        public YouTubeMediaModels.HttpResponse get(URL url, Map<String, String> headers, int timeoutMillis,
+            long maximumBytes) throws IOException {
+            if (!url.toExternalForm()
+                .contains("videoplayback")) {
+                byte[] response = playerJson(PRIMARY_URL).getBytes(StandardCharsets.UTF_8);
+                return new YouTubeMediaModels.HttpResponse(
+                    url,
+                    200,
+                    "application/json",
+                    response.length,
+                    new ByteArrayInputStream(response));
+            }
+            String key = url.toExternalForm();
+            Integer count = audioRequests.get(key);
+            int requests = count == null ? 1 : count + 1;
+            audioRequests.put(key, requests);
+            if (PRIMARY_URL.equals(key)) {
+                if (requests == 1) {
+                    return ranged(url, "bytes 0-20/52", 0, 21);
+                }
+                throw new YouTubeMediaModels.HttpStatusException(403);
+            }
+            return ranged(url, "bytes 0-51/52", 0, audio.length);
+        }
+
+        private YouTubeMediaModels.HttpResponse ranged(URL url, String contentRange, int offset, int length) {
+            byte[] body = new byte[length];
+            System.arraycopy(audio, offset, body, 0, length);
+            return new YouTubeMediaModels.HttpResponse(
+                url,
+                206,
+                "audio/wav",
+                body.length,
+                new ByteArrayInputStream(body),
+                contentRange);
+        }
     }
 }

@@ -2,23 +2,23 @@ package com.horizonradio.server;
 
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertTrue;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.Enumeration;
 import java.util.Locale;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
-import org.junit.Assume;
 import org.junit.Test;
 
 public class StandalonePackagingTest {
 
     @Test
     public void packagedArtifactContainsJavaMediaRuntimeOnly() throws Exception {
-        String artifact = System.getProperty("horizonradio.test.artifact");
-        Assume.assumeTrue("artifact property is required for packaging verification", artifact != null);
-
-        try (ZipFile zip = new ZipFile(artifact)) {
+        try (ZipFile zip = new ZipFile(requiredArtifact().toFile())) {
             assertNotNull(zip.getEntry("META-INF/horizonradio-media-notices.txt"));
             assertNotNull(zip.getEntry("javazoom/jl/decoder/Decoder.class"));
             assertNotNull(zip.getEntry("net/sourceforge/jaad/aac/Decoder.class"));
@@ -36,6 +36,15 @@ public class StandalonePackagingTest {
                     isProhibitedRuntimeEntry(name));
             }
         }
+    }
+
+    private static Path requiredArtifact() {
+        String configured = System.getProperty("horizonradio.test.artifact", "")
+            .trim();
+        assertFalse("packaging test requires horizonradio.test.artifact", configured.isEmpty());
+        Path artifact = Paths.get(configured);
+        assertTrue("packaging artifact does not exist: " + artifact, Files.isRegularFile(artifact));
+        return artifact;
     }
 
     private static boolean isProhibitedRuntimeEntry(String name) {

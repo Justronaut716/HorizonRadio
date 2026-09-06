@@ -9,12 +9,14 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import org.junit.Test;
 
+import com.horizonradio.media.concurrent.MediaExecutors;
 import com.horizonradio.server.media.MediaException;
 import com.horizonradio.server.media.PcmSink;
 import com.horizonradio.server.media.YouTubeMediaModels;
@@ -25,7 +27,12 @@ public class AudioDownloadCommandTest {
     public void returnsAnExistingWavAsACacheHitWithoutCallingTheBackend() throws Exception {
         Path directory = Files.createTempDirectory("horizonradio-service-cache");
         RecordingBackend backend = new RecordingBackend();
-        AudioDownloadService service = new AudioDownloadService(directory, backend);
+        TestExecutors executors = new TestExecutors();
+        AudioDownloadService service = new AudioDownloadService(
+            directory,
+            backend,
+            executors.discovery,
+            executors.download);
         try {
             Path expected = directory.resolve("dQw4w9WgXcQ.wav");
             writeCanonicalWave(expected);
@@ -36,6 +43,7 @@ public class AudioDownloadCommandTest {
             assertEquals(0, backend.calls.get());
         } finally {
             service.shutdown();
+            executors.close();
             Files.deleteIfExists(directory.resolve("dQw4w9WgXcQ.wav"));
             Files.deleteIfExists(directory);
         }
@@ -46,7 +54,12 @@ public class AudioDownloadCommandTest {
         Path directory = Files.createTempDirectory("horizonradio-service-invalid-cache");
         RecordingBackend backend = new RecordingBackend();
         backend.release();
-        AudioDownloadService service = new AudioDownloadService(directory, backend);
+        TestExecutors executors = new TestExecutors();
+        AudioDownloadService service = new AudioDownloadService(
+            directory,
+            backend,
+            executors.discovery,
+            executors.download);
         String[] ids = { "dQw4w9WgXcQ", "a234567890_", "b234567890_" };
         try {
             Files.createFile(directory.resolve(ids[0] + ".wav"));
@@ -64,6 +77,7 @@ public class AudioDownloadCommandTest {
             }
         } finally {
             service.shutdown();
+            executors.close();
             for (String id : ids) Files.deleteIfExists(directory.resolve(id + ".wav"));
             Files.deleteIfExists(directory);
         }
@@ -73,7 +87,12 @@ public class AudioDownloadCommandTest {
     public void sharesOneInFlightDownloadAndCancellationRemovesIncompleteOutput() throws Exception {
         Path directory = Files.createTempDirectory("horizonradio-service-active");
         RecordingBackend backend = new RecordingBackend();
-        AudioDownloadService service = new AudioDownloadService(directory, backend);
+        TestExecutors executors = new TestExecutors();
+        AudioDownloadService service = new AudioDownloadService(
+            directory,
+            backend,
+            executors.discovery,
+            executors.download);
         try {
             CompletableFuture<Path> first = service.download("dQw4w9WgXcQ");
             CompletableFuture<Path> second = service.download("dQw4w9WgXcQ");
@@ -86,6 +105,7 @@ public class AudioDownloadCommandTest {
         } finally {
             backend.release();
             service.shutdown();
+            executors.close();
             Files.deleteIfExists(directory.resolve("dQw4w9WgXcQ.wav"));
             Files.deleteIfExists(directory);
         }
@@ -97,6 +117,7 @@ public class AudioDownloadCommandTest {
         RecordingBackend backend = new RecordingBackend();
         CountDownLatch cancellationEntered = new CountDownLatch(1);
         CountDownLatch releaseCancellation = new CountDownLatch(1);
+        TestExecutors executors = new TestExecutors();
         AudioDownloadService service = new AudioDownloadService(directory, backend, () -> {
             cancellationEntered.countDown();
             try {
@@ -105,7 +126,7 @@ public class AudioDownloadCommandTest {
                 Thread.currentThread()
                     .interrupt();
             }
-        });
+        }, executors.discovery, executors.download);
         AtomicReference<CompletableFuture<Path>> replacement = new AtomicReference<CompletableFuture<Path>>();
         Thread cancelling = new Thread(() -> service.cancelDownload("dQw4w9WgXcQ"), "cancel-old-generation");
         Thread replacing = new Thread(
@@ -134,6 +155,7 @@ public class AudioDownloadCommandTest {
             cancelling.join(1000L);
             replacing.join(1000L);
             service.shutdown();
+            executors.close();
             Files.deleteIfExists(directory.resolve("dQw4w9WgXcQ.wav"));
             Files.deleteIfExists(directory);
         }
@@ -144,6 +166,7 @@ public class AudioDownloadCommandTest {
         Path directory = Files.createTempDirectory("horizonradio-service-commit-race");
         CommitRaceBackend backend = new CommitRaceBackend();
         CountDownLatch cancellationEntered = new CountDownLatch(1);
+        TestExecutors executors = new TestExecutors();
         AudioDownloadService service = new AudioDownloadService(
             directory,
             backend,
@@ -156,7 +179,9 @@ public class AudioDownloadCommandTest {
                 public void beforeOperationCancellation() {
                     cancellationEntered.countDown();
                 }
-            });
+            },
+            executors.discovery,
+            executors.download);
         Thread cancelling = new Thread(() -> service.cancelDownload("dQw4w9WgXcQ"), "cancel-during-commit");
         try {
             CompletableFuture<Path> future = service.download("dQw4w9WgXcQ");
@@ -179,8 +204,20 @@ public class AudioDownloadCommandTest {
             backend.releaseCommit();
             cancelling.join(1000L);
             service.shutdown();
+            executors.close();
             Files.deleteIfExists(directory.resolve("dQw4w9WgXcQ.wav"));
             Files.deleteIfExists(directory);
+        }
+    }
+
+    private static final class TestExecutors {
+
+        private final ExecutorService discovery = MediaExecutors.newDiscoveryExecutor();
+        private final ExecutorService download = MediaExecutors.newDownloadExecutor();
+
+        private void close() {
+            MediaExecutors.shutdown(discovery);
+            MediaExecutors.shutdown(download);
         }
     }
 

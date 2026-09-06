@@ -12,8 +12,9 @@ import java.nio.charset.Charset;
  */
 public final class WebmOpusDecoder implements AudioDecoder {
 
-    private static final int MAX_INPUT_BYTES = 16 * 1024 * 1024;
+    private static final int MAX_INPUT_BYTES = 32 * 1024 * 1024;
     private static final int MAX_ELEMENT_SIZE = 4 * 1024 * 1024;
+    private static final int MAX_OPUS_PACKETS = 131072;
     private static final int MAX_SEGMENT_SIZE = MAX_INPUT_BYTES;
     private static final int MAX_PACKET_SIZE = 512 * 1024;
     private static final int MAX_DEPTH = 8;
@@ -406,7 +407,7 @@ public final class WebmOpusDecoder implements AudioDecoder {
 
         private void addBlock(int offset, int length, long timecode, long discardPaddingNanos) throws IOException {
             if (blockCount == blockOffsets.length) {
-                if (blockCount >= 65536) {
+                if (blockCount >= MAX_OPUS_PACKETS) {
                     throw new MediaException("WebM contains too many Opus packets");
                 }
                 int newLength = blockOffsets.length * 2;

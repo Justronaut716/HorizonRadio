@@ -20,10 +20,8 @@ public final class YouTubeMediaModels {
 
     /** Allows IP-bound YouTube media URLs to use the same dual-stack route as player resolution. */
     public static void preferIpv6ForClientMedia() {
-        if ("true".equalsIgnoreCase(System.getProperty("java.net.preferIPv4Stack"))) {
-            System.setProperty("java.net.preferIPv4Stack", "false");
-            System.setProperty("java.net.preferIPv6Addresses", "true");
-        }
+        System.setProperty("java.net.preferIPv4Stack", "false");
+        System.setProperty("java.net.preferIPv6Addresses", "true");
     }
 
     public interface CancellationToken {
@@ -72,6 +70,21 @@ public final class YouTubeMediaModels {
         default HttpResponse get(URL url, Map<String, String> headers, int timeoutMillis, long maximumBytes,
             RedirectPolicy redirectPolicy) throws IOException {
             return get(url, headers, timeoutMillis, maximumBytes);
+        }
+    }
+
+    /** Preserves the remote HTTP status so callers can distinguish a rate limit from other media failures. */
+    public static final class HttpStatusException extends MediaException {
+
+        private final int statusCode;
+
+        public HttpStatusException(int statusCode) {
+            super("HTTP request failed with status " + statusCode);
+            this.statusCode = statusCode;
+        }
+
+        public int getStatusCode() {
+            return statusCode;
         }
     }
 
@@ -148,17 +161,24 @@ public final class YouTubeMediaModels {
         private final int bitrate;
         private final long expiresAtMillis;
         private final String visitorData;
+        private final String userAgent;
 
         public ResolvedAudioStream(URL url, MediaFormat format, int bitrate, long expiresAtMillis) {
-            this(url, format, bitrate, expiresAtMillis, "");
+            this(url, format, bitrate, expiresAtMillis, "", "");
         }
 
         public ResolvedAudioStream(URL url, MediaFormat format, int bitrate, long expiresAtMillis, String visitorData) {
+            this(url, format, bitrate, expiresAtMillis, visitorData, "");
+        }
+
+        public ResolvedAudioStream(URL url, MediaFormat format, int bitrate, long expiresAtMillis, String visitorData,
+            String userAgent) {
             this.url = url;
             this.format = format;
             this.bitrate = bitrate;
             this.expiresAtMillis = expiresAtMillis;
             this.visitorData = visitorData == null ? "" : visitorData;
+            this.userAgent = userAgent == null ? "" : userAgent;
         }
 
         public URL getUrl() {
@@ -179,6 +199,10 @@ public final class YouTubeMediaModels {
 
         public String getVisitorData() {
             return visitorData;
+        }
+
+        public String getUserAgent() {
+            return userAgent;
         }
     }
 
@@ -277,7 +301,7 @@ public final class YouTubeMediaModels {
                     InputStream error = connection.getErrorStream();
                     if (error != null) error.close();
                     connection.disconnect();
-                    throw new MediaException("HTTP request failed with status " + status);
+                    throw new HttpStatusException(status);
                 }
                 long contentLength = connection.getContentLengthLong();
                 if (contentLength < 0L) {

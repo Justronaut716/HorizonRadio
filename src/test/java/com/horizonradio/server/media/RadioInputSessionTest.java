@@ -12,6 +12,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.lang.reflect.Constructor;
+import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.URL;
 import java.util.ArrayList;
@@ -22,9 +23,11 @@ import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.Test;
 
+import com.horizonradio.media.net.ExternalResourcePolicy;
 import com.sun.net.httpserver.HttpServer;
 
 public class RadioInputSessionTest {
@@ -163,6 +166,44 @@ public class RadioInputSessionTest {
                         .contains("redirect"));
             }
             assertFalse(targetRequested.get());
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    public void httpFactoryRejectsPrivateRedirectBeforeOpeningTarget() throws Exception {
+        final AtomicInteger initialRequests = new AtomicInteger();
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/redirect", exchange -> {
+            initialRequests.incrementAndGet();
+            exchange.getResponseHeaders()
+                .set(
+                    "Location",
+                    "http://127.0.0.2:" + server.getAddress()
+                        .getPort() + "/admin");
+            exchange.sendResponseHeaders(302, -1L);
+            exchange.close();
+        });
+        server.start();
+        try {
+            ExternalResourcePolicy policy = resourcePolicy(
+                host -> "127.0.0.1".equals(host) ? new InetAddress[] { InetAddress.getByName("93.184.216.34") }
+                    : InetAddress.getAllByName(host));
+            try {
+                httpConnectionFactory(policy).open(
+                    new URL(
+                        "http://127.0.0.1:" + server.getAddress()
+                            .getPort() + "/redirect"),
+                    java.util.Collections.<String, String>emptyMap(),
+                    1000);
+                org.junit.Assert.fail("Expected private redirect to be rejected");
+            } catch (IOException expected) {
+                assertTrue(
+                    expected.getMessage()
+                        .contains("non-public"));
+            }
+            assertEquals(1, initialRequests.get());
         } finally {
             server.stop(0);
         }
@@ -376,7 +417,14 @@ public class RadioInputSessionTest {
             new URL(
                 "http://127.0.0.1:" + server.getAddress()
                     .getPort() + "/stream"),
-            new RecordingListener());
+            new RecordingListener(),
+            defaultConnectionFactory(),
+            newStreamingDecoderFactory(),
+            1000,
+            1L,
+            4L,
+            4,
+            32);
         try {
             RecordingListener listener = (RecordingListener) getListener(session);
             session.start();
@@ -398,10 +446,31 @@ public class RadioInputSessionTest {
     }
 
     private static RadioInputSession.ConnectionFactory defaultConnectionFactory() throws Exception {
+        return httpConnectionFactory(
+            resourcePolicy(host -> new InetAddress[] { InetAddress.getByName("93.184.216.34") }));
+    }
+
+    private static RadioInputSession.ConnectionFactory httpConnectionFactory(ExternalResourcePolicy policy)
+        throws Exception {
         Class<?> type = Class.forName(RadioInputSession.class.getName() + "$HttpConnectionFactory");
+        Constructor<?> constructor = type.getDeclaredConstructor(ExternalResourcePolicy.class);
+        constructor.setAccessible(true);
+        return (RadioInputSession.ConnectionFactory) constructor.newInstance(policy);
+    }
+
+    private static ExternalResourcePolicy resourcePolicy(ExternalResourcePolicy.HostResolver resolver)
+        throws Exception {
+        Constructor<ExternalResourcePolicy> constructor = ExternalResourcePolicy.class
+            .getDeclaredConstructor(ExternalResourcePolicy.HostResolver.class);
+        constructor.setAccessible(true);
+        return constructor.newInstance(resolver);
+    }
+
+    private static RadioInputSession.DecoderFactory newStreamingDecoderFactory() throws Exception {
+        Class<?> type = Class.forName(RadioInputSession.class.getName() + "$StreamingDecoderFactory");
         Constructor<?> constructor = type.getDeclaredConstructor();
         constructor.setAccessible(true);
-        return (RadioInputSession.ConnectionFactory) constructor.newInstance();
+        return (RadioInputSession.DecoderFactory) constructor.newInstance();
     }
 
     private static byte[] join(byte[]... parts) throws IOException {

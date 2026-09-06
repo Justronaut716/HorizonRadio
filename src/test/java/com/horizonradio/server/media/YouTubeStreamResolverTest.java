@@ -35,7 +35,7 @@ public class YouTubeStreamResolverTest {
             stream.getUrl()
                 .getHost());
         assertTrue(http.requestBody.contains("dQw4w9WgXcQ"));
-        assertTrue(http.requestBody.contains("ANDROID"));
+        assertTrue(http.requestBody.contains("VISIONOS"));
     }
 
     @Test
@@ -132,7 +132,7 @@ public class YouTubeStreamResolverTest {
     }
 
     @Test
-    public void sendsCompleteAndroidPlayerContextAndClientHeaders() throws Exception {
+    public void sendsCompleteVisionOsPlayerContextAndClientHeaders() throws Exception {
         FakeHttp http = new FakeHttp(
             "{\"streamingData\":{\"adaptiveFormats\":["
                 + "{\"mimeType\":\"audio/mp4; codecs=\\\"mp4a.40.2\\\"\",\"bitrate\":128000,"
@@ -144,35 +144,31 @@ public class YouTubeStreamResolverTest {
         JsonObject client = request.getAsJsonObject("context")
             .getAsJsonObject("client");
         assertEquals(
-            "ANDROID_VR",
+            "VISIONOS",
             client.get("clientName")
                 .getAsString());
         assertEquals(
-            "1.65.10",
+            "1.02",
             client.get("clientVersion")
                 .getAsString());
         assertEquals(
-            "com.google.android.apps.youtube.vr.oculus/1.65.10 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip",
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 15_7_3) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15",
             client.get("userAgent")
                 .getAsString());
         assertEquals(
-            "Oculus",
+            "Apple",
             client.get("deviceMake")
                 .getAsString());
         assertEquals(
-            "Quest 3",
+            "RealityDevice17,1",
             client.get("deviceModel")
                 .getAsString());
         assertEquals(
-            32,
-            client.get("androidSdkVersion")
-                .getAsInt());
-        assertEquals(
-            "Android",
+            "visionOS",
             client.get("osName")
                 .getAsString());
         assertEquals(
-            "12L",
+            "26.5.23O471",
             client.get("osVersion")
                 .getAsString());
         assertEquals(
@@ -191,13 +187,13 @@ public class YouTubeStreamResolverTest {
         assertTrue(
             request.get("racyCheckOk")
                 .getAsBoolean());
-        assertEquals("28", http.requestHeaders.get("X-YouTube-Client-Name"));
-        assertEquals("1.65.10", http.requestHeaders.get("X-YouTube-Client-Version"));
+        assertEquals("101", http.requestHeaders.get("X-YouTube-Client-Name"));
+        assertEquals("1.02", http.requestHeaders.get("X-YouTube-Client-Version"));
         assertEquals("test-visitor", http.requestHeaders.get("X-Goog-Visitor-Id"));
     }
 
     @Test
-    public void usesVisitorBoundAndroidVrPlayerContextForDownloadableStreams() throws Exception {
+    public void usesVisitorBoundVisionOsPlayerContextForDownloadableStreams() throws Exception {
         FakeHttp http = new FakeHttp(
             "{\"streamingData\":{\"adaptiveFormats\":["
                 + "{\"mimeType\":\"audio/webm; codecs=\\\"opus\\\"\",\"bitrate\":128000,"
@@ -213,15 +209,15 @@ public class YouTubeStreamResolverTest {
         JsonObject client = request.getAsJsonObject("context")
             .getAsJsonObject("client");
         assertEquals(
-            "ANDROID_VR",
+            "VISIONOS",
             client.get("clientName")
                 .getAsString());
         assertEquals(
-            "1.65.10",
+            "1.02",
             client.get("clientVersion")
                 .getAsString());
-        assertEquals("28", http.requestHeaders.get("X-YouTube-Client-Name"));
-        assertEquals("1.65.10", http.requestHeaders.get("X-YouTube-Client-Version"));
+        assertEquals("101", http.requestHeaders.get("X-YouTube-Client-Name"));
+        assertEquals("1.02", http.requestHeaders.get("X-YouTube-Client-Version"));
         assertEquals("visitor-token", http.requestHeaders.get("X-Goog-Visitor-Id"));
         assertEquals(
             "HTML5_PREF_WANTS",

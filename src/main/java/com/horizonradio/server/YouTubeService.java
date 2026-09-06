@@ -1,12 +1,9 @@
 package com.horizonradio.server;
 
-import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.io.OutputStreamWriter;
-import java.io.Reader;
 import java.net.HttpURLConnection;
 import java.net.URI;
 import java.net.URL;
@@ -17,6 +14,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -29,6 +27,7 @@ import com.horizonradio.core.model.SearchResult;
 import com.horizonradio.core.server.ChartRegion;
 import com.horizonradio.core.server.ChartRegionCatalog;
 import com.horizonradio.core.server.MusicSearchFilter;
+import com.horizonradio.media.net.BoundedResponseReader;
 
 /**
  * Performs YouTube search using YouTube's internal InnerTube API.
@@ -44,6 +43,7 @@ public class YouTubeService {
     private static final String CHARTS_BROWSE_ID = "FEmusic_analytics_charts_home";
     private static final int CONNECT_TIMEOUT_MILLIS = 10000;
     private static final int READ_TIMEOUT_MILLIS = 15000;
+    private static final int MAX_RESPONSE_BYTES = 4 * 1024 * 1024;
     // Fetch extra candidates because the server filters out videos at or above
     // the configured duration limit before sending results to the client.
     private static final int MAX_RESULTS = 50;
@@ -55,16 +55,18 @@ public class YouTubeService {
 
     private final Gson gson = new Gson();
     private final SearchPageRequester searchPageRequester;
+    private final Executor executor;
 
-    public YouTubeService() {
-        searchPageRequester = null;
+    public YouTubeService(Executor executor) {
+        this(null, executor);
     }
 
-    YouTubeService(SearchPageRequester searchPageRequester) {
-        if (searchPageRequester == null) {
-            throw new IllegalArgumentException("searchPageRequester must not be null");
+    YouTubeService(SearchPageRequester searchPageRequester, Executor executor) {
+        if (executor == null) {
+            throw new IllegalArgumentException("executor must not be null");
         }
         this.searchPageRequester = searchPageRequester;
+        this.executor = executor;
     }
 
     public CompletableFuture<List<SearchResult>> search(final String query) {
@@ -78,7 +80,7 @@ public class YouTubeService {
             public List<SearchResult> get() {
                 return searchPages(query, maxTrackDurationMs);
             }
-        });
+        }, executor);
     }
 
     public CompletableFuture<List<SearchResult>> fetchGermanTopCharts() {
@@ -100,7 +102,7 @@ public class YouTubeService {
                     return new ArrayList<SearchResult>();
                 }
             }
-        });
+        }, executor);
     }
 
     private List<SearchResult> searchPages(String query, long maxTrackDurationMs) {
@@ -207,17 +209,9 @@ public class YouTubeService {
                 return new SearchPage(new ArrayList<SearchResult>(), "");
             }
 
-            try (InputStream input = connection.getInputStream();
-                Reader reader = new InputStreamReader(input, StandardCharsets.UTF_8);
-                BufferedReader bufferedReader = new BufferedReader(reader)) {
-                StringBuilder responseBody = new StringBuilder();
-                char[] buffer = new char[4096];
-                int count;
-                while ((count = bufferedReader.read(buffer)) != -1) {
-                    responseBody.append(buffer, 0, count);
-                }
-                return parseSearchPage(responseBody.toString());
-            }
+            String responseBody = BoundedResponseReader
+                .readUtf8(connection.getInputStream(), connection.getContentLengthLong(), MAX_RESPONSE_BYTES);
+            return parseSearchPage(responseBody);
         } finally {
             if (connection != null) {
                 connection.disconnect();
@@ -251,17 +245,9 @@ public class YouTubeService {
                 return new ArrayList<SearchResult>();
             }
 
-            try (InputStream input = connection.getInputStream();
-                Reader reader = new InputStreamReader(input, StandardCharsets.UTF_8);
-                BufferedReader bufferedReader = new BufferedReader(reader)) {
-                StringBuilder responseBody = new StringBuilder();
-                char[] buffer = new char[4096];
-                int count;
-                while ((count = bufferedReader.read(buffer)) != -1) {
-                    responseBody.append(buffer, 0, count);
-                }
-                return parseTopCharts(responseBody.toString());
-            }
+            String responseBody = BoundedResponseReader
+                .readUtf8(connection.getInputStream(), connection.getContentLengthLong(), MAX_RESPONSE_BYTES);
+            return parseTopCharts(responseBody);
         } finally {
             if (connection != null) {
                 connection.disconnect();

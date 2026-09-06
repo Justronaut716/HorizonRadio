@@ -28,6 +28,7 @@ import com.horizonradio.network.packets.ClockSyncResponsePacket;
 import com.horizonradio.network.packets.PlaylistSyncPacket;
 import com.horizonradio.network.packets.TrackSyncPacket;
 import com.horizonradio.server.AudioDownloadService;
+import com.horizonradio.test.DirectExecutorService;
 
 public class HorizonRadioClientModeTest {
 
@@ -55,6 +56,16 @@ public class HorizonRadioClientModeTest {
         HorizonRadioClient.setClientAudioDownloadService(null);
         Files.deleteIfExists(audioDirectory.resolve("completed.wav"));
         Files.deleteIfExists(audioDirectory);
+    }
+
+    @Test
+    public void youtubeAudioDiagnosticDoesNotReportWorkingWhenDownloadReturnsNoPath() {
+        HorizonRadioClient.setYoutubeAudioEnabled(true);
+
+        HorizonRadioClient.startYoutubeAudioTest();
+        audioDownloads.completeDownload("jNQXAC9IVRw", null);
+
+        assertEquals("Failed - audio downloader returned no audio.", HorizonRadioClient.getYoutubeAudioTestStatus());
     }
 
     @Test
@@ -738,7 +749,7 @@ public class HorizonRadioClientModeTest {
         private PlaybackMode modeDuringCancel;
 
         private ControlledAudioDownloadService(Path directory) throws java.io.IOException {
-            super(directory);
+            super(directory, new DirectExecutorService(), new DirectExecutorService());
         }
 
         @Override
@@ -773,6 +784,11 @@ public class HorizonRadioClientModeTest {
 
         private synchronized void failDownloadOnCancel() {
             failDownloadOnCancel = true;
+        }
+
+        private synchronized void completeDownload(String videoId, Path path) {
+            futures.get(videoId)
+                .complete(path);
         }
 
         private synchronized void completeDownloadOnCancel(Path path) {

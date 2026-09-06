@@ -15,13 +15,29 @@ import org.junit.Test;
 public class HorizonRadioClientConfigTest {
 
     @Test
-    public void missingFileUsesDefaultVolume() throws IOException {
+    public void missingFileEnablesYoutubeAudioByDefault() throws IOException {
         File directory = Files.createTempDirectory("horizonradio-client-config-missing")
             .toFile();
         try {
-            HorizonRadioClientConfig config = HorizonRadioClientConfig.load(directory);
+            assertTrue(
+                HorizonRadioClientConfig.load(directory)
+                    .isYoutubeAudioEnabled());
+        } finally {
+            deleteRecursively(directory);
+        }
+    }
 
-            assertEquals(1.0f, config.getVolume(), 0.0001f);
+    @Test
+    public void youtubeAudioSettingSurvivesConfigurationRoundTrip() throws IOException {
+        File directory = Files.createTempDirectory("horizonradio-youtube-audio-setting")
+            .toFile();
+        try {
+            HorizonRadioClientConfig config = HorizonRadioClientConfig.load(directory);
+            config.save(0.5f, new ClientFavorites(), PlaybackMode.SERVER, false);
+
+            assertTrue(
+                !HorizonRadioClientConfig.load(directory)
+                    .isYoutubeAudioEnabled());
         } finally {
             deleteRecursively(directory);
         }

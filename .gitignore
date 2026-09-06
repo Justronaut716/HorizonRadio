@@ -6,6 +6,7 @@ eclipse/
 .vscode/
 out/
 *.iml
+layout.json
 .classpath
 .project
 .settings/
@@ -16,6 +17,7 @@ out/
 .qwen/
 .superpowers/
 .worktrees/
+/.worktrees/
 
 # Minecraft/Gradle runtime output
 logs/

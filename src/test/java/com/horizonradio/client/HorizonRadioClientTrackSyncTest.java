@@ -26,6 +26,7 @@ import com.horizonradio.network.packets.PlaylistDeltaPacket;
 import com.horizonradio.network.packets.PlaylistSyncPacket;
 import com.horizonradio.network.packets.TrackSyncPacket;
 import com.horizonradio.server.AudioDownloadService;
+import com.horizonradio.test.DirectExecutorService;
 
 public class HorizonRadioClientTrackSyncTest {
 
@@ -351,7 +352,7 @@ public class HorizonRadioClientTrackSyncTest {
             .synchronizedList(new java.util.ArrayList<List<String>>());
 
         private RecordingAudioDownloadService(Path directory) throws java.io.IOException {
-            super(directory);
+            super(directory, new DirectExecutorService(), new DirectExecutorService());
         }
 
         @Override

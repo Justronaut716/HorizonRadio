@@ -12,10 +12,9 @@ import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ThreadFactory;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.function.Supplier;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -35,68 +34,89 @@ import com.horizonradio.server.media.YouTubeMetadataResolver;
 public class AudioDownloadService {
 
     private static final Logger LOGGER = Logger.getLogger(AudioDownloadService.class.getName());
-    private static final long EXECUTOR_SHUTDOWN_TIMEOUT_MILLIS = 2000L;
     private static final int MAX_RATE_LIMIT_RETRIES = 5;
 
     private final Path downloadDir;
     private final YouTubeMediaModels.AudioDownloadBackend downloadBackend;
     private final YouTubeMetadataResolver metadataResolver;
-    private final ExecutorService downloadExecutor = Executors.newCachedThreadPool(new ThreadFactory() {
-
-        @Override
-        public Thread newThread(Runnable runnable) {
-            Thread thread = new Thread(runnable, "HorizonRadio-Downloader");
-            thread.setDaemon(true);
-            return thread;
-        }
-    });
+    private final Executor discoveryExecutor;
+    private final ExecutorService downloadExecutor;
     private final ConcurrentMap<String, DownloadOperation> activeDownloads = new ConcurrentHashMap<String, DownloadOperation>();
     private final CancellationInterleavingHook cancellationInterleavingHook;
 
-    public AudioDownloadService(Path downloadDir) throws IOException {
+    public AudioDownloadService(Path downloadDir, Executor discoveryExecutor, ExecutorService downloadExecutor)
+        throws IOException {
         this(
             downloadDir,
             new JavaAudioDownloadBackend(),
             new YouTubeMetadataResolver(),
-            CancellationInterleavingHook.NONE);
+            CancellationInterleavingHook.NONE,
+            discoveryExecutor,
+            downloadExecutor);
     }
 
-    AudioDownloadService(Path downloadDir, boolean checkDependencies) throws IOException {
-        this(downloadDir);
+    AudioDownloadService(Path downloadDir, boolean checkDependencies, Executor discoveryExecutor,
+        ExecutorService downloadExecutor) throws IOException {
+        this(downloadDir, discoveryExecutor, downloadExecutor);
     }
 
-    public AudioDownloadService(Path downloadDir, String youtubeCookiesFromBrowser, String youtubeCookiesFile)
-        throws IOException {
-        this(downloadDir);
+    public AudioDownloadService(Path downloadDir, String youtubeCookiesFromBrowser, String youtubeCookiesFile,
+        Executor discoveryExecutor, ExecutorService downloadExecutor) throws IOException {
+        this(downloadDir, discoveryExecutor, downloadExecutor);
     }
 
     AudioDownloadService(Path downloadDir, boolean checkDependencies, String youtubeCookiesFromBrowser,
-        String youtubeCookiesFile) throws IOException {
-        this(downloadDir);
-    }
-
-    AudioDownloadService(Path downloadDir, YouTubeMediaModels.AudioDownloadBackend downloadBackend) throws IOException {
-        this(downloadDir, downloadBackend, new YouTubeMetadataResolver(), CancellationInterleavingHook.NONE);
+        String youtubeCookiesFile, Executor discoveryExecutor, ExecutorService downloadExecutor) throws IOException {
+        this(downloadDir, discoveryExecutor, downloadExecutor);
     }
 
     AudioDownloadService(Path downloadDir, YouTubeMediaModels.AudioDownloadBackend downloadBackend,
-        YouTubeMetadataResolver metadataResolver) throws IOException {
-        this(downloadDir, downloadBackend, metadataResolver, CancellationInterleavingHook.NONE);
+        Executor discoveryExecutor, ExecutorService downloadExecutor) throws IOException {
+        this(
+            downloadDir,
+            downloadBackend,
+            new YouTubeMetadataResolver(),
+            CancellationInterleavingHook.NONE,
+            discoveryExecutor,
+            downloadExecutor);
     }
 
     AudioDownloadService(Path downloadDir, YouTubeMediaModels.AudioDownloadBackend downloadBackend,
-        CancellationInterleavingHook cancellationInterleavingHook) throws IOException {
-        this(downloadDir, downloadBackend, new YouTubeMetadataResolver(), cancellationInterleavingHook);
+        YouTubeMetadataResolver metadataResolver, Executor discoveryExecutor, ExecutorService downloadExecutor)
+        throws IOException {
+        this(
+            downloadDir,
+            downloadBackend,
+            metadataResolver,
+            CancellationInterleavingHook.NONE,
+            discoveryExecutor,
+            downloadExecutor);
+    }
+
+    AudioDownloadService(Path downloadDir, YouTubeMediaModels.AudioDownloadBackend downloadBackend,
+        CancellationInterleavingHook cancellationInterleavingHook, Executor discoveryExecutor,
+        ExecutorService downloadExecutor) throws IOException {
+        this(
+            downloadDir,
+            downloadBackend,
+            new YouTubeMetadataResolver(),
+            cancellationInterleavingHook,
+            discoveryExecutor,
+            downloadExecutor);
     }
 
     private AudioDownloadService(Path downloadDir, YouTubeMediaModels.AudioDownloadBackend downloadBackend,
-        YouTubeMetadataResolver metadataResolver, CancellationInterleavingHook cancellationInterleavingHook)
-        throws IOException {
+        YouTubeMetadataResolver metadataResolver, CancellationInterleavingHook cancellationInterleavingHook,
+        Executor discoveryExecutor, ExecutorService downloadExecutor) throws IOException {
         if (downloadBackend == null) throw new IllegalArgumentException("Java audio download backend is required");
         if (metadataResolver == null) throw new IllegalArgumentException("YouTube metadata resolver is required");
+        if (discoveryExecutor == null) throw new IllegalArgumentException("discovery executor is required");
+        if (downloadExecutor == null) throw new IllegalArgumentException("download executor is required");
         this.downloadDir = downloadDir;
         this.downloadBackend = downloadBackend;
         this.metadataResolver = metadataResolver;
+        this.discoveryExecutor = discoveryExecutor;
+        this.downloadExecutor = downloadExecutor;
         this.cancellationInterleavingHook = cancellationInterleavingHook == null ? CancellationInterleavingHook.NONE
             : cancellationInterleavingHook;
         Files.createDirectories(downloadDir);
@@ -115,26 +135,7 @@ public class AudioDownloadService {
             return CompletableFuture.completedFuture(null);
         }
         final DownloadOperation operation = new DownloadOperation();
-        CompletableFuture<Path> future = CompletableFuture.supplyAsync(new Supplier<Path>() {
-
-            @Override
-            public Path get() {
-                if (Files.exists(filePath)) {
-                    if (isCanonicalCachedWav(filePath)) {
-                        LOGGER.log(Level.FINE, "HorizonRadio: Using cached audio for " + videoId);
-                        return filePath;
-                    }
-                    try {
-                        Files.deleteIfExists(filePath);
-                    } catch (IOException exception) {
-                        LOGGER.log(Level.WARNING, "Could not remove invalid cached WAV for " + videoId, exception);
-                        return null;
-                    }
-                }
-                LOGGER.info("HorizonRadio: Downloading audio with the Java media backend for " + videoId);
-                return downloadWithRateLimitRetry(videoId, filePath, operation);
-            }
-        }, downloadExecutor);
+        final CompletableFuture<Path> future = new CompletableFuture<Path>();
         operation.future = future;
         activeDownloads.put(videoId, operation);
         future.whenComplete(new java.util.function.BiConsumer<Path, Throwable>() {
@@ -146,6 +147,40 @@ public class AudioDownloadService {
                 }
             }
         });
+        try {
+            downloadExecutor.execute(new Runnable() {
+
+                @Override
+                public void run() {
+                    try {
+                        if (Files.exists(filePath)) {
+                            if (isCanonicalCachedWav(filePath)) {
+                                LOGGER.log(Level.FINE, "HorizonRadio: Using cached audio for " + videoId);
+                                future.complete(filePath);
+                                return;
+                            }
+                            try {
+                                Files.deleteIfExists(filePath);
+                            } catch (IOException exception) {
+                                LOGGER.log(
+                                    Level.WARNING,
+                                    "Could not remove invalid cached WAV for " + videoId,
+                                    exception);
+                                future.complete(null);
+                                return;
+                            }
+                        }
+                        LOGGER.info("HorizonRadio: Downloading audio with the Java media backend for " + videoId);
+                        future.complete(downloadWithRateLimitRetry(videoId, filePath, operation));
+                    } catch (Throwable exception) {
+                        future.completeExceptionally(exception);
+                    }
+                }
+            });
+        } catch (RejectedExecutionException exception) {
+            activeDownloads.remove(videoId, operation);
+            future.completeExceptionally(new MediaException("media queue is full", exception));
+        }
         return future;
     }
 
@@ -159,8 +194,12 @@ public class AudioDownloadService {
             try {
                 return downloadBackend.download(videoId, filePath, operation);
             } catch (IOException exception) {
+                if (operation.isCancelled()) {
+                    LOGGER.log(Level.FINE, "HorizonRadio: Audio download cancelled for " + videoId);
+                    return null;
+                }
                 long now = System.currentTimeMillis();
-                long retryAt = operation.isCancelled() ? 0L : downloadBackend.nextRateLimitRetryAtMillis();
+                long retryAt = downloadBackend.nextRateLimitRetryAtMillis();
                 if (attempt >= MAX_RATE_LIMIT_RETRIES || retryAt <= now) {
                     LOGGER.log(Level.WARNING, "Java audio download failed for " + videoId, exception);
                     return null;
@@ -172,7 +211,11 @@ public class AudioDownloadService {
                         + (retryAt - now + 999L) / 1000L
                         + "s");
                 if (!sleepUntil(retryAt, operation)) {
-                    LOGGER.log(Level.WARNING, "Java audio download failed for " + videoId, exception);
+                    if (operation.isCancelled()) {
+                        LOGGER.log(Level.FINE, "HorizonRadio: Audio download cancelled for " + videoId);
+                    } else {
+                        LOGGER.log(Level.WARNING, "Java audio download failed for " + videoId, exception);
+                    }
                     return null;
                 }
             }
@@ -277,7 +320,7 @@ public class AudioDownloadService {
                     return null;
                 }
             }
-        }, downloadExecutor);
+        }, discoveryExecutor);
     }
 
     public Path getFilePath(String videoId) {
@@ -417,27 +460,7 @@ public class AudioDownloadService {
     }
 
     public void shutdown() {
-        downloadExecutor.shutdownNow();
-        boolean interrupted = false;
-        long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(EXECUTOR_SHUTDOWN_TIMEOUT_MILLIS);
-        while (!downloadExecutor.isTerminated()) {
-            long remaining = deadline - System.nanoTime();
-            if (remaining <= 0L) break;
-            try {
-                downloadExecutor.awaitTermination(remaining, TimeUnit.NANOSECONDS);
-            } catch (InterruptedException exception) {
-                interrupted = true;
-                downloadExecutor.shutdownNow();
-            }
-        }
-        if (interrupted) Thread.currentThread()
-            .interrupt();
-        if (!downloadExecutor.isTerminated()) {
-            LOGGER.warning(
-                "HorizonRadio: Audio download executor did not terminate within " + EXECUTOR_SHUTDOWN_TIMEOUT_MILLIS
-                    + " ms");
-        }
-        LOGGER.info("HorizonRadio: Audio download service shut down");
+        // The client proxy owns the injected executor and shuts it down once.
     }
 
     interface CancellationInterleavingHook {

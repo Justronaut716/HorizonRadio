@@ -12,6 +12,8 @@ import java.nio.charset.Charset;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.Executor;
+import java.util.concurrent.RejectedExecutionException;
 
 import org.junit.Test;
 
@@ -22,6 +24,11 @@ import com.horizonradio.core.model.SearchResult;
 import com.horizonradio.core.server.ChartRegionCatalog;
 
 public class YouTubeServiceTest {
+
+    @Test(expected = RejectedExecutionException.class)
+    public void searchUsesTheInjectedDiscoveryExecutor() {
+        new YouTubeService(rejectingExecutor()).search("funk");
+    }
 
     @Test
     public void buildsCountrySpecificChartRequestBody() {
@@ -76,7 +83,7 @@ public class YouTubeServiceTest {
     public void sendsMusicFocusedQueryToTheSearchProvider() throws Exception {
         RecordingRequester requester = new RecordingRequester(page(results("song"), ""));
 
-        new YouTubeService(requester).search("funk")
+        new YouTubeService(requester, directExecutor()).search("funk")
             .get();
 
         assertEquals(Arrays.asList("funk music"), requester.queries());
@@ -134,7 +141,7 @@ public class YouTubeServiceTest {
             page(results("duplicate", "valid-2"), "page-3"),
             page(results("valid-3"), "page-4"));
 
-        List<SearchResult> results = new YouTubeService(requester).search("funk")
+        List<SearchResult> results = new YouTubeService(requester, directExecutor()).search("funk")
             .get();
 
         assertEquals(Arrays.<String>asList(null, "page-2", "page-3"), requester.continuations());
@@ -148,7 +155,7 @@ public class YouTubeServiceTest {
             page(manyResults("page-two-", 50), "page-3"),
             page(manyResults("page-three-", 100), "page-4"));
 
-        List<SearchResult> results = new YouTubeService(requester).search("funk")
+        List<SearchResult> results = new YouTubeService(requester, directExecutor()).search("funk")
             .get();
 
         assertEquals(150, results.size());
@@ -168,7 +175,7 @@ public class YouTubeServiceTest {
             page(manyResults("song-", 10), "page-2"),
             page(results("late-song"), "page-3"));
 
-        List<SearchResult> results = new YouTubeService(requester).search("funk", 15L * 60L * 1000L)
+        List<SearchResult> results = new YouTubeService(requester, directExecutor()).search("funk", 15L * 60L * 1000L)
             .get();
 
         assertEquals(10, results.size());
@@ -187,7 +194,7 @@ public class YouTubeServiceTest {
             page(firstPage, "page-2"),
             page(results("late-song"), "page-3"));
 
-        List<SearchResult> results = new YouTubeService(requester).search("funk", 15L * 60L * 1000L)
+        List<SearchResult> results = new YouTubeService(requester, directExecutor()).search("funk", 15L * 60L * 1000L)
             .get();
 
         assertEquals(10, results.size());
@@ -203,7 +210,7 @@ public class YouTubeServiceTest {
             page(results("valid-1"), "page-2"),
             new IOException("page unavailable"));
 
-        List<SearchResult> results = new YouTubeService(requester).search("funk")
+        List<SearchResult> results = new YouTubeService(requester, directExecutor()).search("funk")
             .get();
 
         assertEquals(Arrays.asList("valid-1"), videoIds(results));
@@ -338,5 +345,25 @@ public class YouTubeServiceTest {
         private List<String> queries() {
             return queries;
         }
+    }
+
+    private static Executor rejectingExecutor() {
+        return new Executor() {
+
+            @Override
+            public void execute(Runnable task) {
+                throw new RejectedExecutionException("test executor is saturated");
+            }
+        };
+    }
+
+    private static Executor directExecutor() {
+        return new Executor() {
+
+            @Override
+            public void execute(Runnable task) {
+                task.run();
+            }
+        };
     }
 }

@@ -1,5 +1,7 @@
 import org.gradle.api.file.DuplicatesStrategy
 import org.gradle.api.tasks.bundling.Jar
+import org.gradle.api.tasks.testing.Test
+import org.gradle.language.base.plugins.LifecycleBasePlugin
 
 plugins {
     id("com.gtnewhorizons.gtnhconvention")
@@ -8,7 +10,6 @@ plugins {
 apply(from = "gradle/release.gradle.kts")
 
 val horizonradioMediaRuntime = configurations.named("horizonradioMediaRuntime")
-val packagingTestArtifact = providers.systemProperty("horizonradio.test.artifact")
 
 tasks.named<Jar>("jar") {
     dependsOn(horizonradioMediaRuntime)
@@ -32,9 +33,19 @@ tasks.named("reobfJar") {
     dependsOn(tasks.named("jar"))
 }
 
-tasks.withType<Test>().configureEach {
-    inputs.property("horizonradio.test.artifact", packagingTestArtifact.orNull ?: "")
-    packagingTestArtifact.orNull?.let { artifact ->
-        systemProperty("horizonradio.test.artifact", artifact)
-    }
+val packagingTest by tasks.registering(Test::class) {
+    group = LifecycleBasePlugin.VERIFICATION_GROUP
+    dependsOn(tasks.named("reobfJar"))
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+    include("**/StandalonePackagingTest.class", "**/StandaloneMediaSourceAuditTest.class")
+    val artifact = tasks.named<Jar>("jar").flatMap { it.archiveFile }
+    inputs.file(artifact)
+    systemProperty("horizonradio.test.artifact", artifact.get().asFile.absolutePath)
 }
+
+tasks.test {
+    exclude("**/StandalonePackagingTest.class", "**/StandaloneMediaSourceAuditTest.class")
+}
+
+tasks.named("check") { dependsOn(packagingTest) }
