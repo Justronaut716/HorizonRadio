@@ -223,6 +223,31 @@ public class GuiLayoutTest {
     }
 
     @Test
+    public void modeTabsReserveCompactNativeTextWithoutChangingPrototypeGeometry() {
+        TestScreen screen = new TestScreen();
+        screen.usePrototypeViewport();
+        try {
+            screen.initialize();
+
+            assertEquals(0.80F, HorizonRadioScreen.MODE_BUTTON_TEXT_SCALE, 0.0001F);
+            assertEquals(34, screen.controlButton(9).width);
+            assertEquals(34, screen.controlButton(1).width);
+            assertEquals(34, screen.controlButton(13).width);
+            assertTrue(screen.controlButton(9).xPosition < screen.controlButton(1).xPosition);
+            assertTrue(screen.controlButton(1).xPosition < screen.controlButton(13).xPosition);
+        } finally {
+            HorizonRadioScreen.clearActiveScreen(screen);
+        }
+    }
+
+    @Test
+    public void volumeTrackReportsTheFilledPrototypePortion() {
+        assertEquals(0, HorizonRadioVolumeSlider.volumeTrackFillWidth(100, 0.0F));
+        assertEquals(48, HorizonRadioVolumeSlider.volumeTrackFillWidth(100, 0.5F));
+        assertEquals(96, HorizonRadioVolumeSlider.volumeTrackFillWidth(100, 1.0F));
+    }
+
+    @Test
     public void songSearchProgressBarIsVisibleOnlyWhileLoading() {
         assertTrue(HorizonRadioScreen.shouldDrawSearchProgressBar(true));
         assertFalse(HorizonRadioScreen.shouldDrawSearchProgressBar(false));

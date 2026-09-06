@@ -63,6 +63,7 @@ public class HorizonRadioScreen extends GuiScreen {
     private static final int MODE_SEARCH_X = 13;
     private static final int MODE_CHARTS_X = 49;
     private static final int MODE_PLAYLISTS_X = 85;
+    static final float MODE_BUTTON_TEXT_SCALE = 0.80F;
     private static final int REFRESH_BUTTON_X = 175;
     private static final int MODE_TOP_OFFSET = BODY_TOP_OFFSET + 5;
     private static final int SECTION_TOP_OFFSET = 90;
@@ -256,19 +257,19 @@ public class HorizonRadioScreen extends GuiScreen {
             ICON_SEARCH,
             SEARCH_BUTTON_BORDER_COLOR);
         addButton(searchButton);
-        chartsTabButton = createTextButton(
+        chartsTabButton = createModeButton(
             BUTTON_CHARTS_TAB,
             panelLeft + MODE_CHARTS_X,
             panelTop + MODE_TOP_OFFSET,
             "Charts");
         addButton(chartsTabButton);
-        searchTabButton = createTextButton(
+        searchTabButton = createModeButton(
             BUTTON_SEARCH_TAB,
             panelLeft + MODE_SEARCH_X,
             panelTop + MODE_TOP_OFFSET,
             "Search");
         addButton(searchTabButton);
-        playlistsTabButton = createTextButton(
+        playlistsTabButton = createModeButton(
             BUTTON_PLAYLIST_DISCOVERY_TAB,
             panelLeft + MODE_PLAYLISTS_X,
             panelTop + MODE_TOP_OFFSET,
@@ -293,6 +294,7 @@ public class HorizonRadioScreen extends GuiScreen {
             QUEUE_BUTTON_WIDTH,
             TAB_BUTTON_HEIGHT,
             "+");
+        bulkAddButton.setGreenActive(true);
         addButton(bulkAddButton);
         settingsButton = null;
         queueClearButton = new ControlButton(
@@ -1048,6 +1050,7 @@ public class HorizonRadioScreen extends GuiScreen {
             CONTROL_BUTTON_WIDTH,
             CONTROL_BUTTON_HEIGHT,
             "\u2665");
+        favoriteButton.setGreenActive(true);
         addButton(favoriteButton);
         updateFavoriteState();
     }
@@ -1059,6 +1062,12 @@ public class HorizonRadioScreen extends GuiScreen {
 
     private ControlButton createTextButton(int id, int x, int y, String label) {
         return new ControlButton(id, x, y, TAB_BUTTON_WIDTH, TAB_BUTTON_HEIGHT, label);
+    }
+
+    private ControlButton createModeButton(int id, int x, int y, String label) {
+        ControlButton button = createTextButton(id, x, y, label);
+        button.setLabelScale(MODE_BUTTON_TEXT_SCALE);
+        return button;
     }
 
     private void drawControlCenter(int left, int nowPlayingTop) {
@@ -2340,8 +2349,10 @@ public class HorizonRadioScreen extends GuiScreen {
 
         private ResourceLocation iconTexture;
         private boolean active;
+        private boolean greenActive;
         private final int borderColor;
         private String label;
+        private float labelScale = 1.0F;
 
         private ControlButton(int id, int x, int y, int width, int height, ResourceLocation iconTexture) {
             this(id, x, y, width, height, iconTexture, 0xFF111111);
@@ -2353,6 +2364,7 @@ public class HorizonRadioScreen extends GuiScreen {
             this.iconTexture = iconTexture;
             this.borderColor = borderColor;
             this.label = "";
+            this.greenActive = true;
         }
 
         private ControlButton(int id, int x, int y, int width, int height, String label) {
@@ -2360,6 +2372,7 @@ public class HorizonRadioScreen extends GuiScreen {
             this.iconTexture = null;
             this.borderColor = 0xFF111111;
             this.label = label == null ? "" : label;
+            this.greenActive = false;
         }
 
         private void setIcon(ResourceLocation iconTexture) {
@@ -2368,6 +2381,14 @@ public class HorizonRadioScreen extends GuiScreen {
 
         private void setLabel(String label) {
             this.label = label == null ? "" : label;
+        }
+
+        private void setLabelScale(float labelScale) {
+            this.labelScale = Math.max(0.5F, Math.min(1.0F, labelScale));
+        }
+
+        private void setGreenActive(boolean greenActive) {
+            this.greenActive = greenActive;
         }
 
         private void setActive(boolean active) {
@@ -2383,8 +2404,10 @@ public class HorizonRadioScreen extends GuiScreen {
                 && mouseX < xPosition + width
                 && mouseY >= yPosition
                 && mouseY < yPosition + height;
-            int outer = !enabled ? 0xFF4A4A4A : (active ? 0xFF6EAA6E : (hovered ? 0xFF777777 : 0xFF5F5F5F));
-            int inner = !enabled ? 0xFF383838 : (active ? 0xFF456B45 : (hovered ? 0xFF666666 : 0xFF4A4A4A));
+            int outer = !enabled ? 0xFF4A4A4A
+                : (active && greenActive ? 0xFF6EAA6E : (hovered ? 0xFF777777 : 0xFF5F5F5F));
+            int inner = !enabled ? 0xFF383838
+                : (active && greenActive ? 0xFF456B45 : (hovered ? 0xFF666666 : 0xFF4A4A4A));
             drawRect(xPosition, yPosition, xPosition + width, yPosition + height, borderColor);
             drawRect(xPosition + 1, yPosition + 1, xPosition + width - 1, yPosition + height - 1, outer);
             drawRect(xPosition + 3, yPosition + 3, xPosition + width - 3, yPosition + height - 4, inner);
@@ -2395,12 +2418,20 @@ public class HorizonRadioScreen extends GuiScreen {
                 GL11.glColor4f(0.5F, 0.5F, 0.5F, 1.0F);
             }
             if (iconTexture == null) {
-                drawCenteredString(
-                    minecraft.fontRenderer,
-                    label,
-                    xPosition + width / 2,
-                    yPosition + (height - 8) / 2 + 1,
-                    0xFFFFFFFF);
+                if (labelScale == 1.0F) {
+                    drawCenteredString(
+                        minecraft.fontRenderer,
+                        label,
+                        xPosition + width / 2,
+                        yPosition + (height - 8) / 2 + 1,
+                        0xFFFFFFFF);
+                } else {
+                    GL11.glPushMatrix();
+                    GL11.glTranslatef(xPosition + width / 2.0F, yPosition + height / 2.0F, 0.0F);
+                    GL11.glScalef(labelScale, labelScale, 1.0F);
+                    drawCenteredString(minecraft.fontRenderer, label, 0, -4, 0xFFFFFFFF);
+                    GL11.glPopMatrix();
+                }
                 return;
             }
             minecraft.getTextureManager()
