@@ -59,6 +59,16 @@ public class HorizonRadioClientModeTest {
     }
 
     @Test
+    public void youtubeAudioDiagnosticDoesNotReportWorkingWhenDownloadReturnsNoPath() {
+        HorizonRadioClient.setYoutubeAudioEnabled(true);
+
+        HorizonRadioClient.startYoutubeAudioTest();
+        audioDownloads.completeDownload("jNQXAC9IVRw", null);
+
+        assertEquals("Failed - audio downloader returned no audio.", HorizonRadioClient.getYoutubeAudioTestStatus());
+    }
+
+    @Test
     public void privateAddUsesLocalQueueWithoutTransport() {
         HorizonRadioClient.setPlaybackMode(PlaybackMode.PRIVATE);
 
@@ -774,6 +784,11 @@ public class HorizonRadioClientModeTest {
 
         private synchronized void failDownloadOnCancel() {
             failDownloadOnCancel = true;
+        }
+
+        private synchronized void completeDownload(String videoId, Path path) {
+            futures.get(videoId)
+                .complete(path);
         }
 
         private synchronized void completeDownloadOnCancel(Path path) {

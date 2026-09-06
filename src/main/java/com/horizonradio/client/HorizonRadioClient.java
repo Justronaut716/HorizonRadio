@@ -1202,8 +1202,13 @@ public final class HorizonRadioClient {
                     public void run() {
                         synchronized (HorizonRadioClient.class) {
                             youtubeAudioTestRunning = false;
-                            youtubeAudioTestStatus = failure == null ? "Working - test audio downloaded."
-                                : "Failed - " + shortFailureMessage(failure);
+                            if (failure == null && path != null) {
+                                youtubeAudioTestStatus = "Working - test audio downloaded.";
+                            } else if (failure != null) {
+                                youtubeAudioTestStatus = "Failed - " + shortFailureMessage(failure);
+                            } else {
+                                youtubeAudioTestStatus = "Failed - audio downloader returned no audio.";
+                            }
                         }
                     }
                 });

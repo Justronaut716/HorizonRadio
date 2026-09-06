@@ -578,8 +578,9 @@ public final class JavaAudioDownloadBackend implements YouTubeMediaModels.AudioD
             }
             if (existingSize >= offset) {
                 // An earlier attempt already stored at least this much of the same URL: keep the larger
-                // prefix and drop the smaller copy.
-                deleteQuietly(mediaTemp);
+                // prefix and drop the smaller copy. A resumed attempt uses the existing file itself, so it
+                // must not delete the pending file that the map still references.
+                if (!existing.tempFile.equals(mediaTemp)) deleteQuietly(mediaTemp);
                 return;
             }
         }
