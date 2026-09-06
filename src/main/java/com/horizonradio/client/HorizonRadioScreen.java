@@ -285,7 +285,7 @@ public class HorizonRadioScreen extends GuiScreen {
         refreshChartsButton = new ControlButton(
             BUTTON_REFRESH_CHARTS,
             panelLeft + REFRESH_BUTTON_X,
-            panelTop + MODE_TOP_OFFSET,
+            panelTop + CHARTS_BULK_BUTTON_Y_OFFSET,
             QUEUE_BUTTON_WIDTH,
             TAB_BUTTON_HEIGHT,
             ICON_LOOP);
@@ -311,9 +311,9 @@ public class HorizonRadioScreen extends GuiScreen {
         addControlButtons(panelLeft, panelTop);
         volumeSlider = new HorizonRadioVolumeSlider(
             3,
-            panelLeft + 24,
+            panelLeft + 29,
             panelTop + VOLUME_TOP_OFFSET + 3,
-            312,
+            305,
             VOLUME_HEIGHT,
             HorizonRadioClient.getVolume());
         addButton(volumeSlider);
@@ -461,7 +461,6 @@ public class HorizonRadioScreen extends GuiScreen {
             left + QUEUE_LEFT_INSET + QUEUE_WIDTH,
             top + BODY_TOP_OFFSET + 1,
             0xFF555555);
-        drawRect(left + 3, top + VOLUME_TOP_OFFSET - 1, left + PANEL_WIDTH - 3, top + VOLUME_TOP_OFFSET, 0xFF555555);
     }
 
     private void drawPanelBoxBorder(int left, int top, int right, int bottom) {
@@ -472,13 +471,13 @@ public class HorizonRadioScreen extends GuiScreen {
     }
 
     private void drawHeader(int left, int top) {
-        drawRect(left + 3, top + 3, left + PANEL_WIDTH - 3, top + BODY_TOP_OFFSET, 0xFF181818);
-        drawRect(left + 3, top + BODY_TOP_OFFSET - 1, left + PANEL_WIDTH - 3, top + BODY_TOP_OFFSET, 0xFF555555);
+        drawRect(left + 3, top + 3, left + PANEL_WIDTH - 3, top + BODY_TOP_OFFSET, 0xFF202020);
+        drawRect(left + 8, top + BODY_TOP_OFFSET - 3, left + PANEL_WIDTH - 8, top + BODY_TOP_OFFSET - 2, 0xFF555555);
         GL11.glColor4f(1.0F, 1.0F, 1.0F, 1.0F);
         Minecraft.getMinecraft()
             .getTextureManager()
             .bindTexture(ICON_LOGO);
-        Gui.func_152125_a(left + 12, top + 11, 0, 0, 1431, 307, 102, 22, 1431, 307);
+        Gui.func_152125_a(left + 10, top + 11, 0, 0, 1431, 307, 94, 20, 1431, 307);
     }
 
     private void drawVolumeLabels(int left, int top) {
@@ -488,7 +487,7 @@ public class HorizonRadioScreen extends GuiScreen {
         drawString(
             fontRendererObj,
             String.valueOf(value),
-            left + PANEL_WIDTH - 20,
+            left + PANEL_WIDTH - 8 - fontRendererObj.getStringWidth(String.valueOf(value)),
             top + VOLUME_TOP_OFFSET + 3,
             0xFFB3B3B3);
     }
@@ -848,7 +847,7 @@ public class HorizonRadioScreen extends GuiScreen {
                 y + ROW_HEIGHT - 1,
                 active ? 0xFF315B38 : (hovered ? 0xFF343434 : 0xFF292929));
             int queueButtonLeft = queueButtonLeft(left);
-            int durationLeft = queueButtonLeft - 2;
+            int durationLeft = queueButtonLeft - 5 - fontRendererObj.getStringWidth(result.duration);
             int textRight = durationLeft - 5;
             int textWidth = textRight - (contentLeft + 23);
             drawString(fontRendererObj, "\u266B", contentLeft + 9, y + 4, active ? 0xFFC3F1C7 : 0xFFB0B0B0);
@@ -954,8 +953,8 @@ public class HorizonRadioScreen extends GuiScreen {
     }
 
     private void drawNowPlaying(int left, int y) {
-        drawRect(left + 3, y, left + PANEL_WIDTH - 3, y + 46, 0xFF181818);
-        drawRect(left + 3, y, left + PANEL_WIDTH - 3, y + 1, 0xFF555555);
+        drawRect(left + 8, y, left + PANEL_WIDTH - 8, y + 53, 0xFF181818);
+        drawPanelBoxBorder(left + 8, y, left + PANEL_WIDTH - 8, y + 53);
         boolean radioActive = isRadioActive();
         boolean pausedRadio = !radioActive && isPausedRadio();
         if (radioActive || pausedRadio) {
@@ -1078,12 +1077,6 @@ public class HorizonRadioScreen extends GuiScreen {
         int groupWidth = controlGroupWidth();
         int controlLeft = left + (PANEL_WIDTH - groupWidth) / 2;
         int controlTop = controlTop(nowPlayingTop);
-        drawRect(
-            controlLeft - 3,
-            controlTop - 2,
-            controlLeft + groupWidth + 3,
-            controlTop + CONTROL_BUTTON_HEIGHT + 2,
-            0xCC000000);
         int favoriteLeft = controlLeft + groupWidth + 10;
         drawRect(
             favoriteLeft - 5,
@@ -2349,11 +2342,14 @@ public class HorizonRadioScreen extends GuiScreen {
     }
 
     private void drawTextButtonAbsolute(int left, int top, String label, boolean hovered) {
-        int outer = hovered ? 0xFF777777 : 0xFF5F5F5F;
-        int inner = hovered ? 0xFF666666 : 0xFF4A4A4A;
-        drawRect(left, top, left + QUEUE_BUTTON_WIDTH, top + QUEUE_BUTTON_HEIGHT, 0xFF111111);
-        drawRect(left + 1, top + 1, left + QUEUE_BUTTON_WIDTH - 1, top + QUEUE_BUTTON_HEIGHT - 1, outer);
-        drawRect(left + 3, top + 3, left + QUEUE_BUTTON_WIDTH - 3, top + QUEUE_BUTTON_HEIGHT - 3, inner);
+        boolean queued = "\u2713".equals(label);
+        drawRect(left, top, left + QUEUE_BUTTON_WIDTH, top + QUEUE_BUTTON_HEIGHT, queued ? 0xFFA8D7AB : 0xFF858585);
+        drawRect(
+            left + 1,
+            top + 1,
+            left + QUEUE_BUTTON_WIDTH - 1,
+            top + QUEUE_BUTTON_HEIGHT - 1,
+            queued ? 0xFF365C3C : (hovered ? 0xFF555555 : 0xFF454545));
         drawCenteredString(fontRendererObj, label, left + QUEUE_BUTTON_WIDTH / 2, queueButtonTextTop(top), 0xFFFFFFFF);
     }
 
@@ -2416,14 +2412,16 @@ public class HorizonRadioScreen extends GuiScreen {
                 && mouseX < xPosition + width
                 && mouseY >= yPosition
                 && mouseY < yPosition + height;
-            int outer = !enabled ? 0xFF4A4A4A
-                : (active && greenActive ? 0xFF6EAA6E : (hovered ? 0xFF777777 : 0xFF5F5F5F));
+            int outer = !enabled ? 0xFF555555 : (active && greenActive ? 0xFFA8D7AB : 0xFF858585);
             int inner = !enabled ? 0xFF383838
-                : (active && greenActive ? 0xFF456B45 : (hovered ? 0xFF666666 : 0xFF4A4A4A));
-            drawRect(xPosition, yPosition, xPosition + width, yPosition + height, borderColor);
-            drawRect(xPosition + 1, yPosition + 1, xPosition + width - 1, yPosition + height - 1, outer);
-            drawRect(xPosition + 3, yPosition + 3, xPosition + width - 3, yPosition + height - 4, inner);
-            drawRect(xPosition + 2, yPosition + 2, xPosition + width - 2, yPosition + 3, 0xFF9A9A9A);
+                : (active && greenActive ? 0xFF365C3C : (hovered ? 0xFF505050 : 0xFF3A3A3A));
+            drawRect(
+                xPosition,
+                yPosition,
+                xPosition + width,
+                yPosition + height,
+                borderColor == SEARCH_BUTTON_BORDER_COLOR ? borderColor : outer);
+            drawRect(xPosition + 1, yPosition + 1, xPosition + width - 1, yPosition + height - 1, inner);
             if (enabled) {
                 GL11.glColor4f(1.0F, 1.0F, 1.0F, 1.0F);
             } else {
