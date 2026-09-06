@@ -55,19 +55,12 @@ public final class HorizonRadioVolumeSlider extends GuiButton {
         if (!visible) {
             return;
         }
-        int background = 0xFF333333;
-        int filled = 0xFF55AA55;
-        int knob = 0xFFFFFFFF;
-        drawRect(xPosition, yPosition, xPosition + width, yPosition + height, background);
-        drawRect(xPosition, yPosition, xPosition + (int) (width * value), yPosition + height, filled);
+        int knob = 0xFFB5B5B5;
+        drawRect(xPosition, yPosition, xPosition + width, yPosition + height, 0xFF222222);
+        drawRect(xPosition + 1, yPosition + 1, xPosition + width - 1, yPosition + height - 1, 0xFF111111);
+        drawRect(xPosition + 2, yPosition + 3, xPosition + width - 2, yPosition + height - 3, 0xFF222222);
         int knobX = xPosition + (int) ((width - 1) * value);
-        drawRect(knobX - 2, yPosition, knobX + 2, yPosition + height, knob);
-        drawCenteredString(
-            minecraft.fontRenderer,
-            "Volume: " + (int) (value * 100) + "%",
-            xPosition + width / 2,
-            yPosition + 6,
-            0xFFFFFFFF);
+        drawRect(knobX - 2, yPosition + 1, knobX + 2, yPosition + height - 1, knob);
     }
 
     private static float clamp(float input) {

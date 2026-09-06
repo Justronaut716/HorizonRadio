@@ -24,8 +24,10 @@ world content.
   source-aware playback synchronization. Finite YouTube tracks use the shared
   server clock; radio carries station UUID plus generation and starts at the
   local live edge.
-- 300x285 client GUI with Charts, Search, Playlist, and Radio tabs; scrolling,
-  shared remove access, queue toggle buttons, progress, and volume control.
+- WebPrototype-aligned, responsive two-column client GUI with Songs/Radio tabs,
+  Charts/Search/Playlists modes, a persistent queue, scrolling, drag reorder,
+  playback controls, progress, and volume control. The prototype's Client,
+  Server, and Group scope controls are intentionally omitted for now.
 - Client-local Java Sound playback.
 
 There are deliberately no items, blocks, crafting or machine recipes,

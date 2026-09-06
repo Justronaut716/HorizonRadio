@@ -165,12 +165,15 @@ or `NowPlayingPacket` metadata.
 
 ## GUI and input
 
-`HorizonRadioScreen` preserves the 300x285 immediate-mode panel with Charts,
-Search, Playlist, and Radio tabs, scrolling, shared removal, drag-and-drop
-queue reordering, local volume, and source-aware controls. Search, charts,
-imports, Radio Browser lookup, and metadata resolution occur directly on the
-client. Queue rows resolve local display metadata from their server-distributed
-source IDs and can show a bounded ID/loading/error fallback.
+`HorizonRadioScreen` renders the WebPrototype-aligned responsive two-column
+panel. Songs and Radio are the visible top tabs; Songs contains Charts, Search,
+and Playlists modes, while the queue remains visible in the right column.
+Scrolling, shared removal, drag-and-drop queue reordering, local volume, and
+source-aware controls remain implemented in the Forge screen. The prototype's
+Client, Server, and Group scope controls are deliberately omitted. Search,
+charts, imports, Radio Browser lookup, and metadata resolution occur directly
+on the client. Queue rows resolve local display metadata from their
+server-distributed source IDs and can show a bounded ID/loading/error fallback.
 
 The Radio tab sends only the chosen station UUID. Radio mode disables pause and
 seek as well as finite-only controls; stopping radio returns control to the
