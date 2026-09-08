@@ -260,7 +260,7 @@ public class AudioDownloadService {
 
             @Override
             public String get() {
-                return metadataResolver.resolvePlaylistJson(playlistUrl);
+                return metadataResolver.resolvePlaylistJsonOrThrow(playlistUrl);
             }
         }, "playlist");
     }
@@ -270,7 +270,7 @@ public class AudioDownloadService {
 
             @Override
             public String get() {
-                return metadataResolver.resolveVideoJson(videoUrl);
+                return metadataResolver.resolveVideoJsonOrThrow(videoUrl);
             }
         }, "video");
     }
@@ -317,7 +317,7 @@ public class AudioDownloadService {
                     return operation.get();
                 } catch (RuntimeException exception) {
                     LOGGER.log(Level.WARNING, "YouTube " + operationName + " metadata lookup failed", exception);
-                    return null;
+                    throw exception;
                 }
             }
         }, discoveryExecutor);
@@ -457,6 +457,10 @@ public class AudioDownloadService {
 
     public boolean isDependenciesAvailable() {
         return downloadBackend.isReady();
+    }
+
+    public synchronized long rateLimitRetryAt(String videoId) {
+        return activeDownloads.containsKey(videoId) ? downloadBackend.nextRateLimitRetryAtMillis() : 0L;
     }
 
     public void shutdown() {

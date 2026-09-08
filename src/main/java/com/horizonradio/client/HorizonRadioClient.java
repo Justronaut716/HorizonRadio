@@ -59,7 +59,34 @@ public final class HorizonRadioClient {
     private static final List<HorizonRadioScreen.PlaylistEntry> CACHED_PLAYLIST = new ArrayList<HorizonRadioScreen.PlaylistEntry>();
     private static final List<HorizonRadioScreen.SearchResult> CACHED_CHARTS = new ArrayList<HorizonRadioScreen.SearchResult>();
     private static final List<HorizonRadioScreen.SearchResult> CACHED_PLAYLIST_RESULTS = new ArrayList<HorizonRadioScreen.SearchResult>();
+    private static String cachedPlaylistTitle = "";
     private static final List<RadioStation> CACHED_RADIO_RESULTS = new ArrayList<RadioStation>();
+    private static String selectedRadioUuid = "";
+    private static String selectedRadioName = "";
+    private static String mediaError = "";
+    private static long dismissedRateLimitUntil;
+
+    static synchronized void showMediaError(Throwable failure, String fallback) {
+        mediaError = MediaErrorMessage.describe(failure, fallback);
+    }
+
+    static synchronized void dismissMediaError() {
+        mediaError = "";
+        dismissedRateLimitUntil = clientAudioDownloadService == null || activeTrackVideoId == null ? 0L
+            : clientAudioDownloadService.rateLimitRetryAt(activeTrackVideoId);
+    }
+
+    static synchronized String mediaStatusMessage() {
+        if (clientAudioDownloadService != null && activeTrackVideoId != null) {
+            long retryAt = clientAudioDownloadService.rateLimitRetryAt(activeTrackVideoId);
+            long remaining = retryAt - System.currentTimeMillis();
+            if (remaining > 0 && retryAt > dismissedRateLimitUntil) {
+                return "YouTube rate limit - retrying in " + ((remaining + 999L) / 1000L) + "s";
+            }
+        }
+        return mediaError;
+    }
+
     private static final long CHART_CACHE_TTL_MILLIS = 7L * 24L * 60L * 60L * 1000L;
     private static final int AUDIO_CACHE_NEIGHBOURHOOD = 2;
     private static String cachedNowPlaying;
@@ -452,7 +479,12 @@ public final class HorizonRadioClient {
         clientRadioPlayback = playback;
     }
 
+    static synchronized void cancelPendingSongSearch() {
+        searchTabDiscoveryGeneration++;
+    }
+
     public static synchronized void sendSearch(String query) {
+        mediaError = "";
         if (clientMediaService == null) {
             updateSearchResults(new ArrayList<HorizonRadioScreen.SearchResult>());
             return;
@@ -472,7 +504,7 @@ public final class HorizonRadioClient {
                                     return;
                                 }
                                 if (failure != null) {
-                                    showSearchError();
+                                    showSearchError(failure);
                                 } else {
                                     updateSearchResults(toScreenResults(results));
                                 }
@@ -492,6 +524,7 @@ public final class HorizonRadioClient {
     }
 
     public static synchronized void sendChartsRequest(String regionCode, boolean forceRefresh) {
+        mediaError = "";
         String canonicalRegionCode = canonicalChartRegionCode(regionCode, ChartRegionCatalog.GLOBAL_CODE);
         final HorizonRadioScreen originatingScreen = getOpenScreen();
         pendingChartRegionCode = canonicalRegionCode;
@@ -520,7 +553,7 @@ public final class HorizonRadioClient {
                             public void run() {
                                 synchronized (HorizonRadioClient.class) {
                                     if (isCurrentChartRequest(generation, originatingScreen)) {
-                                        showChartError();
+                                        showChartError(failure);
                                     }
                                 }
                             }
@@ -540,7 +573,7 @@ public final class HorizonRadioClient {
                                             return;
                                         }
                                         if (resolutionFailure != null) {
-                                            showChartError();
+                                            showChartError(resolutionFailure);
                                             return;
                                         }
                                         updateChartResults(toScreenResults(resolved), canonicalRegionCode);
@@ -573,6 +606,7 @@ public final class HorizonRadioClient {
     }
 
     public static synchronized void sendPlaylistImport(String playlistUrl) {
+        mediaError = "";
         String sanitizedUrl = playlistUrl == null ? "" : playlistUrl.trim();
         final HorizonRadioScreen originatingScreen = getOpenScreen();
         if (!PlaylistImportService.isPlaylistUrl(sanitizedUrl)) {
@@ -591,15 +625,15 @@ public final class HorizonRadioClient {
         if (clientMediaService == null) {
             if (originatingScreen != null && isCurrentPlaylistImport(generation, originatingScreen)) {
                 playlistImportScreen = null;
-                originatingScreen.showPlaylistError("Playlist konnte nicht geladen werden");
+                originatingScreen.showPlaylistError("Playlist could not be loaded");
             }
             return;
         }
-        clientMediaService.importPlaylist(sanitizedUrl)
-            .whenComplete(new BiConsumer<List<SearchResult>, Throwable>() {
+        clientMediaService.importPlaylistDetails(sanitizedUrl)
+            .whenComplete(new BiConsumer<ClientMediaService.PlaylistDetails, Throwable>() {
 
                 @Override
-                public void accept(final List<SearchResult> results, final Throwable failure) {
+                public void accept(final ClientMediaService.PlaylistDetails results, final Throwable failure) {
                     ClientProxy.scheduleOnClientThread(new Runnable() {
 
                         @Override
@@ -610,9 +644,11 @@ public final class HorizonRadioClient {
                                 }
                                 playlistImportScreen = null;
                                 if (failure != null) {
-                                    originatingScreen.showPlaylistError("Playlist konnte nicht geladen werden");
+                                    showMediaError(failure, "Playlist could not be loaded - please try again.");
+                                    originatingScreen.showPlaylistError("Playlist could not be loaded");
                                 } else {
-                                    publishPlaylistResults(toScreenPlaylistResults(results), originatingScreen);
+                                    cachedPlaylistTitle = results.title;
+                                    publishPlaylistResults(toScreenPlaylistResults(results.songs), originatingScreen);
                                 }
                             }
                         }
@@ -645,7 +681,7 @@ public final class HorizonRadioClient {
                                     imported.add(result);
                                 }
                                 if (failure != null) {
-                                    showSearchError();
+                                    showSearchError(failure);
                                 } else {
                                     updateSearchResults(toScreenResults(imported));
                                 }
@@ -677,6 +713,7 @@ public final class HorizonRadioClient {
     }
 
     public static synchronized void sendPlayNow(String videoId, long durationMs) {
+        mediaError = "";
         if (isValidSelection(videoId, durationMs)) {
             sendPlayNowSelection(new PlaylistSelection(videoId, durationMs));
         }
@@ -696,6 +733,7 @@ public final class HorizonRadioClient {
                     public void run() {
                         synchronized (HorizonRadioClient.class) {
                             if (failure != null || resolution == null || resolution.selection == null) {
+                                showMediaError(failure, "Song could not be started - please try again.");
                                 debugChat(
                                     "Direktes Abspielen fehlgeschlagen: " + result.videoId
                                         + " ("
@@ -981,7 +1019,7 @@ public final class HorizonRadioClient {
                                     return;
                                 }
                                 if (failure != null) {
-                                    showRadioError();
+                                    showRadioError(failure);
                                 } else {
                                     updateRadioSearchResults(stations);
                                 }
@@ -993,12 +1031,43 @@ public final class HorizonRadioClient {
     }
 
     public static synchronized void sendSelectRadio(String stationUuid) {
+        mediaError = "";
         if (playbackMode == PlaybackMode.PRIVATE) {
             invalidateAndStopPrivatePlayback(true);
             refreshCachedPlaylistFromActiveQueue();
             return;
         }
         transport.sendSelectRadio(stationUuid);
+    }
+
+    public static synchronized void sendSelectRadio(String stationUuid, String stationName) {
+        selectedRadioUuid = stationUuid == null ? "" : stationUuid;
+        selectedRadioName = stationName == null ? "" : stationName.trim();
+        sendSelectRadio(stationUuid);
+    }
+
+    private static String initialRadioName(String stationUuid) {
+        if (stationUuid.equals(selectedRadioUuid) && !selectedRadioName.isEmpty()) {
+            return selectedRadioName;
+        }
+        for (RadioStation station : CACHED_RADIO_RESULTS) {
+            if (stationUuid.equals(station.getStationUuid()) && station.getName() != null
+                && !station.getName()
+                    .trim()
+                    .isEmpty()) {
+                return station.getName();
+            }
+        }
+        for (ClientFavorites.Radio favorite : clientFavorites.getRadios()) {
+            if (stationUuid.equals(favorite.getStationUuid()) && !favorite.getName()
+                .isEmpty()) {
+                return favorite.getName();
+            }
+        }
+        if (cachedRadioPresentation != null && stationUuid.equals(cachedRadioPresentation.getStationUuid())) {
+            return cachedRadioPresentation.getStationName();
+        }
+        return "Loading station...";
     }
 
     public static synchronized void sendStopRadio() {
@@ -1027,6 +1096,10 @@ public final class HorizonRadioClient {
         return new ArrayList<HorizonRadioScreen.SearchResult>(CACHED_PLAYLIST_RESULTS);
     }
 
+    public static synchronized String getCachedPlaylistTitle() {
+        return cachedPlaylistTitle;
+    }
+
     public static synchronized String getCachedChartRegionCode() {
         return cachedChartRegionCode;
     }
@@ -1040,11 +1113,70 @@ public final class HorizonRadioClient {
     }
 
     public static synchronized List<ClientFavorites.Song> getFavoriteSongs() {
+        refreshFavoritedSongsFromMetadata();
         return clientFavorites.getSongs();
+    }
+
+    public static synchronized String getCurrentSongArtist() {
+        if (activeTrackSourceType != MediaSourceType.YOUTUBE || activeTrackVideoId == null
+            || activeTrackVideoId.trim()
+                .length() == 0) {
+            return "";
+        }
+        SearchResult metadata = clientMetadataCache == null ? null : clientMetadataCache.getVideo(activeTrackVideoId);
+        if (metadata == null && clientMetadataCache != null) {
+            requestVideoMetadata(activeTrackVideoId);
+        }
+        String artist = metadata == null ? "" : nonBlankOrEmpty(metadata.getChannel());
+        if (artist.length() > 0) {
+            return artist;
+        }
+        for (ClientFavorites.Song favorite : clientFavorites.getSongs()) {
+            if (favorite != null && activeTrackVideoId.equals(favorite.getVideoId())) {
+                return nonBlankOrEmpty(favorite.getChannel());
+            }
+        }
+        for (HorizonRadioScreen.PlaylistEntry entry : CACHED_PLAYLIST) {
+            if (entry != null && activeTrackVideoId.equals(entry.sourceId) && entry.localVideoMetadata != null) {
+                return nonBlankOrEmpty(entry.localVideoMetadata.channel);
+            }
+        }
+        return "";
+    }
+
+    public static synchronized boolean isSongFavorite(String videoId) {
+        return clientFavorites.isSongFavorite(videoId);
+    }
+
+    public static synchronized boolean toggleSongFavorite(HorizonRadioScreen.SearchResult result) {
+        if (result == null || result.videoId == null
+            || result.videoId.trim()
+                .isEmpty()) {
+            return false;
+        }
+        boolean added = clientFavorites.toggleSong(
+            new ClientFavorites.Song(result.videoId, result.title, result.channel, result.duration, result.thumbnail));
+        persistClientFavorites();
+        return added;
     }
 
     public static synchronized List<ClientFavorites.Radio> getFavoriteRadios() {
         return clientFavorites.getRadios();
+    }
+
+    public static synchronized boolean isRadioFavorite(String stationUuid) {
+        return clientFavorites.isRadioFavorite(stationUuid);
+    }
+
+    public static synchronized boolean toggleRadioFavorite(HorizonRadioScreen.RadioStationResult station) {
+        if (station == null || station.stationUuid == null
+            || station.stationUuid.trim()
+                .isEmpty()) {
+            return false;
+        }
+        boolean added = clientFavorites.toggleRadio(new ClientFavorites.Radio(station.stationUuid, station.name));
+        persistClientFavorites();
+        return added;
     }
 
     public static synchronized boolean hasCurrentFavoriteSource() {
@@ -1527,7 +1659,12 @@ public final class HorizonRadioClient {
             clearCachedMusicState();
             AudioPlayer.getInstance()
                 .stop();
-            setLocalRadioPresentation(ClientRadioPresentation.live(packet.getGeneration(), packet.getSourceId()));
+            setLocalRadioPresentation(
+                ClientRadioPresentation.active(
+                    packet.getGeneration(),
+                    packet.getSourceId(),
+                    initialRadioName(packet.getSourceId()),
+                    "LIVE"));
             if (clientRadioPlayback != null) {
                 clientRadioPlayback.start(packet.getGeneration(), packet.getSourceId());
                 debugChat("Radio " + packet.getSourceId() + " lokal angefordert.");
@@ -1611,6 +1748,7 @@ public final class HorizonRadioClient {
                                 return;
                             }
                             if (failure != null || filePath == null || !Files.isRegularFile(filePath)) {
+                                showMediaError(failure, "Audio download failed - please try again.");
                                 debugChat("Lokaler Audio-Download fehlgeschlagen: " + videoId);
                                 return;
                             }
@@ -1724,7 +1862,12 @@ public final class HorizonRadioClient {
         CACHED_PLAYLIST.clear();
         CACHED_CHARTS.clear();
         CACHED_PLAYLIST_RESULTS.clear();
+        cachedPlaylistTitle = "";
         CACHED_RADIO_RESULTS.clear();
+        selectedRadioUuid = "";
+        selectedRadioName = "";
+        mediaError = "";
+        dismissedRateLimitUntil = 0L;
         cachedChartsAt = 0L;
         chartRequestPending = false;
         chartRequestScreen = null;
@@ -2040,11 +2183,51 @@ public final class HorizonRadioClient {
     }
 
     private static void refreshFavoritedCurrentSongMetadata() {
-        ClientFavorites.Song current = currentSongFavorite();
-        if (current != null && clientFavorites.isSongFavorite(current.getVideoId())) {
-            clientFavorites.updateSong(current);
+        refreshFavoritedSongsFromMetadata();
+    }
+
+    private static void refreshFavoritedSongsFromMetadata() {
+        if (clientMetadataCache == null) {
+            return;
+        }
+        boolean changed = false;
+        for (ClientFavorites.Song favorite : clientFavorites.getSongs()) {
+            if (favorite == null || favorite.getVideoId()
+                .length() == 0) {
+                continue;
+            }
+            SearchResult metadata = clientMetadataCache.getVideo(favorite.getVideoId());
+            if (metadata == null) {
+                requestVideoMetadata(favorite.getVideoId());
+                continue;
+            }
+            ClientFavorites.Song enriched = mergeFavoriteMetadata(favorite, metadata);
+            if (!enriched.equals(favorite)) {
+                clientFavorites.updateSong(enriched);
+                changed = true;
+            }
+        }
+        if (changed) {
             persistClientFavorites();
         }
+    }
+
+    private static ClientFavorites.Song mergeFavoriteMetadata(ClientFavorites.Song favorite, SearchResult metadata) {
+        return new ClientFavorites.Song(
+            favorite.getVideoId(),
+            preferNonBlank(metadata.getTitle(), favorite.getTitle()),
+            preferNonBlank(metadata.getChannel(), favorite.getChannel()),
+            preferNonBlank(metadata.getDuration(), favorite.getDuration()),
+            preferNonBlank(metadata.getThumbnail(), favorite.getThumbnail()));
+    }
+
+    private static String preferNonBlank(String preferred, String fallback) {
+        return preferred != null && preferred.trim()
+            .length() > 0 ? preferred : nonBlankOrEmpty(fallback);
+    }
+
+    private static String nonBlankOrEmpty(String value) {
+        return value == null ? "" : value;
     }
 
     private static void refreshFavoritedCurrentRadioMetadata() {
@@ -2077,7 +2260,7 @@ public final class HorizonRadioClient {
                         synchronized (HorizonRadioClient.class) {
                             if (generation == searchTabDiscoveryGeneration) {
                                 if (failure != null) {
-                                    showSearchError();
+                                    showSearchError(failure);
                                 } else {
                                     updateSearchResults(toScreenResults(results));
                                 }
@@ -2288,6 +2471,7 @@ public final class HorizonRadioClient {
                         @Override
                         public void run() {
                             synchronized (HorizonRadioClient.class) {
+                                refreshFavoritedSongsFromMetadata();
                                 refreshCachedPlaylistFromActiveQueue();
                             }
                         }
@@ -2393,7 +2577,7 @@ public final class HorizonRadioClient {
             CACHED_PLAYLIST_RESULTS.addAll(results);
         }
         if (screen != null) {
-            screen.updatePlaylistResults(CACHED_PLAYLIST_RESULTS);
+            screen.updatePlaylistResults(CACHED_PLAYLIST_RESULTS, cachedPlaylistTitle);
         }
     }
 
@@ -2482,14 +2666,16 @@ public final class HorizonRadioClient {
         }
     }
 
-    private static void showSearchError() {
+    private static void showSearchError(Throwable failure) {
+        showMediaError(failure, "Search failed - please try again.");
         HorizonRadioScreen screen = getOpenScreen();
         if (screen != null) {
             screen.showSearchError();
         }
     }
 
-    private static void showChartError() {
+    private static void showChartError(Throwable failure) {
+        showMediaError(failure, "Charts could not be loaded - please try again.");
         chartRequestPending = false;
         chartRequestScreen = null;
         HorizonRadioScreen screen = getOpenScreen();
@@ -2498,7 +2684,8 @@ public final class HorizonRadioClient {
         }
     }
 
-    private static void showRadioError() {
+    private static void showRadioError(Throwable failure) {
+        showMediaError(failure, "Radio search failed - please try again.");
         HorizonRadioScreen screen = getOpenScreen();
         if (screen != null) {
             screen.showRadioError();
@@ -2843,6 +3030,7 @@ public final class HorizonRadioClient {
                                 return;
                             }
                             if (failure != null || filePath == null || !Files.isRegularFile(filePath)) {
+                                showMediaError(failure, "Audio download failed - please try again.");
                                 failPrivateFiniteStart(
                                     generation,
                                     videoId,

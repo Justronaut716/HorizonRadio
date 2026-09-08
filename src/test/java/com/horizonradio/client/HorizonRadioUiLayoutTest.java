@@ -10,7 +10,7 @@ public class HorizonRadioUiLayoutTest {
     @Test
     public void prototypePanelUsesTheReferenceDimensions() {
         assertEquals(360, HorizonRadioScreen.PANEL_WIDTH);
-        assertEquals(322, HorizonRadioScreen.PANEL_HEIGHT);
+        assertEquals(346, HorizonRadioScreen.PANEL_HEIGHT);
     }
 
     @Test
@@ -18,11 +18,11 @@ public class HorizonRadioUiLayoutTest {
         HorizonRadioUiLayout layout = HorizonRadioUiLayout.create(640, 360);
 
         assertEquals(360, layout.panelWidth());
-        assertEquals(322, layout.panelHeight());
-        assertEquals(340.0F / 322.0F, layout.scale(), 0.0001f);
-        assertEquals(380, layout.scaledPanelWidth());
+        assertEquals(346, layout.panelHeight());
+        assertEquals(340.0F / 346.0F, layout.scale(), 0.0001f);
+        assertEquals(354, layout.scaledPanelWidth());
         assertEquals(340, layout.scaledPanelHeight());
-        assertEquals(130, layout.panelLeft());
+        assertEquals(143, layout.panelLeft());
         assertEquals(10, layout.panelTop());
         assertTrue(layout.queueLeft() > layout.contentLeft());
         assertTrue(layout.footerTop() > layout.bodyTop());

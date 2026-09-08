@@ -4,7 +4,7 @@ package com.horizonradio.client;
 final class HorizonRadioUiLayout {
 
     static final int REFERENCE_PANEL_WIDTH = 360;
-    static final int REFERENCE_PANEL_HEIGHT = 322;
+    static final int REFERENCE_PANEL_HEIGHT = 346;
     private static final int SCREEN_MARGIN = 10;
     private static final float MAX_SCALE = 1.10F;
     private static final int HEADER_BOTTOM = 36;
@@ -14,8 +14,8 @@ final class HorizonRadioUiLayout {
     private static final int QUEUE_GAP = 4;
     private static final int QUEUE_WIDTH = 120;
     private static final int FOOTER_TOP = 251;
-    private static final int FOOTER_HEIGHT = 53;
-    private static final int VOLUME_TOP = 304;
+    private static final int FOOTER_HEIGHT = 73;
+    private static final int VOLUME_TOP = 328;
     private static final int VOLUME_HEIGHT = 14;
 
     private final int screenWidth;

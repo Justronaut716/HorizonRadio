@@ -59,17 +59,28 @@ public final class HorizonRadioVolumeSlider extends GuiButton {
         if (!visible) {
             return;
         }
-        drawRect(xPosition, yPosition, xPosition + width, yPosition + height, 0xFF222222);
-        drawRect(xPosition + 1, yPosition + 1, xPosition + width - 1, yPosition + height - 1, 0xFF111111);
         int trackLeft = xPosition + 2;
-        int trackTop = yPosition + 3;
+        int trackTop = yPosition + (height - 3) / 2;
         int trackRight = xPosition + width - 2;
-        int trackBottom = yPosition + height - 3;
-        drawRect(trackLeft, trackTop, trackRight, trackBottom, 0xFF222222);
+        int trackBottom = trackTop + 3;
+        boolean hovered = enabled && mouseX >= xPosition
+            && mouseX < xPosition + width
+            && mouseY >= yPosition
+            && mouseY < yPosition + height;
+        drawRect(trackLeft, trackTop, trackRight, trackBottom, 0xFF303030);
         int fillWidth = volumeTrackFillWidth(width, value);
         if (fillWidth > 0) {
-            drawRect(trackLeft, trackTop, trackLeft + fillWidth, trackBottom, 0xFFB5B5B5);
+            drawRect(trackLeft, trackTop, trackLeft + fillWidth, trackBottom, 0xFF929292);
+            drawRect(trackLeft, trackTop, trackLeft + fillWidth, trackTop + 1, 0xFFB0B0B0);
         }
+        int thumbX = trackLeft + fillWidth;
+        drawGradientRect(
+            thumbX - 1,
+            trackTop - 2,
+            thumbX + 1,
+            trackBottom + 2,
+            hovered || dragging ? 0xFFFFFFFF : 0xFFDDDDDD,
+            hovered || dragging ? 0xFFBDBDBD : 0xFF8C8C8C);
     }
 
     private static float clamp(float input) {

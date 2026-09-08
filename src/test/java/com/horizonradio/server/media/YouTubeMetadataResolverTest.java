@@ -22,6 +22,31 @@ import com.google.gson.JsonParser;
 public class YouTubeMetadataResolverTest {
 
     @Test
+    public void strictMetadataLookupPreservesHttpFailureForTheUi() {
+        YouTubeMetadataResolver resolver = new YouTubeMetadataResolver(new YouTubeMediaModels.HttpRequester() {
+
+            @Override
+            public YouTubeMediaModels.HttpResponse post(URL url, Map<String, String> headers, byte[] body,
+                int timeoutMillis, long maximumBytes) throws java.io.IOException {
+                throw new YouTubeMediaModels.HttpStatusException(429);
+            }
+
+            @Override
+            public YouTubeMediaModels.HttpResponse get(URL url, Map<String, String> headers, int timeoutMillis,
+                long maximumBytes) {
+                throw new AssertionError("Unexpected GET");
+            }
+        });
+        assertNull(resolver.resolvePlaylistJson("https://www.youtube.com/playlist?list=PLfixture"));
+        try {
+            resolver.resolvePlaylistJsonOrThrow("https://www.youtube.com/playlist?list=PLfixture");
+            org.junit.Assert.fail("The rate limit must reach the UI");
+        } catch (java.util.concurrent.CompletionException failure) {
+            assertEquals(429, ((YouTubeMediaModels.HttpStatusException) failure.getCause()).getStatusCode());
+        }
+    }
+
+    @Test
     public void producesPlaylistImportCompatibleVideoJsonFromPlayerFixture() throws Exception {
         FixtureHttp http = new FixtureHttp();
         http.enqueue(player("dQw4w9WgXcQ", "Fixture song", "125"));
@@ -56,6 +81,21 @@ public class YouTubeMetadataResolverTest {
     }
 
     @Test
+    public void includesThePlayerAuthorAsTheVideoChannel() throws Exception {
+        FixtureHttp http = new FixtureHttp();
+        http.enqueue(player("dQw4w9WgXcQ", "Fixture song", "125", "Artist"));
+
+        JsonObject video = new JsonParser()
+            .parse(new YouTubeMetadataResolver(http).resolveVideoJson("https://youtu.be/dQw4w9WgXcQ"))
+            .getAsJsonObject();
+
+        assertEquals(
+            "Artist",
+            video.get("channel")
+                .getAsString());
+    }
+
+    @Test
     public void returnsNullForUnavailableLiveOrMalformedVideoMetadata() throws Exception {
         FixtureHttp unavailable = new FixtureHttp();
         unavailable.enqueue("{\"playabilityStatus\":{\"status\":\"LOGIN_REQUIRED\"}}");
@@ -87,6 +127,13 @@ public class YouTubeMetadataResolverTest {
 
         String output = new YouTubeMetadataResolver(http)
             .resolvePlaylistJson("https://www.youtube.com/playlist?list=PLfixture");
+
+        assertEquals(
+            "Fixture Playlist",
+            new JsonParser().parse(output)
+                .getAsJsonObject()
+                .get("title")
+                .getAsString());
 
         JsonArray entries = new JsonParser().parse(output)
             .getAsJsonObject()
@@ -225,9 +272,15 @@ public class YouTubeMetadataResolverTest {
     }
 
     private static String player(String id, String title, String seconds) {
+        return player(id, title, seconds, "");
+    }
+
+    private static String player(String id, String title, String seconds, String author) {
         return "{\"playabilityStatus\":{\"status\":\"OK\"},\"videoDetails\":{\"videoId\":\"" + id
             + "\",\"title\":\""
             + title
+            + "\",\"author\":\""
+            + author
             + "\",\"lengthSeconds\":\""
             + seconds
             + "\",\"isLiveContent\":false}}";

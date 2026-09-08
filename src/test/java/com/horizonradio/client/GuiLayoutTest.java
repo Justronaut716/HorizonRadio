@@ -73,6 +73,22 @@ public class GuiLayoutTest {
     }
 
     @Test
+    public void failedPlaylistImportShowsRateLimitInTheSharedStatusLine() {
+        CompletableFuture<String> response = new CompletableFuture<String>();
+        HorizonRadioClient.setClientMediaService(new ClientMediaService(new PendingPlaylistImportProvider(response)));
+        TestScreen screen = new TestScreen();
+        screen.initialize();
+        screen.selectPlaylistDiscoveryTab();
+        HorizonRadioClient.sendPlaylistImport("https://www.youtube.com/playlist?list=PLtest");
+        response.completeExceptionally(new java.io.IOException("HTTP 429"));
+        assertEquals("YouTube rate limit - please try again later.", HorizonRadioClient.mediaStatusMessage());
+        screen.selectSearchTab();
+        assertEquals("YouTube rate limit - please try again later.", HorizonRadioClient.mediaStatusMessage());
+        HorizonRadioClient.dismissMediaError();
+        assertEquals("", HorizonRadioClient.mediaStatusMessage());
+    }
+
+    @Test
     public void cacheUpdatesRefreshTheRegisteredOpenScreen() {
         HorizonRadioScreen screen = new HorizonRadioScreen();
         HorizonRadioScreen.setActiveScreen(screen);
@@ -96,7 +112,7 @@ public class GuiLayoutTest {
         HorizonRadioClient.setClientMediaService(
             new ClientMediaService(
                 new ImmediatePlaylistImportProvider(
-                    "{\"entries\":[{\"id\":\"cached-playlist-song\",\"title\":\"Cached Playlist Song\",\"duration\":60}]}")));
+                    "{\"title\":\"My YouTube Playlist\",\"entries\":[{\"id\":\"cached-playlist-song\",\"title\":\"Cached Playlist Song\",\"duration\":60}]}")));
         TestScreen original = new TestScreen();
         TestScreen reopened = new TestScreen();
         original.setScreenSize(300, 285);
@@ -111,6 +127,8 @@ public class GuiLayoutTest {
             reopened.selectPlaylistDiscoveryTab();
 
             assertEquals(Collections.singletonList("cached-playlist-song"), reopened.playlistResultVideoIds());
+            assertEquals("My YouTube Playlist", original.getPlaylistTitle());
+            assertEquals("My YouTube Playlist", reopened.getPlaylistTitle());
             assertTrue(
                 reopened.getPlaylistSnapshot()
                     .isEmpty());
@@ -171,10 +189,38 @@ public class GuiLayoutTest {
         screen.setScreenSize(300, 285);
         try {
             screen.initialize();
+            screen.selectChartsTab();
 
             assertEquals(0, transport.chartRequestCount);
             assertEquals("", screen.getChartRegionCode());
             assertFalse(screen.refreshButton().enabled);
+            assertFalse(screen.refreshButton().visible);
+            assertFalse(screen.controlButton(18).visible);
+
+            screen.updateChartResults(singleResult(), "DE");
+
+            assertTrue(screen.refreshButton().visible);
+            assertTrue(screen.controlButton(18).visible);
+        } finally {
+            HorizonRadioScreen.clearActiveScreen(screen);
+        }
+    }
+
+    @Test
+    public void playlistDiscoveryControlsStayHiddenUntilPlaylistResultsArrive() {
+        TestScreen screen = new TestScreen();
+        screen.usePrototypeViewport();
+        try {
+            screen.initialize();
+            screen.selectChartsTab();
+            screen.updateChartResults(singleResult(), "DE");
+            assertTrue(screen.controlButton(18).visible);
+
+            screen.selectPlaylistDiscoveryTab();
+            assertFalse(screen.controlButton(18).visible);
+
+            screen.updatePlaylistResults(singleResult());
+            assertTrue(screen.controlButton(18).visible);
         } finally {
             HorizonRadioScreen.clearActiveScreen(screen);
         }
@@ -223,6 +269,47 @@ public class GuiLayoutTest {
     }
 
     @Test
+    public void chartActionsShareTheSongQueueButtonColumn() {
+        TestScreen screen = new TestScreen();
+        screen.usePrototypeViewport();
+        try {
+            screen.initialize();
+
+            GuiButton bulkAdd = screen.controlButton(18);
+            GuiButton refresh = screen.refreshButton();
+            int songButtonLeft = screen.resultQueueButtonCenterX() - screenConstant("QUEUE_BUTTON_WIDTH") / 2;
+
+            assertEquals(songButtonLeft, bulkAdd.xPosition);
+            assertEquals(bulkAdd.xPosition - bulkAdd.width - screenConstant("SEARCH_CONTROL_GAP"), refresh.xPosition);
+            assertEquals(bulkAdd.yPosition, refresh.yPosition);
+        } finally {
+            HorizonRadioScreen.clearActiveScreen(screen);
+        }
+    }
+
+    @Test
+    public void queueClearPolicyHidesDeleteAllUntilQueueHasEntries() {
+        assertFalse(invokeShouldShowQueueClearButton(0, false));
+        assertTrue(invokeShouldShowQueueClearButton(1, false));
+        assertTrue(invokeShouldShowQueueClearButton(0, true));
+    }
+
+    @Test
+    public void volumeSliderUsesTheSharedFooterAlignmentLine() {
+        TestScreen screen = new TestScreen();
+        screen.usePrototypeViewport();
+        try {
+            screen.initialize();
+
+            assertEquals(
+                screen.prototypePanelTop() + screenConstant("VOLUME_TOP_OFFSET") + 2,
+                screen.controlButton(3).yPosition);
+        } finally {
+            HorizonRadioScreen.clearActiveScreen(screen);
+        }
+    }
+
+    @Test
     public void modeTabsReserveCompactNativeTextWithoutChangingPrototypeGeometry() {
         TestScreen screen = new TestScreen();
         screen.usePrototypeViewport();
@@ -241,6 +328,49 @@ public class GuiLayoutTest {
     }
 
     @Test
+    public void playlistDiscoveryTabUsesTheSingularLabel() {
+        TestScreen screen = new TestScreen();
+        screen.usePrototypeViewport();
+        try {
+            screen.initialize();
+
+            assertEquals("Playlist", screen.buttonLabel(13));
+        } finally {
+            HorizonRadioScreen.clearActiveScreen(screen);
+        }
+    }
+
+    @Test
+    public void aNewScreenStartsOnSearchTab() {
+        TestScreen screen = new TestScreen();
+        screen.usePrototypeViewport();
+        try {
+            screen.initialize();
+
+            assertEquals(screenConstant("SEARCH_TAB"), screen.currentTab());
+        } finally {
+            HorizonRadioScreen.clearActiveScreen(screen);
+        }
+    }
+
+    @Test
+    public void favoritedSearchResultsUseAHeartGlyph() {
+        assertEquals("\u2661", invokeSearchResultGlyph(true));
+        assertEquals("\u266B", invokeSearchResultGlyph(false));
+    }
+
+    @Test
+    public void searchResultsUseSlimTextGlyphsAndQueueStatusUsesMinus() throws IOException {
+        assertEquals("-", HorizonRadioScreen.chartQueueButtonLabel(true, false));
+        assertEquals("\u2661", invokeSearchResultGlyph(true));
+        assertEquals("\u266B", invokeSearchResultGlyph(false));
+        String screen = readSource("src/main/java/com/horizonradio/client/HorizonRadioScreen.java");
+        assertTrue(screen.contains("textures/gui/Favorite.png"));
+        assertTrue(screen.contains("drawResultGlyph"));
+        assertTrue(screen.contains("drawUiCenteredString(searchResultGlyph"));
+    }
+
+    @Test
     public void volumeTrackReportsTheFilledPrototypePortion() {
         assertEquals(0, HorizonRadioVolumeSlider.volumeTrackFillWidth(100, 0.0F));
         assertEquals(48, HorizonRadioVolumeSlider.volumeTrackFillWidth(100, 0.5F));
@@ -255,8 +385,74 @@ public class GuiLayoutTest {
 
     @Test
     public void songResultsMoveUpWhenLoadingBarIsHidden() {
-        assertEquals(screenConstant("CONTENT_LIST_TOP_OFFSET"), HorizonRadioScreen.searchListTopOffset(true));
-        assertEquals(screenConstant("CONTENT_LIST_TOP_OFFSET"), HorizonRadioScreen.searchListTopOffset(false));
+        int expectedTop = screenConstant("SEARCH_CONTROL_Y_OFFSET") + screenConstant("SEARCH_CONTROL_HEIGHT")
+            + screenConstant("SEARCH_RESULT_VERTICAL_MARGIN");
+
+        assertEquals(expectedTop, HorizonRadioScreen.searchListTopOffset(true));
+        assertEquals(expectedTop, HorizonRadioScreen.searchListTopOffset(false));
+    }
+
+    @Test
+    public void searchResultsUseTheFreedTitleSpaceForASeventhRow() {
+        int listBottom = HorizonRadioScreen.searchListTopOffset(false)
+            + screenConstant("SEARCH_MAX_VISIBLE_ROWS") * screenConstant("ROW_HEIGHT")
+            - 2;
+
+        assertEquals(7, screenConstant("SEARCH_MAX_VISIBLE_ROWS"));
+        assertTrue("Search rows overlap the body footer", listBottom <= screenConstant("BODY_BOTTOM_OFFSET"));
+    }
+
+    @Test
+    public void songResultsHaveBalancedVerticalMargins() {
+        int searchControlBottom = screenConstant("SEARCH_CONTROL_Y_OFFSET") + screenConstant("SEARCH_CONTROL_HEIGHT");
+        int listTop = HorizonRadioScreen.searchListTopOffset(false);
+        int listBottom = listTop + screenConstant("SEARCH_MAX_VISIBLE_ROWS") * screenConstant("ROW_HEIGHT");
+        int topMargin = listTop - searchControlBottom;
+        int bottomMargin = screenConstant("BODY_BOTTOM_OFFSET") - listBottom;
+
+        assertEquals(topMargin, bottomMargin);
+        assertEquals(6, topMargin);
+    }
+
+    @Test
+    public void resultScrollbarStartsAtTheResultBoxEdge() {
+        int contentLeft = screenConstant("CONTENT_LEFT_INSET");
+        int contentRight = contentLeft + screenConstant("CONTENT_WIDTH") - 7;
+        int scrollbarLeft = contentRight - screenConstant("RESULT_SCROLLBAR_LEFT_OFFSET");
+
+        assertEquals(contentRight, scrollbarLeft);
+    }
+
+    @Test
+    public void seventhSearchResultRemainsClickable() {
+        TestScreen screen = new TestScreen();
+        screen.usePrototypeViewport();
+        screen.initialize();
+        screen.selectSearchTab();
+        screen.setSearchText("songs");
+        screen.updateSearchResults(searchResults(7));
+
+        screen.click(screen.resultRowCenterX(), screen.searchRowCenterY(6));
+
+        assertEquals("video-6|120000", transport.playNowRequest);
+    }
+
+    @Test
+    public void timeBarUsesThePrototypeTrackAndClampedFill() {
+        assertEquals(40, screenConstant("TIME_BAR_SIDE_SPACE"));
+        assertEquals(13, screenConstant("TIME_BAR_LABEL_LEFT_OFFSET"));
+        assertEquals(5, screenConstant("TIME_BAR_HEIGHT"));
+        assertEquals(0xFF3C3C3C, screenConstant("TIME_BAR_TRACK_COLOR"));
+        assertEquals(0xFF79D38A, screenConstant("TIME_BAR_PROGRESS_COLOR"));
+        assertEquals(0, HorizonRadioScreen.timeBarFillWidth(100, -0.2F));
+        assertEquals(50, HorizonRadioScreen.timeBarFillWidth(100, 0.5F));
+        assertEquals(100, HorizonRadioScreen.timeBarFillWidth(100, 1.2F));
+    }
+
+    @Test
+    public void allUiTextUsesTheModeButtonScale() {
+        assertEquals(0.80F, HorizonRadioScreen.uiTextScale(), 0.0001F);
+        assertEquals(80, HorizonRadioScreen.uiTextWidth(100));
     }
 
     @Test
@@ -294,7 +490,14 @@ public class GuiLayoutTest {
     }
 
     @Test
-    public void radioListUsesProgressSpaceOnlyWhileLoading() {
+    public void radioListKeepsItsPositionWhileLoading() {
+        assertEquals(HorizonRadioScreen.radioListTopOffset(false), HorizonRadioScreen.radioListTopOffset(true));
+        int progressTop = HorizonRadioScreen.searchProgressTopOffset(true);
+        assertEquals(
+            screenConstant("RADIO_SEARCH_CONTROL_Y_OFFSET") - screenConstant("SEARCH_CONTROL_Y_OFFSET"),
+            progressTop - HorizonRadioScreen.searchProgressTopOffset(false));
+        assertTrue(
+            progressTop + screenConstant("SEARCH_PROGRESS_HEIGHT") <= HorizonRadioScreen.radioListTopOffset(true));
         assertEquals(
             screenConstant("RADIO_LIST_TOP_WITH_PROGRESS_OFFSET"),
             HorizonRadioScreen.radioListTopOffset(true));
@@ -320,6 +523,23 @@ public class GuiLayoutTest {
     }
 
     @Test
+    public void nowPlayingPanelUsesOneInnerMarginOnAllSides() throws IOException {
+        String screen = readSource("src/main/java/com/horizonradio/client/HorizonRadioScreen.java");
+        assertTrue(screen.contains("NOW_PLAYING_CONTENT_MARGIN = 5"));
+        assertTrue(screen.contains("nowPlayingContentLeft"));
+        assertTrue(screen.contains("nowPlayingContentRight"));
+        assertTrue(screen.contains("nowPlayingContentTop"));
+        assertTrue(screen.contains("nowPlayingContentBottom"));
+    }
+
+    @Test
+    public void nowPlayingPrefixesAreIncludedInTheAvailableTextWidth() throws IOException {
+        String screen = readSource("src/main/java/com/horizonradio/client/HorizonRadioScreen.java");
+        assertTrue(screen.contains("truncateUiWithPrefix(\"\\u266A \", nowPlaying, contentWidth)"));
+        assertTrue(screen.contains("truncateUiWithPrefix(\"Radio: \", radioStatus(), contentWidth)"));
+    }
+
+    @Test
     public void chartsBulkButtonLeavesSpaceBelowSearchControls() {
         int searchButtonBottom = screenConstant("SEARCH_BUTTON_Y_OFFSET") + screenConstant("SEARCH_BUTTON_HEIGHT");
         int bulkButtonTop = screenConstant("CHARTS_BULK_BUTTON_Y_OFFSET");
@@ -334,7 +554,7 @@ public class GuiLayoutTest {
 
         assertEquals(results, screen.beginChartAdd(results));
         assertTrue(screen.isChartAddPending("video"));
-        assertEquals("\u2713", HorizonRadioScreen.chartQueueButtonLabel(false, true));
+        assertEquals("-", HorizonRadioScreen.chartQueueButtonLabel(false, true));
         assertTrue(
             screen.beginChartAdd(results)
                 .isEmpty());
@@ -412,6 +632,27 @@ public class GuiLayoutTest {
 
         assertTrue(screen.isPlaylistTab());
         assertFalse(screen.isPlaylistDiscoveryTab());
+    }
+
+    @Test
+    public void playlistResultsIgnoreOtherTabsSearchTextAndNeverFallBackToCharts() {
+        TestScreen screen = new TestScreen();
+        screen.usePrototypeViewport();
+        screen.initialize();
+        screen.updateChartResults(singleResult(), "DE");
+        screen.setSearchText("unrelated song query");
+        screen.selectPlaylistDiscoveryTab();
+        screen.click(screen.playlistFirstRowQueueButtonCenterX(), screen.playlistFirstRowQueueButtonCenterY());
+        assertNull(transport.addRequest);
+        assertTrue(transport.chartSelections.isEmpty());
+
+        screen.updatePlaylistResults(
+            Collections.singletonList(
+                new HorizonRadioScreen.SearchResult("playlist-song", "Playlist Song", "Artist", "2:00", "")),
+            "My Playlist");
+        screen.click(screen.playlistFirstRowQueueButtonCenterX(), screen.playlistFirstRowQueueButtonCenterY());
+        assertEquals(Collections.singletonList("playlist-song|120000"), transport.chartSelections);
+        assertEquals("My Playlist", screen.getPlaylistTitle());
     }
 
     @Test
@@ -544,6 +785,7 @@ public class GuiLayoutTest {
         screen.setScreenSize(300, 285);
         try {
             screen.initialize();
+            screen.selectChartsTab();
             HorizonRadioClient.updateChartResults(new ArrayList<HorizonRadioScreen.SearchResult>(), "GLOBAL");
             screen.setSearchText("Germany");
 
@@ -563,6 +805,7 @@ public class GuiLayoutTest {
         screen.setScreenSize(300, 285);
         try {
             screen.initialize();
+            screen.selectChartsTab();
             screen.updateChartResults(new ArrayList<HorizonRadioScreen.SearchResult>(), "US");
             int requestCount = transport.chartRequestCount;
             screen.setSearchText("");
@@ -582,6 +825,7 @@ public class GuiLayoutTest {
         screen.setScreenSize(300, 285);
         try {
             screen.initialize();
+            screen.selectChartsTab();
             screen.setSearchText("Global");
 
             screen.invokeSearchAction();
@@ -601,6 +845,7 @@ public class GuiLayoutTest {
         screen.setScreenSize(300, 285);
         try {
             screen.initialize();
+            screen.selectChartsTab();
             screen.updateChartResults(singleResult(), "US");
             int requestCount = transport.chartRequestCount;
             screen.setSearchText("Congo");
@@ -623,6 +868,7 @@ public class GuiLayoutTest {
         screen.setScreenSize(300, 285);
         try {
             screen.initialize();
+            screen.selectChartsTab();
 
             assertEquals(0, transport.chartRequestCount);
             assertEquals(0, transport.forceChartsRequestCount);
@@ -642,6 +888,8 @@ public class GuiLayoutTest {
             HorizonRadioClient.updateChartResults(new ArrayList<HorizonRadioScreen.SearchResult>());
             assertFalse(HorizonRadioClient.isChartRequestPending());
             assertTrue(screen.refreshButton().enabled);
+            assertFalse(screen.refreshButton().visible);
+            assertFalse(screen.controlButton(18).visible);
         } finally {
             HorizonRadioScreen.clearActiveScreen(screen);
         }
@@ -836,6 +1084,7 @@ public class GuiLayoutTest {
         TestScreen screen = new TestScreen();
         screen.usePrototypeViewport();
         screen.initialize();
+        screen.selectChartsTab();
         HorizonRadioScreen.SearchResult result = new HorizonRadioScreen.SearchResult(
             "video",
             "Song",
@@ -886,6 +1135,7 @@ public class GuiLayoutTest {
         screen.usePrototypeViewport();
         screen.initialize();
         screen.selectSearchTab();
+        screen.setSearchText("Song");
         screen.updateSearchResults(singleResult());
 
         screen.click(screen.resultRowCenterX(), screen.resultRowCenterY());
@@ -893,6 +1143,76 @@ public class GuiLayoutTest {
         assertEquals("video|120000", transport.playNowRequest);
         assertFalse(screen.isPlaylistTab());
         assertFalse(transport.stopRadio);
+    }
+
+    @Test
+    public void resultGlyphTogglesFavoriteWithoutPlayingOrQueueing() {
+        TestScreen screen = new TestScreen();
+        screen.usePrototypeViewport();
+        screen.initialize();
+        screen.setSearchText("Song");
+        screen.updateSearchResults(singleResult());
+        int x = screen.prototypePanelLeft() + screenConstant("CONTENT_LEFT_INSET")
+            + screenConstant("RESULT_GLYPH_LEFT_INSET")
+            + screenConstant("RESULT_GLYPH_AREA_WIDTH") / 2;
+        int y = screen.searchRowCenterY(0);
+
+        screen.click(x, y);
+        screen.release(x, y);
+        assertTrue(HorizonRadioClient.isSongFavorite("video"));
+        assertEquals(
+            "Song",
+            HorizonRadioClient.getFavoriteSongs()
+                .get(0)
+                .getTitle());
+        assertNull(transport.playNowRequest);
+        assertNull(transport.addRequest);
+
+        screen.click(x, y);
+        screen.release(x, y);
+        assertFalse(HorizonRadioClient.isSongFavorite("video"));
+        assertNull(transport.playNowRequest);
+        assertNull(transport.removedVideoId);
+    }
+
+    @Test
+    public void heartClickRemovesSongFromEmptyQueryFavorites() {
+        HorizonRadioClient.toggleSongFavorite(singleResult().get(0));
+        TestScreen screen = new TestScreen();
+        screen.usePrototypeViewport();
+        screen.initialize();
+        int x = screen.prototypePanelLeft() + screenConstant("CONTENT_LEFT_INSET")
+            + screenConstant("RESULT_GLYPH_LEFT_INSET")
+            + screenConstant("RESULT_GLYPH_AREA_WIDTH") / 2;
+
+        screen.click(x, screen.searchRowCenterY(0));
+
+        assertTrue(
+            screen.searchDisplayVideoIds()
+                .isEmpty());
+        assertFalse(HorizonRadioClient.isSongFavorite("video"));
+        assertNull(transport.playNowRequest);
+    }
+
+    @Test
+    public void activeRadioAlreadyInQueueDoesNotAddASyntheticRowOrShiftSongClicks() {
+        TestScreen screen = new TestScreen();
+        screen.usePrototypeViewport();
+        screen.updateRadioPresentation(ClientRadioPresentation.active(5L, "radio-id", "Station", "LIVE"));
+        assertTrue(screen.hasStandaloneRadioRow());
+        screen.updatePlaylist(
+            Arrays.asList(
+                new HorizonRadioScreen.PlaylistEntry(
+                    com.horizonradio.core.model.MediaSourceType.RADIO,
+                    "radio-id",
+                    "Alice",
+                    null,
+                    null),
+                new HorizonRadioScreen.PlaylistEntry("next", "Next Song", "2:00", "Bob")));
+        assertFalse(screen.hasStandaloneRadioRow());
+        screen.click(screen.queueRowCenterX(), screen.queueRowCenterY(1));
+        screen.release(screen.queueRowCenterX(), screen.queueRowCenterY(1));
+        assertEquals("next|120000", transport.playNowRequest);
     }
 
     @Test
@@ -962,6 +1282,90 @@ public class GuiLayoutTest {
     }
 
     @Test
+    public void droppingQueuedSongOnFirstPositionStartsItImmediately() {
+        TestScreen screen = new TestScreen();
+        screen.usePrototypeViewport();
+        screen.selectPlaylistTab();
+        List<HorizonRadioScreen.PlaylistEntry> entries = new ArrayList<HorizonRadioScreen.PlaylistEntry>();
+        entries.add(new HorizonRadioScreen.PlaylistEntry("current", "Current", "2:00", "Alice"));
+        entries.add(new HorizonRadioScreen.PlaylistEntry("next", "Next", "3:00", "Bob"));
+        screen.updatePlaylist(entries);
+        screen.updateNowPlaying("Current", 0.5f);
+
+        screen.click(screen.queueRowCenterX(), screen.queueRowCenterY(1));
+        screen.moveHeldMouse(screen.queueRowCenterX(), screen.queueRowCenterY(0));
+        screen.release(screen.queueRowCenterX(), screen.queueRowCenterY(0));
+
+        assertEquals("next|180000", transport.playNowRequest);
+        assertNull(transport.reorderRequest);
+    }
+
+    @Test
+    public void droppingOutsideQueueCancelsTheMove() {
+        TestScreen screen = new TestScreen();
+        screen.usePrototypeViewport();
+        List<HorizonRadioScreen.PlaylistEntry> entries = new ArrayList<HorizonRadioScreen.PlaylistEntry>();
+        entries.add(new HorizonRadioScreen.PlaylistEntry("first", "First", "2:00", "Alice"));
+        entries.add(new HorizonRadioScreen.PlaylistEntry("second", "Second", "3:00", "Bob"));
+        screen.updatePlaylist(entries);
+        screen.click(screen.queueRowCenterX(), screen.queueRowCenterY(1));
+        screen.moveHeldMouse(0, 0);
+        screen.release(0, 0);
+
+        assertNull(transport.playNowRequest);
+        assertNull(transport.reorderRequest);
+    }
+
+    @Test
+    public void queuePreviewShiftsOnlyRowsBetweenSourceAndDestination() {
+        int[] movingUp = { 0, 3, 1, 2, 4 };
+        int[] movingDown = { 0, 2, 3, 1, 4 };
+        for (int row = 0; row < movingUp.length; row++) {
+            assertEquals(movingUp[row], HorizonRadioScreen.queuePreviewSourceIndex(row, 3, 1));
+            assertEquals(movingDown[row], HorizonRadioScreen.queuePreviewSourceIndex(row, 1, 3));
+            assertEquals(row, HorizonRadioScreen.queuePreviewSourceIndex(row, 2, 2));
+        }
+    }
+
+    @Test
+    public void queueDragScrollsAtTheEdgeAndUsesTheVisibleDropPosition() {
+        TestScreen screen = new TestScreen();
+        screen.usePrototypeViewport();
+        List<HorizonRadioScreen.PlaylistEntry> entries = new ArrayList<HorizonRadioScreen.PlaylistEntry>();
+        for (int index = 0; index < 10; index++) {
+            entries.add(new HorizonRadioScreen.PlaylistEntry("song" + index, "Song", "2:00", "Alice"));
+        }
+        screen.updatePlaylist(entries);
+        int x = screen.queueRowCenterX();
+        int bottom = screen.queueRowCenterY(7);
+        screen.click(x, screen.queueRowCenterY(1));
+        screen.moveHeldMouse(x, bottom);
+        screen.updateQueueDragScroll(x, bottom, 1000L);
+        screen.updateQueueDragScroll(x, bottom, 1250L);
+        screen.updateQueueDragScroll(x, bottom, 1500L);
+        screen.release(x, bottom);
+
+        assertEquals("1|9", transport.reorderRequest);
+        assertNull(transport.playNowRequest);
+    }
+
+    @Test
+    public void droppingFirstQueuedSongOnLiveRadioStartsTheSong() {
+        TestScreen screen = new TestScreen();
+        screen.usePrototypeViewport();
+        screen.updateRadioPresentation(ClientRadioPresentation.active(1L, "radio", "Station", "LIVE"));
+        List<HorizonRadioScreen.PlaylistEntry> entries = new ArrayList<HorizonRadioScreen.PlaylistEntry>();
+        entries.add(new HorizonRadioScreen.PlaylistEntry("next", "Next", "3:00", "Bob"));
+        screen.updatePlaylist(entries);
+        screen.click(screen.queueRowCenterX(), screen.queueRowCenterY(1));
+        screen.moveHeldMouse(screen.queueRowCenterX(), screen.queueRowCenterY(0));
+        screen.release(screen.queueRowCenterX(), screen.queueRowCenterY(0));
+
+        assertEquals("next|180000", transport.playNowRequest);
+        assertNull(transport.reorderRequest);
+    }
+
+    @Test
     public void radioTabLoadsPopularStationsAndSearchesWithTheSharedField() {
         TestScreen screen = new TestScreen();
         screen.setScreenSize(300, 285);
@@ -981,6 +1385,30 @@ public class GuiLayoutTest {
     }
 
     @Test
+    public void radioGlyphTogglesFavoriteWithoutStartingTheStation() {
+        TestScreen screen = new TestScreen();
+        screen.usePrototypeViewport();
+        screen.initialize();
+        screen.selectRadioTab();
+        screen.updateRadioResults(singleRadioStation());
+        int x = screen.prototypePanelLeft() + screenConstant("CONTENT_LEFT_INSET")
+            + screenConstant("RESULT_GLYPH_LEFT_INSET")
+            + screenConstant("RESULT_GLYPH_AREA_WIDTH") / 2;
+        screen.click(x, screen.radioRowCenterY());
+        assertTrue(HorizonRadioClient.isRadioFavorite("radio-uuid"));
+        assertEquals(
+            "Station",
+            HorizonRadioClient.getFavoriteRadios()
+                .get(0)
+                .getName());
+        assertNull(transport.selectedRadioUuid);
+
+        screen.click(x, screen.radioRowCenterY());
+        assertFalse(HorizonRadioClient.isRadioFavorite("radio-uuid"));
+        assertNull(transport.selectedRadioUuid);
+    }
+
+    @Test
     public void radioRowSelectionSendsUuidOnly() {
         TestScreen screen = new TestScreen();
         screen.usePrototypeViewport();
@@ -993,6 +1421,11 @@ public class GuiLayoutTest {
         assertNull(transport.playNowRequest);
         assertNull(transport.addRequest);
         assertNull(transport.removedVideoId);
+        HorizonRadioClient.handleTrackSync(TrackSyncPacket.radio(5L, "radio-uuid"));
+        assertEquals(
+            "Station",
+            HorizonRadioClient.getCachedRadioPresentation()
+                .getStationName());
     }
 
     @Test
@@ -1051,7 +1484,7 @@ public class GuiLayoutTest {
     }
 
     @Test
-    public void radioResultsUseSixRowScrollbarForStationSelection() {
+    public void radioResultsUseEightRowScrollbarForStationSelection() {
         TestScreen screen = new TestScreen();
         screen.usePrototypeViewport();
         screen.selectRadioTab();
@@ -1065,7 +1498,12 @@ public class GuiLayoutTest {
         screen.release(screen.radioScrollbarX(), screen.prototypePanelTop() + screenConstant("BODY_BOTTOM_OFFSET"));
         screen.click(screen.resultRowCenterX(), screen.radioRowCenterY());
 
-        assertEquals("radio-uuid-6", transport.selectedRadioUuid);
+        assertEquals("radio-uuid-4", transport.selectedRadioUuid);
+        screen.click(screen.resultRowCenterX(), screen.radioRowCenterY() + 7 * screenConstant("ROW_HEIGHT"));
+        assertEquals("radio-uuid-11", transport.selectedRadioUuid);
+        assertTrue(
+            HorizonRadioScreen.radioListTopOffset(false) + 8 * screenConstant("ROW_HEIGHT")
+                < screenConstant("BODY_BOTTOM_OFFSET"));
     }
 
     @Test
@@ -1176,7 +1614,7 @@ public class GuiLayoutTest {
     }
 
     @Test
-    public void emptySearchShowsFavoritesBeforeCachedChartsButChartsTabRemainsRaw() {
+    public void emptySearchShowsOnlyFavoritesButChartsTabRemainsRaw() {
         HorizonRadioClient.handleTrackSync(TrackSyncPacket.youtube(5L, "favorite", 0L, 0L, true));
         HorizonRadioClient.toggleCurrentFavorite();
         TestScreen screen = new TestScreen();
@@ -1186,9 +1624,153 @@ public class GuiLayoutTest {
             Collections.singletonList(new HorizonRadioScreen.SearchResult("chart", "Chart", "", "3:00", "")));
         screen.selectSearchTab();
 
-        assertEquals(Arrays.asList("favorite", "chart"), screen.searchDisplayVideoIds());
+        assertEquals(Collections.singletonList("favorite"), screen.searchDisplayVideoIds());
         screen.selectChartsTab();
         assertEquals(Collections.singletonList("chart"), screen.chartResultsSnapshotVideoIds());
+    }
+
+    @Test
+    public void favoritesStayUnfilteredUntilTheTypingPauseEnds() {
+        ImmediatePlaylistImportProvider provider = new ImmediatePlaylistImportProvider("{}");
+        HorizonRadioClient.setClientMediaService(new ClientMediaService(provider));
+        HorizonRadioClient
+            .toggleSongFavorite(new HorizonRadioScreen.SearchResult("favorite", "Jazz Song", "Alice", "2:00", ""));
+        TestScreen screen = new TestScreen();
+        screen.initialize();
+        screen.setSearchText("ro");
+        screen.updateAutoSearch(100L);
+        screen.updateAutoSearch(599L);
+        assertEquals(Collections.singletonList("favorite"), screen.searchDisplayVideoIds());
+        assertTrue(provider.searchQueries.isEmpty());
+        screen.updateAutoSearch(600L);
+        assertEquals(Collections.singletonList("ro"), provider.searchQueries);
+        assertTrue(
+            screen.searchDisplayVideoIds()
+                .isEmpty());
+    }
+
+    @Test
+    public void autoSearchWaitsForHalfASecondAfterTheLastEditAndRunsOnce() {
+        ImmediatePlaylistImportProvider provider = new ImmediatePlaylistImportProvider("{}");
+        HorizonRadioClient.setClientMediaService(new ClientMediaService(provider));
+        TestScreen screen = new TestScreen();
+        screen.initialize();
+        screen.setSearchText("ja");
+        screen.updateAutoSearch(100L);
+        screen.updateAutoSearch(599L);
+        assertTrue(provider.searchQueries.isEmpty());
+        screen.setSearchText("jazz");
+        screen.updateAutoSearch(599L);
+        screen.updateAutoSearch(1098L);
+        assertTrue(provider.searchQueries.isEmpty());
+        screen.updateAutoSearch(1099L);
+        screen.updateAutoSearch(5000L);
+        assertEquals(Collections.singletonList("jazz"), provider.searchQueries);
+    }
+
+    @Test
+    public void manualSearchCancelsTheScheduledDuplicate() {
+        ImmediatePlaylistImportProvider provider = new ImmediatePlaylistImportProvider("{}");
+        HorizonRadioClient.setClientMediaService(new ClientMediaService(provider));
+        TestScreen screen = new TestScreen();
+        screen.initialize();
+        screen.setSearchText("jazz");
+        screen.updateAutoSearch(100L);
+        screen.invokeSearchAction();
+        screen.updateAutoSearch(2000L);
+        assertEquals(Collections.singletonList("jazz"), provider.searchQueries);
+    }
+
+    @Test
+    public void chartsAutoSearchWaitsForTheLastEdit() {
+        ImmediatePlaylistImportProvider provider = new ImmediatePlaylistImportProvider("{}");
+        HorizonRadioClient.setClientMediaService(new ClientMediaService(provider));
+        TestScreen screen = new TestScreen();
+        screen.initialize();
+        screen.selectChartsTab();
+        screen.setSearchText("Ger");
+        screen.updateAutoSearch(100L);
+        screen.setSearchText("Germany");
+        screen.updateAutoSearch(500L);
+        screen.updateAutoSearch(999L);
+        assertTrue(provider.chartRegions.isEmpty());
+        screen.updateAutoSearch(1000L);
+        screen.updateAutoSearch(2500L);
+        assertEquals(Collections.singletonList("DE"), provider.chartRegions);
+        assertEquals("DE", screen.getChartRegionCode());
+    }
+
+    @Test
+    public void radioAutoSearchRunsOnceAfterHalfASecond() {
+        ImmediatePlaylistImportProvider provider = new ImmediatePlaylistImportProvider("{}");
+        HorizonRadioClient.setClientMediaService(new ClientMediaService(provider));
+        TestScreen screen = new TestScreen();
+        screen.initialize();
+        screen.selectRadioTab();
+        provider.radioQueries.clear();
+        screen.setSearchText("jazz");
+        screen.updateAutoSearch(100L);
+        screen.updateAutoSearch(599L);
+        assertTrue(provider.radioQueries.isEmpty());
+        screen.updateAutoSearch(600L);
+        screen.updateAutoSearch(2100L);
+        assertEquals(Collections.singletonList("jazz"), provider.radioQueries);
+    }
+
+    @Test
+    public void playlistAutoSearchUsesItsOwnFieldAndManualImportCancelsTimer() {
+        ImmediatePlaylistImportProvider provider = new ImmediatePlaylistImportProvider("{}");
+        HorizonRadioClient.setClientMediaService(new ClientMediaService(provider));
+        TestScreen screen = new TestScreen();
+        screen.initialize();
+        screen.selectPlaylistDiscoveryTab();
+        String url = "https://www.youtube.com/playlist?list=PLauto";
+        screen.setPlaylistUrlText(url);
+        screen.updateAutoSearch(100L);
+        screen.updateAutoSearch(599L);
+        assertTrue(provider.playlistUrls.isEmpty());
+        screen.updateAutoSearch(600L);
+        screen.updateAutoSearch(2100L);
+        assertEquals(Collections.singletonList(url), provider.playlistUrls);
+        String secondUrl = "https://www.youtube.com/playlist?list=PLmanual";
+        screen.setPlaylistUrlText(secondUrl);
+        screen.updateAutoSearch(2200L);
+        screen.invokeSearchAction();
+        screen.updateAutoSearch(4000L);
+        assertEquals(java.util.Arrays.asList(url, secondUrl), provider.playlistUrls);
+    }
+
+    @Test
+    public void clearingSearchCancelsPendingSearchAndHidesLateResults() {
+        ImmediatePlaylistImportProvider provider = new ImmediatePlaylistImportProvider("{}");
+        HorizonRadioClient.setClientMediaService(new ClientMediaService(provider));
+        HorizonRadioClient.handleTrackSync(TrackSyncPacket.youtube(5L, "favorite", 0L, 0L, true));
+        HorizonRadioClient.toggleCurrentFavorite();
+        TestScreen screen = new TestScreen();
+        screen.initialize();
+        screen.setSearchText("jazz");
+        screen.updateAutoSearch(100L);
+        screen.setSearchText("   ");
+        screen.updateAutoSearch(500L);
+        screen.updateSearchResults(singleResult());
+        screen.updateAutoSearch(2000L);
+        assertTrue(provider.searchQueries.isEmpty());
+        assertEquals(Collections.singletonList("favorite"), screen.searchDisplayVideoIds());
+    }
+
+    @Test
+    public void leavingSongSearchCancelsTheTimer() {
+        ImmediatePlaylistImportProvider provider = new ImmediatePlaylistImportProvider("{}");
+        HorizonRadioClient.setClientMediaService(new ClientMediaService(provider));
+        TestScreen screen = new TestScreen();
+        screen.initialize();
+        screen.setSearchText("jazz");
+        screen.updateAutoSearch(100L);
+        screen.selectChartsTab();
+        screen.updateAutoSearch(200L);
+        screen.selectSearchTab();
+        screen.updateAutoSearch(2000L);
+        assertTrue(provider.searchQueries.isEmpty());
     }
 
     @Test
@@ -1240,6 +1822,42 @@ public class GuiLayoutTest {
         screen.updateRadioResults(
             Collections.singletonList(new HorizonRadioScreen.RadioStationResult("popular-radio", "Popular")));
 
+        assertEquals(Arrays.asList("favorite-radio", "popular-radio"), screen.radioDisplayStationUuids());
+    }
+
+    @Test
+    public void radioStartsWithFavoritesEvenAfterASongSearchAndRemembersItsOwnQuery() {
+        HorizonRadioClient.handleTrackSync(TrackSyncPacket.radio(5L, "favorite-radio"));
+        HorizonRadioClient.toggleCurrentFavorite();
+        TestScreen screen = new TestScreen();
+        screen.initialize();
+        screen.setSearchText("jazz song");
+        screen.selectRadioTab();
+        screen.updateRadioResults(
+            Arrays.asList(
+                new HorizonRadioScreen.RadioStationResult("popular-radio", "Popular"),
+                new HorizonRadioScreen.RadioStationResult("favorite-radio", "Favorite")));
+
+        assertEquals(
+            "",
+            screen.searchField()
+                .getText());
+        assertEquals(Arrays.asList("favorite-radio", "popular-radio"), screen.radioDisplayStationUuids());
+
+        screen.setSearchText("rock station");
+        screen.selectSearchTab();
+        assertEquals(
+            "jazz song",
+            screen.searchField()
+                .getText());
+        screen.selectRadioTab();
+        assertEquals(
+            "rock station",
+            screen.searchField()
+                .getText());
+        assertEquals(Arrays.asList("favorite-radio", "popular-radio"), screen.radioDisplayStationUuids());
+
+        screen.setSearchText("");
         assertEquals(Arrays.asList("favorite-radio", "popular-radio"), screen.radioDisplayStationUuids());
     }
 
@@ -1324,6 +1942,7 @@ public class GuiLayoutTest {
         assertTrue(screen.contains("drawRect"));
         assertTrue(screen.contains("drawString"));
         assertTrue(screen.contains("drawCenteredString"));
+        assertFalse(screen.contains("heartLeft"));
         assertTrue(screen.contains("drawProgressBar"));
         assertTrue(screen.contains("drawChartsTab"));
         assertTrue(screen.contains("searchLoading"));
@@ -1446,6 +2065,7 @@ public class GuiLayoutTest {
         TestScreen screen = new TestScreen();
         screen.usePrototypeViewport();
         screen.initialize();
+        screen.selectChartsTab();
         screen.updateChartResults(singleResult());
         return screen;
     }
@@ -1515,6 +2135,28 @@ public class GuiLayoutTest {
         }
     }
 
+    private static boolean invokeShouldShowQueueClearButton(int playlistSize, boolean radioActive) {
+        try {
+            java.lang.reflect.Method method = HorizonRadioScreen.class
+                .getDeclaredMethod("shouldShowQueueClearButton", int.class, boolean.class);
+            method.setAccessible(true);
+            return (Boolean) method.invoke(null, playlistSize, radioActive);
+        } catch (ReflectiveOperationException exception) {
+            throw new AssertionError("Queue clear visibility policy was not available", exception);
+        }
+    }
+
+    private static String invokeSearchResultGlyph(boolean favorite) {
+        try {
+            java.lang.reflect.Method method = HorizonRadioScreen.class
+                .getDeclaredMethod("searchResultGlyph", boolean.class);
+            method.setAccessible(true);
+            return (String) method.invoke(null, favorite);
+        } catch (ReflectiveOperationException exception) {
+            throw new AssertionError("Search result glyph policy was not available", exception);
+        }
+    }
+
     private static String invokeRadioNowPlayingDisplayLabel(String stationName, boolean showOnAir) {
         try {
             java.lang.reflect.Method method = HorizonRadioScreen.class
@@ -1555,7 +2197,15 @@ public class GuiLayoutTest {
         }
 
         private int resultRowCenterY() {
-            return prototypePanelTop() + screenConstant("CONTENT_LIST_TOP_OFFSET") + screenConstant("ROW_HEIGHT") / 2;
+            int listTop = currentTab() == screenConstant("SEARCH_TAB") ? HorizonRadioScreen.searchListTopOffset(false)
+                : screenConstant("CONTENT_LIST_TOP_OFFSET");
+            return prototypePanelTop() + listTop + screenConstant("ROW_HEIGHT") / 2;
+        }
+
+        private int searchRowCenterY(int row) {
+            return prototypePanelTop() + HorizonRadioScreen.searchListTopOffset(false)
+                + row * screenConstant("ROW_HEIGHT")
+                + screenConstant("ROW_HEIGHT") / 2;
         }
 
         private int radioRowCenterY() {
@@ -1751,6 +2401,28 @@ public class GuiLayoutTest {
                 }
             }
             throw new AssertionError("Control button was not initialized: " + id);
+        }
+
+        private String buttonLabel(int id) {
+            GuiButton button = controlButton(id);
+            try {
+                java.lang.reflect.Field field = button.getClass()
+                    .getDeclaredField("label");
+                field.setAccessible(true);
+                return (String) field.get(button);
+            } catch (ReflectiveOperationException exception) {
+                throw new AssertionError("Control button label was not available", exception);
+            }
+        }
+
+        private int currentTab() {
+            try {
+                java.lang.reflect.Field field = HorizonRadioScreen.class.getDeclaredField("currentTab");
+                field.setAccessible(true);
+                return field.getInt(this);
+            } catch (ReflectiveOperationException exception) {
+                throw new AssertionError("Current tab was not available", exception);
+            }
         }
 
         private GuiButton refreshButton() {
@@ -2023,6 +2695,10 @@ public class GuiLayoutTest {
     private static final class ImmediatePlaylistImportProvider implements ClientMediaService.RemoteProvider {
 
         private final String playlistJson;
+        private final List<String> searchQueries = new ArrayList<String>();
+        private final List<String> radioQueries = new ArrayList<String>();
+        private final List<String> playlistUrls = new ArrayList<String>();
+        private final List<String> chartRegions = new ArrayList<String>();
 
         private ImmediatePlaylistImportProvider(String playlistJson) {
             this.playlistJson = playlistJson;
@@ -2031,16 +2707,19 @@ public class GuiLayoutTest {
         @Override
         public CompletableFuture<List<com.horizonradio.core.model.SearchResult>> search(String query,
             long maxDurationMs) {
+            searchQueries.add(query);
             return CompletableFuture.completedFuture(Collections.<com.horizonradio.core.model.SearchResult>emptyList());
         }
 
         @Override
         public CompletableFuture<List<com.horizonradio.core.model.SearchResult>> fetchCharts(ChartRegion region) {
+            chartRegions.add(region.getCode());
             return CompletableFuture.completedFuture(Collections.<com.horizonradio.core.model.SearchResult>emptyList());
         }
 
         @Override
         public CompletableFuture<String> extractPlaylistJson(String playlistUrl) {
+            playlistUrls.add(playlistUrl);
             return CompletableFuture.completedFuture(playlistJson);
         }
 
@@ -2051,6 +2730,7 @@ public class GuiLayoutTest {
 
         @Override
         public CompletableFuture<List<RadioStation>> searchRadio(String query) {
+            radioQueries.add(query);
             return CompletableFuture.completedFuture(Collections.<RadioStation>emptyList());
         }
 

@@ -21,7 +21,7 @@ public final class ClientRadioPresentation {
     }
 
     public static ClientRadioPresentation live(long generation, String stationUuid) {
-        return active(generation, stationUuid, stationUuid, "LIVE");
+        return active(generation, stationUuid, "Loading station...", "LIVE");
     }
 
     public static ClientRadioPresentation active(long generation, String stationUuid, String stationName,

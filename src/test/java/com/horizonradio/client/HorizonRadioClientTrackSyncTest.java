@@ -68,6 +68,42 @@ public class HorizonRadioClientTrackSyncTest {
     }
 
     @Test
+    public void radioShowsLoadingTextInsteadOfStationIdUntilTheNameArrives() {
+        String stationId = "3fd284b7-32e5-4f40-9551-2dd86123e4a7";
+        HorizonRadioClient.handleTrackSync(TrackSyncPacket.radio(5L, stationId));
+        assertEquals(
+            "Loading station...",
+            HorizonRadioClient.getCachedRadioPresentation()
+                .getStationName());
+        assertEquals(
+            stationId,
+            HorizonRadioClient.getCachedRadioPresentation()
+                .getStationUuid());
+
+        HorizonRadioClient.handleLocalRadioStarted(5L, stationId, "Station name");
+        assertEquals(
+            "Station name",
+            HorizonRadioClient.getCachedRadioPresentation()
+                .getStationName());
+    }
+
+    @Test
+    public void selectedRadioNameIsAvailableBeforeStreamMetadataAndStaysBoundToItsId() {
+        HorizonRadioClient.sendSelectRadio("selected-id", "Selected Station");
+        HorizonRadioClient.handleTrackSync(TrackSyncPacket.radio(5L, "selected-id"));
+        assertEquals(
+            "Selected Station",
+            HorizonRadioClient.getCachedRadioPresentation()
+                .getStationName());
+
+        HorizonRadioClient.handleTrackSync(TrackSyncPacket.radio(6L, "different-id"));
+        assertFalse(
+            "Selected Station".equals(
+                HorizonRadioClient.getCachedRadioPresentation()
+                    .getStationName()));
+    }
+
+    @Test
     public void handlesRadioTrackSyncAsLocalLivePlayback() {
         HorizonRadioClient.handleTrackSync(TrackSyncPacket.radio(5L, "station-id"));
 
