@@ -99,7 +99,7 @@ public class YouTubeService {
                     return requestTopCharts(region);
                 } catch (Exception exception) {
                     LOGGER.log(Level.WARNING, "YouTube " + region.getCode() + " charts request failed", exception);
-                    return new ArrayList<SearchResult>();
+                    throw new java.util.concurrent.CompletionException(exception);
                 }
             }
         }, executor);
@@ -118,7 +118,7 @@ public class YouTubeService {
             } catch (Exception exception) {
                 if (page == 0) {
                     LOGGER.log(Level.WARNING, "YouTube search failed for query: " + query, exception);
-                    return new ArrayList<SearchResult>();
+                    throw new java.util.concurrent.CompletionException(exception);
                 }
                 LOGGER.log(Level.WARNING, "YouTube search continuation failed for query: " + query, exception);
                 return results;

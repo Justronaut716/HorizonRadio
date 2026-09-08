@@ -68,6 +68,28 @@ public final class ClientMediaService implements ClientMetadataCache.MetadataPro
             });
     }
 
+    public CompletableFuture<PlaylistDetails> importPlaylistDetails(String playlistUrl) {
+        return remoteProvider.extractPlaylistJson(playlistUrl)
+            .thenApply(json -> {
+                if (json == null || json.trim()
+                    .isEmpty()) {
+                    throw new IllegalStateException("YouTube playlist metadata is unavailable");
+                }
+                return new PlaylistDetails(PlaylistImportService.parseTitle(json), PlaylistImportService.parse(json));
+            });
+    }
+
+    public static final class PlaylistDetails {
+
+        public final String title;
+        public final List<SearchResult> songs;
+
+        public PlaylistDetails(String title, List<SearchResult> songs) {
+            this.title = title;
+            this.songs = songs;
+        }
+    }
+
     public CompletableFuture<SearchResult> importVideo(String videoUrl) {
         return remoteProvider.extractVideoJson(videoUrl)
             .thenApply(new Function<String, SearchResult>() {

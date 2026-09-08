@@ -12,9 +12,37 @@ import org.junit.Test;
 public class FavoriteResultComposerTest {
 
     @Test
+    public void songSearchIncludesMatchingLocalFavoritesAndPromotesRemoteFavoritesWithoutDuplicates() {
+        List<ClientFavorites.Song> favorites = Arrays.asList(
+            new ClientFavorites.Song("local", "Night Jazz", "Alice", "2:00", ""),
+            new ClientFavorites.Song("remote", "Old title", "Artist", "2:00", ""),
+            new ClientFavorites.Song("unrelated", "Rock", "Bob", "2:00", ""));
+        List<HorizonRadioScreen.SearchResult> results = Arrays.asList(
+            new HorizonRadioScreen.SearchResult("other", "Jazz", "Alice", "2:00", ""),
+            new HorizonRadioScreen.SearchResult("remote", "Jazz", "Alice", "2:00", ""));
+        assertEquals(
+            Arrays.asList("local", "remote", "other"),
+            videoIds(FavoriteResultComposer.composeSongs(favorites, results, " ALICE jazz ")));
+    }
+
+    @Test
+    public void radioSearchIncludesMatchingFavoritesBeforeOtherResults() {
+        List<ClientFavorites.Radio> favorites = Arrays.asList(
+            new ClientFavorites.Radio("local", "Jazz FM"),
+            new ClientFavorites.Radio("remote", "Jazz Radio"),
+            new ClientFavorites.Radio("unrelated", "Rock FM"));
+        List<HorizonRadioScreen.RadioStationResult> results = Arrays.asList(
+            new HorizonRadioScreen.RadioStationResult("other", "Jazz Station"),
+            new HorizonRadioScreen.RadioStationResult("remote", "Jazz Radio"));
+        assertEquals(
+            Arrays.asList("local", "remote", "other"),
+            radioIds(FavoriteResultComposer.composeRadios(favorites, results, " JAZZ ")));
+    }
+
+    @Test
     public void songsPutFavoritesBeforeCachedChartsAndRemoveDuplicateChartRows() {
         List<ClientFavorites.Song> favorites = Arrays
-            .asList(new ClientFavorites.Song("favorite", "Favorite", "", "2:00", ""));
+            .asList(new ClientFavorites.Song("favorite", "Favorite", "Artist", "2:00", ""));
         List<HorizonRadioScreen.SearchResult> charts = Arrays.asList(
             new HorizonRadioScreen.SearchResult("favorite", "Chart copy", "", "2:00", ""),
             new HorizonRadioScreen.SearchResult("chart", "Chart", "", "3:00", ""));
@@ -23,6 +51,7 @@ public class FavoriteResultComposerTest {
 
         assertEquals(Arrays.asList("favorite", "chart"), videoIds(composed));
         assertEquals("Favorite", composed.get(0).title);
+        assertEquals("Artist", composed.get(0).channel);
     }
 
     @Test

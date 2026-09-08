@@ -125,6 +125,15 @@ public final class PlaylistImportService {
         return results;
     }
 
+    public static String parseTitle(String json) {
+        try {
+            JsonObject root = new Gson().fromJson(json, JsonObject.class);
+            return root == null ? "" : getString(root, "title");
+        } catch (RuntimeException exception) {
+            return "";
+        }
+    }
+
     public static SearchResult parseVideo(String json) {
         if (json == null || json.trim()
             .length() == 0) {
@@ -140,12 +149,16 @@ public final class PlaylistImportService {
                 videoId = videoIdFromUrl(getString(video, "webpage_url"));
             }
             String title = getString(video, "title");
+            String channel = firstNonBlank(
+                getString(video, "channel"),
+                getString(video, "uploader"),
+                getString(video, "artist"));
             String duration = getString(video, "duration_string");
             if (duration.length() == 0) {
                 duration = formatDuration(video.get("duration"));
             }
             return videoId.length() == 0 || title.length() == 0 || duration.length() == 0 ? null
-                : new SearchResult(videoId, title, "", duration, "");
+                : new SearchResult(videoId, title, channel, duration, "");
         } catch (RuntimeException exception) {
             return null;
         }
@@ -192,6 +205,18 @@ public final class PlaylistImportService {
     private static String getString(JsonObject object, String memberName) {
         JsonElement member = object.get(memberName);
         return member != null && member.isJsonPrimitive() ? member.getAsString() : "";
+    }
+
+    private static String firstNonBlank(String... values) {
+        if (values != null) {
+            for (String value : values) {
+                if (value != null && value.trim()
+                    .length() > 0) {
+                    return value;
+                }
+            }
+        }
+        return "";
     }
 
     private static String videoIdFromUrl(String value) {

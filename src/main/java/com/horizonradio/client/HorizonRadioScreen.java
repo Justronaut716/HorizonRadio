@@ -27,45 +27,74 @@ import com.horizonradio.core.server.ChartRegionCatalog;
 /** Forge 1.7.10 port of the active HorizonRadio search and playlist screen. */
 public class HorizonRadioScreen extends GuiScreen {
 
-    public static final int PANEL_WIDTH = 300;
-    public static final int PANEL_HEIGHT = 285;
+    public static final int PANEL_WIDTH = HorizonRadioUiLayout.REFERENCE_PANEL_WIDTH;
+    public static final int PANEL_HEIGHT = HorizonRadioUiLayout.REFERENCE_PANEL_HEIGHT;
     private static final int MAX_VISIBLE_ROWS = 6;
-    private static final int ROW_HEIGHT = 25;
-    private static final int NOW_PLAYING_HEIGHT = 25;
-    private static final int CONTROL_CENTER_HEIGHT = 34;
-    private static final int CONTROL_BUTTON_WIDTH = 26;
-    private static final int CONTROL_BUTTON_HEIGHT = 24;
+    private static final int SEARCH_MAX_VISIBLE_ROWS = 7;
+    private static final int RADIO_MAX_VISIBLE_ROWS = 8;
+    private static final int QUEUE_MAX_VISIBLE_ROWS = 8;
+    private static final int ROW_HEIGHT = 22;
+    private static final int NOW_PLAYING_HEIGHT = 22;
+    private static final int NOW_PLAYING_PANEL_INSET = 8;
+    private static final int NOW_PLAYING_PANEL_HEIGHT = 73;
+    private static final int NOW_PLAYING_CONTENT_MARGIN = 5;
+    private static final int CONTROL_CENTER_HEIGHT = 18;
+    private static final int CONTROL_BUTTON_WIDTH = 18;
+    private static final int CONTROL_BUTTON_HEIGHT = 18;
     private static final int CONTROL_BUTTON_GAP = 3;
-    private static final int CONTROL_BUTTON_COUNT = 6;
-    private static final int CONTROL_ICON_SIZE = 16;
+    private static final int CONTROL_BUTTON_COUNT = 5;
+    private static final int CONTROL_ICON_SIZE = 12;
     private static final int CONTROL_ICON_TEXTURE_SIZE = 128;
-    private static final int TAB_BUTTON_WIDTH = 50;
-    private static final int TAB_BUTTON_HEIGHT = 20;
-    private static final int TAB_BUTTON_Y = 5;
-    private static final int SEARCH_CONTROL_HEIGHT = 20;
-    private static final int SEARCH_CONTROL_Y_OFFSET = 30;
-    private static final int SEARCH_SIDE_MARGIN = 10;
-    private static final int SEARCH_CONTROL_GAP = 0;
-    private static final int SEARCH_FIELD_X_OFFSET = SEARCH_SIDE_MARGIN + 1;
-    private static final int SEARCH_BUTTON_WIDTH = CONTROL_BUTTON_WIDTH;
-    private static final int SEARCH_FIELD_WIDTH = PANEL_WIDTH - SEARCH_FIELD_X_OFFSET
-        - SEARCH_CONTROL_GAP
-        - SEARCH_BUTTON_WIDTH
-        - SEARCH_SIDE_MARGIN;
+    private static final int TAB_BUTTON_WIDTH = 34;
+    private static final int TAB_BUTTON_HEIGHT = 17;
+    private static final int TAB_BUTTON_Y = 11;
+    private static final int SEARCH_CONTROL_HEIGHT = 17;
+    private static final int SEARCH_CONTROL_Y_OFFSET = 62;
+    private static final int SEARCH_SIDE_MARGIN = 13;
+    private static final int SEARCH_CONTROL_GAP = 3;
+    private static final int SEARCH_FIELD_X_OFFSET = SEARCH_SIDE_MARGIN;
+    private static final int SEARCH_BUTTON_WIDTH = 18;
+    private static final int SEARCH_FIELD_WIDTH = 188;
+    private static final int RESULT_GLYPH_LEFT_INSET = 5;
+    private static final int RESULT_GLYPH_AREA_WIDTH = 18;
+    private static final int RESULT_GLYPH_HEIGHT = 8;
+    /* The content column is deliberately narrower than the complete panel. */
+    private static final int CONTENT_LEFT_INSET = 8;
+    private static final int CONTENT_WIDTH = 220;
+    private static final int QUEUE_LEFT_INSET = 232;
+    private static final int QUEUE_WIDTH = 120;
+    private static final int BODY_TOP_OFFSET = 36;
+    private static final int BODY_BOTTOM_OFFSET = 245;
+    private static final int FOOTER_TOP_OFFSET = 251;
+    private static final int VOLUME_TOP_OFFSET = 328;
+    private static final int SONGS_TAB_X = 282;
+    private static final int RADIO_TAB_X = 318;
+    private static final int MODE_SEARCH_X = 13;
+    private static final int MODE_CHARTS_X = 49;
+    private static final int MODE_PLAYLISTS_X = 85;
+    static final float UI_TEXT_SCALE = 0.80F;
+    static final float MODE_BUTTON_TEXT_SCALE = UI_TEXT_SCALE;
+    private static final int MODE_TOP_OFFSET = BODY_TOP_OFFSET + 5;
+    private static final int SECTION_TOP_OFFSET = 90;
+    private static final int CONTENT_LIST_TOP_OFFSET = 103;
+    private static final int CHART_CONTENT_Y_OFFSET = 3;
+    private static final int CHART_LIST_TOP_OFFSET = CONTENT_LIST_TOP_OFFSET + CHART_CONTENT_Y_OFFSET;
+    private static final int SEARCH_RESULT_VERTICAL_MARGIN = 6;
+    private static final int RADIO_SEARCH_CONTROL_Y_OFFSET = MODE_TOP_OFFSET;
+    private static final int RADIO_LIST_TOP_OFFSET = RADIO_SEARCH_CONTROL_Y_OFFSET + SEARCH_CONTROL_HEIGHT + 5;
+    private static final int RADIO_LIST_TOP_WITH_PROGRESS_OFFSET = RADIO_LIST_TOP_OFFSET;
+    private static final int QUEUE_TOP_OFFSET = 41;
+    private static final int QUEUE_LIST_TOP_OFFSET = 65;
+    private static final int VOLUME_HEIGHT = 11;
     private static final int SEARCH_BUTTON_BORDER_COLOR = 0xFFA0A0A0;
     private static final int SEARCH_BUTTON_HEIGHT = SEARCH_CONTROL_HEIGHT + 2;
     private static final int SEARCH_BUTTON_Y_OFFSET = SEARCH_CONTROL_Y_OFFSET - 1;
-    private static final int CHARTS_BULK_BUTTON_Y_OFFSET = SEARCH_BUTTON_Y_OFFSET + SEARCH_BUTTON_HEIGHT + 1;
+    private static final int CHARTS_BULK_BUTTON_Y_OFFSET = 84 + CHART_CONTENT_Y_OFFSET;
     private static final int CHARTS_TAB = 0;
     private static final int SEARCH_TAB = 1;
     private static final int PLAYLIST_TAB = 2;
     private static final int PLAYLIST_DISCOVERY_TAB = 3;
     private static final int RADIO_TAB = 4;
-    private static final int CHARTS_TAB_X = 8;
-    private static final int SEARCH_TAB_X = 61;
-    private static final int PLAYLIST_TAB_X = 114;
-    private static final int PLAYLIST_DISCOVERY_TAB_X = 167;
-    private static final int RADIO_TAB_X = 220;
     private static final int BUTTON_SEARCH = 0;
     private static final int BUTTON_CHARTS_TAB = 1;
     private static final int BUTTON_PLAYLIST_TAB = 2;
@@ -75,10 +104,12 @@ public class HorizonRadioScreen extends GuiScreen {
     private static final int BUTTON_FAVORITE = 12;
     private static final int BUTTON_PLAYLIST_DISCOVERY_TAB = 13;
     private static final int BUTTON_SETTINGS = 14;
-    private static final int QUEUE_BUTTON_WIDTH = 20;
-    private static final int QUEUE_BUTTON_HEIGHT = 18;
-    private static final int QUEUE_BUTTON_COLUMN_WIDTH = 26;
-    private static final int QUEUE_BUTTON_RIGHT_MARGIN = 10;
+    private static final int BUTTON_QUEUE_CLEAR = 17;
+    private static final int BUTTON_BULK_ADD = 18;
+    private static final int QUEUE_BUTTON_WIDTH = 18;
+    private static final int QUEUE_BUTTON_HEIGHT = 17;
+    private static final int QUEUE_BUTTON_COLUMN_WIDTH = 22;
+    private static final int QUEUE_BUTTON_RIGHT_MARGIN = 5;
     private static final ResourceLocation ICON_SHUFFLE = new ResourceLocation(
         "horizonradio",
         "textures/gui/Shuffle.png");
@@ -90,26 +121,39 @@ public class HorizonRadioScreen extends GuiScreen {
     private static final ResourceLocation ICON_LOOP = new ResourceLocation("horizonradio", "textures/gui/Repeat.png");
     private static final ResourceLocation ICON_PAUSE = new ResourceLocation("horizonradio", "textures/gui/Pause.png");
     private static final ResourceLocation ICON_SEARCH = new ResourceLocation("horizonradio", "textures/gui/Search.png");
-    private static final int SEARCH_PROGRESS_Y_OFFSET = 55;
+    private static final ResourceLocation ICON_FAVORITE = new ResourceLocation(
+        "horizonradio",
+        "textures/gui/Favorite.png");
+    private static final ResourceLocation ICON_LOGO = new ResourceLocation(
+        "horizonradio",
+        "textures/gui/HorizonRadioLogoClean.png");
+    private static final int BUTTON_SONGS_TAB = 15;
+    private static final int BUTTON_MODE_PLAYLISTS = 16;
+    private static final int SEARCH_PROGRESS_Y_OFFSET = BODY_TOP_OFFSET + 42;
     private static final int SEARCH_PROGRESS_HEIGHT = 6;
-    private static final int SEARCH_LIST_TOP_OFFSET = 70;
-    private static final int SEARCH_LIST_TOP_WITHOUT_PROGRESS_OFFSET = 55;
-    private static final int CONTENT_HEADER_Y_OFFSET = 50;
-    private static final int CONTENT_LABEL_Y_OFFSET = 56;
-    private static final int CONTENT_LIST_TOP_OFFSET = 70;
+    private static final int SEARCH_LIST_TOP_OFFSET = SEARCH_CONTROL_Y_OFFSET + SEARCH_CONTROL_HEIGHT
+        + SEARCH_RESULT_VERTICAL_MARGIN;
+    private static final int SEARCH_LIST_TOP_WITHOUT_PROGRESS_OFFSET = SEARCH_LIST_TOP_OFFSET;
+    private static final int CONTENT_HEADER_Y_OFFSET = SECTION_TOP_OFFSET;
+    private static final int CONTENT_LABEL_Y_OFFSET = SECTION_TOP_OFFSET;
     private static final int PLAYLIST_HEADER_Y_OFFSET = 25;
     private static final int PLAYLIST_TITLE_Y_OFFSET = 31;
     private static final int PLAYLIST_LIST_TOP_OFFSET = 45;
     private static final int RESULT_DURATION_COLUMN_WIDTH = 40;
     private static final int RESULT_SCROLLBAR_WIDTH = 3;
-    private static final int RESULT_SCROLLBAR_LEFT_OFFSET = 6;
+    private static final int RESULT_SCROLLBAR_LEFT_OFFSET = 0;
     private static final int RESULT_SCROLLBAR_MIN_THUMB_HEIGHT = 10;
     private static final int QUEUE_DISPLAY_LIMIT = 50;
     private static final long SEARCH_PROGRESS_ESTIMATE_MILLIS = 1500L;
     private static final long CHART_PROGRESS_ESTIMATE_MILLIS = 1000L;
     private static final long RADIO_PROGRESS_ESTIMATE_MILLIS = 400L;
     private static final long RESULT_REVEAL_DELAY_MILLIS = 150L;
-    private static final int TIME_BAR_SIDE_SPACE = 38;
+    private static final int TIME_BAR_SIDE_SPACE = 40;
+    private static final int TIME_BAR_LABEL_LEFT_OFFSET = 13;
+    private static final int TIME_BAR_HEIGHT = 5;
+    private static final int TIME_BAR_TRACK_COLOR = 0xFF3C3C3C;
+    private static final int TIME_BAR_PROGRESS_COLOR = 0xFF79D38A;
+    private static final String FAVORITE_GLYPH = "\u2661";
 
     private GuiTextField searchField;
     private GuiTextField playlistUrlField;
@@ -118,6 +162,7 @@ public class HorizonRadioScreen extends GuiScreen {
     private GuiButton settingsButton;
     private HorizonRadioVolumeSlider volumeSlider;
     private List<SearchResult> chartResults = new ArrayList<SearchResult>();
+    private boolean chartSearchStarted;
     private final Set<String> pendingChartAdds = new HashSet<String>();
     private final Set<String> pendingPlaylistAdds = new HashSet<String>();
     private String chartRegionCode = "";
@@ -125,8 +170,10 @@ public class HorizonRadioScreen extends GuiScreen {
     private List<SearchResult> searchResults = new ArrayList<SearchResult>();
     private String searchError = "";
     private List<SearchResult> playlistResults = new ArrayList<SearchResult>();
+    private boolean playlistSearchStarted;
     private boolean playlistLoading;
     private String playlistError = "";
+    private String playlistTitle = "";
     private List<PlaylistEntry> playlist = new ArrayList<PlaylistEntry>();
     private List<RadioStationResult> radioResults = new ArrayList<RadioStationResult>();
     private int currentTab;
@@ -140,6 +187,11 @@ public class HorizonRadioScreen extends GuiScreen {
     private float playbackProgress;
     private float searchProgress;
     private boolean searchLoading;
+    private String observedSearchText = "";
+    private int observedSearchTab = SEARCH_TAB;
+    private String musicSearchText = "";
+    private String radioSearchText = "";
+    private long autoSearchAt = -1L;
     private long searchStartedAt;
     private boolean searchResultsRevealPending;
     private long searchResultsRevealAt;
@@ -174,9 +226,20 @@ public class HorizonRadioScreen extends GuiScreen {
     private boolean playlistDragMoved;
     private int dragStartMouseX;
     private int dragStartMouseY;
+    private long queueDragScrollAt;
     private boolean draggingResultScrollbar;
     private int resultScrollbarDragOffset;
+    private boolean draggingQueueScrollbar;
+    private int queueScrollbarDragOffset;
     private static HorizonRadioScreen activeScreen;
+    private HorizonRadioUiLayout uiLayout;
+    private ControlButton songsTabButton;
+    private ControlButton radioTabButton;
+    private ControlButton chartsTabButton;
+    private ControlButton searchTabButton;
+    private ControlButton playlistsTabButton;
+    private ControlButton queueClearButton;
+    private ControlButton bulkAddButton;
 
     public HorizonRadioScreen() {
         super();
@@ -185,11 +248,15 @@ public class HorizonRadioScreen extends GuiScreen {
     @Override
     public void initGui() {
         setActiveScreen(this);
+        uiLayout = HorizonRadioUiLayout.create(width, height);
         int panelLeft = panelLeft();
         int panelTop = panelTop();
         chartResults = HorizonRadioClient.getCachedCharts();
+        chartSearchStarted = !chartResults.isEmpty();
         chartRegionCode = normalizeChartRegionCode(HorizonRadioClient.getCachedChartRegionCode());
         playlistResults = HorizonRadioClient.getCachedPlaylistResults();
+        playlistTitle = HorizonRadioClient.getCachedPlaylistTitle();
+        playlistSearchStarted = !playlistResults.isEmpty();
         playlist = HorizonRadioClient.getCachedPlaylist();
         radioLoading = false;
         radioResultsRevealPending = false;
@@ -219,79 +286,74 @@ public class HorizonRadioScreen extends GuiScreen {
         buttonList.clear();
         searchButton = new ControlButton(
             BUTTON_SEARCH,
-            panelLeft + PANEL_WIDTH - SEARCH_SIDE_MARGIN - SEARCH_BUTTON_WIDTH,
+            panelLeft + SEARCH_FIELD_X_OFFSET + SEARCH_FIELD_WIDTH + SEARCH_CONTROL_GAP,
             panelTop + SEARCH_BUTTON_Y_OFFSET,
             SEARCH_BUTTON_WIDTH,
             SEARCH_BUTTON_HEIGHT,
             ICON_SEARCH,
             SEARCH_BUTTON_BORDER_COLOR);
         addButton(searchButton);
-        addButton(
-            new GuiButton(
-                BUTTON_CHARTS_TAB,
-                panelLeft + CHARTS_TAB_X,
-                panelTop + TAB_BUTTON_Y,
-                TAB_BUTTON_WIDTH,
-                TAB_BUTTON_HEIGHT,
-                "Charts"));
-        addButton(
-            new GuiButton(
-                BUTTON_SEARCH_TAB,
-                panelLeft + SEARCH_TAB_X,
-                panelTop + TAB_BUTTON_Y,
-                TAB_BUTTON_WIDTH,
-                TAB_BUTTON_HEIGHT,
-                "Search"));
-        addButton(
-            new GuiButton(
-                BUTTON_PLAYLIST_TAB,
-                panelLeft + PLAYLIST_TAB_X,
-                panelTop + TAB_BUTTON_Y,
-                TAB_BUTTON_WIDTH,
-                TAB_BUTTON_HEIGHT,
-                "Queue"));
-        addButton(
-            new GuiButton(
-                BUTTON_PLAYLIST_DISCOVERY_TAB,
-                panelLeft + PLAYLIST_DISCOVERY_TAB_X,
-                panelTop + TAB_BUTTON_Y,
-                TAB_BUTTON_WIDTH,
-                TAB_BUTTON_HEIGHT,
-                "Playlists"));
-        addButton(
-            new GuiButton(
-                BUTTON_RADIO_TAB,
-                panelLeft + RADIO_TAB_X,
-                panelTop + TAB_BUTTON_Y,
-                TAB_BUTTON_WIDTH,
-                TAB_BUTTON_HEIGHT,
-                "Radio"));
+        chartsTabButton = createModeButton(
+            BUTTON_CHARTS_TAB,
+            panelLeft + MODE_CHARTS_X,
+            panelTop + MODE_TOP_OFFSET,
+            "Charts");
+        addButton(chartsTabButton);
+        searchTabButton = createModeButton(
+            BUTTON_SEARCH_TAB,
+            panelLeft + MODE_SEARCH_X,
+            panelTop + MODE_TOP_OFFSET,
+            "Search");
+        addButton(searchTabButton);
+        playlistsTabButton = createModeButton(
+            BUTTON_PLAYLIST_DISCOVERY_TAB,
+            panelLeft + MODE_PLAYLISTS_X,
+            panelTop + MODE_TOP_OFFSET,
+            "Playlist");
+        addButton(playlistsTabButton);
+        songsTabButton = createTextButton(BUTTON_SONGS_TAB, panelLeft + SONGS_TAB_X, panelTop + TAB_BUTTON_Y, "Songs");
+        addButton(songsTabButton);
+        radioTabButton = createTextButton(BUTTON_RADIO_TAB, panelLeft + RADIO_TAB_X, panelTop + TAB_BUTTON_Y, "Radio");
+        addButton(radioTabButton);
         refreshChartsButton = new ControlButton(
             BUTTON_REFRESH_CHARTS,
-            panelLeft + PANEL_WIDTH - CONTROL_BUTTON_WIDTH,
-            panelTop + TAB_BUTTON_Y,
+            queueButtonLeft(panelLeft) - QUEUE_BUTTON_WIDTH - SEARCH_CONTROL_GAP,
+            panelTop + CHARTS_BULK_BUTTON_Y_OFFSET,
             QUEUE_BUTTON_WIDTH,
             TAB_BUTTON_HEIGHT,
             ICON_LOOP);
         addButton(refreshChartsButton);
-        settingsButton = new GuiButton(
-            BUTTON_SETTINGS,
-            panelLeft + PANEL_WIDTH - 75,
-            panelTop - 28,
-            70,
-            20,
-            "Settings");
-        addButton(settingsButton);
+        bulkAddButton = new ControlButton(
+            BUTTON_BULK_ADD,
+            queueButtonLeft(panelLeft),
+            panelTop + CHARTS_BULK_BUTTON_Y_OFFSET,
+            QUEUE_BUTTON_WIDTH,
+            TAB_BUTTON_HEIGHT,
+            "+");
+        bulkAddButton.setGreenActive(true);
+        addButton(bulkAddButton);
+        settingsButton = null;
+        queueClearButton = new ControlButton(
+            BUTTON_QUEUE_CLEAR,
+            panelLeft + QUEUE_LEFT_INSET + QUEUE_WIDTH - QUEUE_BUTTON_WIDTH - 6,
+            panelTop + QUEUE_TOP_OFFSET - 2,
+            QUEUE_BUTTON_WIDTH,
+            TAB_BUTTON_HEIGHT,
+            "×");
+        addButton(queueClearButton);
+        updateQueueClearButtonVisibility();
         addControlButtons(panelLeft, panelTop);
         volumeSlider = new HorizonRadioVolumeSlider(
             3,
-            panelLeft + 10,
-            panelTop + PANEL_HEIGHT + 5,
-            PANEL_WIDTH - 20,
-            20,
+            timeBarLeft(panelLeft) - 2,
+            panelTop + VOLUME_TOP_OFFSET + 2,
+            timeBarWidth() + 4,
+            VOLUME_HEIGHT,
             HorizonRadioClient.getVolume());
         addButton(volumeSlider);
-        openCharts();
+        currentTab = SEARCH_TAB;
+        observedSearchText = searchField.getText();
+        autoSearchAt = -1L;
         updateChartRefreshButtonState();
         updateControlVisibility();
     }
@@ -299,45 +361,225 @@ public class HorizonRadioScreen extends GuiScreen {
     @Override
     public void drawScreen(int mouseX, int mouseY, float partialTicks) {
         drawDefaultBackground();
+        if (uiLayout == null) {
+            uiLayout = HorizonRadioUiLayout.create(width, height);
+        }
+        int logicalMouseX = uiLayout.toLogicalMouseX(mouseX);
+        int logicalMouseY = uiLayout.toLogicalMouseY(mouseY);
+        beginUiTransform();
         int left = panelLeft();
         int top = panelTop();
-        drawRect(left, top, left + PANEL_WIDTH, top + PANEL_HEIGHT, 0xE0101010);
-        drawPanelBorder(left, top);
-        drawCenteredString(fontRendererObj, "HorizonRadio - Music Player", width / 2, top - 15, 0xFFFFFFFF);
+        drawPanelBackground(left, top);
+        drawHeader(left, top);
         updatePendingResultReveals();
 
         if (currentTab == CHARTS_TAB) {
             updateChartProgress();
-            drawChartsTab(left, top, mouseX, mouseY);
+            drawChartsTab(left, top, logicalMouseX, logicalMouseY);
         } else if (currentTab == SEARCH_TAB) {
             updateSearchProgress();
-            drawSearchTab(left, top, mouseX, mouseY);
+            drawSearchTab(left, top, logicalMouseX, logicalMouseY);
         } else if (currentTab == PLAYLIST_DISCOVERY_TAB) {
             updatePlaylistProgress();
-            drawPlaylistDiscoveryTab(left, top, mouseX, mouseY);
+            drawPlaylistDiscoveryTab(left, top, logicalMouseX, logicalMouseY);
         } else if (currentTab == RADIO_TAB) {
             updateRadioProgress();
-            drawRadioTab(left, top, mouseX, mouseY);
+            drawRadioTab(left, top, logicalMouseX, logicalMouseY);
         } else {
-            drawPlaylistTab(left, top, mouseX, mouseY);
+            drawSearchTab(left, top, logicalMouseX, logicalMouseY);
         }
+        drawQueuePanel(left, top, logicalMouseX, logicalMouseY);
         int nowPlayingTop = nowPlayingTop(top);
         drawNowPlaying(left, nowPlayingTop);
+        drawMediaStatus(left, nowPlayingTop);
         drawControlCenter(left, nowPlayingTop);
+        drawVolumeLabels(left, top);
 
         searchButton.visible = showsSearchButton();
         searchButton.enabled = currentTab != PLAYLIST_DISCOVERY_TAB || !playlistLoading;
-        refreshChartsButton.visible = currentTab == CHARTS_TAB;
+        updateChartControlVisibility();
+        boolean showBulkAdd = bulkAddButton.visible;
+        boolean bulkAddComplete = currentTab == CHARTS_TAB ? areAllChartsInQueueOrPending()
+            : areAllPlaylistResultsInQueueOrPending();
+        bulkAddButton.enabled = showBulkAdd && !bulkAddComplete
+            && !(currentTab == CHARTS_TAB ? isChartResultsLoading() : isPlaylistResultsLoading());
+        bulkAddButton.setLabel(bulkAddComplete ? "\u2713" : "+");
+        bulkAddButton.setActive(bulkAddComplete);
+        updateQueueClearButtonVisibility();
+        songsTabButton.setActive(currentTab != RADIO_TAB);
+        radioTabButton.setActive(currentTab == RADIO_TAB);
+        chartsTabButton.setActive(currentTab == CHARTS_TAB);
+        searchTabButton.setActive(currentTab == SEARCH_TAB);
+        playlistsTabButton.setActive(currentTab == PLAYLIST_DISCOVERY_TAB);
+        updateModeVisibility();
         updateChartRefreshButtonState();
         updateControlVisibility();
         if (usesSharedSearchField()) {
-            searchField.drawTextBox();
+            drawScaledTextField(searchField);
+            if (searchField.getText()
+                .trim()
+                .length() == 0 && !searchField.isFocused()) {
+                drawUiString(searchPlaceholder(), searchField.xPosition + 4, searchField.yPosition + 5, 0xFF8D8D8D);
+            }
         } else if (currentTab == PLAYLIST_DISCOVERY_TAB) {
-            playlistUrlField.drawTextBox();
+            drawScaledTextField(playlistUrlField);
         }
-        super.drawScreen(mouseX, mouseY, partialTicks);
+        super.drawScreen(logicalMouseX, logicalMouseY, partialTicks);
         drawPanelBorder(left, top);
         drawActiveTabBorder(left, top);
+        drawQueueDragPreview(logicalMouseX, logicalMouseY);
+        endUiTransform();
+    }
+
+    private String searchPlaceholder() {
+        if (currentTab == CHARTS_TAB) {
+            return "Search charts by country...";
+        }
+        if (currentTab == RADIO_TAB) {
+            return "Search radio stations...";
+        }
+        if (currentTab == PLAYLIST_DISCOVERY_TAB) {
+            return "Search playlists...";
+        }
+        return "Search songs...";
+    }
+
+    static float uiTextScale() {
+        return UI_TEXT_SCALE;
+    }
+
+    static int uiTextWidth(int fontWidth) {
+        return Math.round(Math.max(0, fontWidth) * UI_TEXT_SCALE);
+    }
+
+    private void drawUiString(String text, int x, int y, int color) {
+        GL11.glPushMatrix();
+        GL11.glTranslatef(x, y, 0.0F);
+        GL11.glScalef(UI_TEXT_SCALE, UI_TEXT_SCALE, 1.0F);
+        drawString(fontRendererObj, text, 0, 0, color);
+        GL11.glPopMatrix();
+    }
+
+    private void drawUiCenteredString(String text, int centerX, int y, int color) {
+        GL11.glPushMatrix();
+        GL11.glTranslatef(centerX, y, 0.0F);
+        GL11.glScalef(UI_TEXT_SCALE, UI_TEXT_SCALE, 1.0F);
+        drawCenteredString(fontRendererObj, text, 0, 0, color);
+        GL11.glPopMatrix();
+    }
+
+    private void drawScaledTextField(GuiTextField field) {
+        int x = field.xPosition;
+        int y = field.yPosition;
+        int width = field.width;
+        int height = field.height;
+        drawRect(x - 1, y - 1, x + width + 1, y + height + 1, 0xFFA0A0A0);
+        drawRect(x, y, x + width, y + height, 0xFF000000);
+
+        boolean drawsBackground = field.getEnableBackgroundDrawing();
+        field.setEnableBackgroundDrawing(false);
+        field.xPosition = x + 4;
+        field.yPosition = y + (height - 8) / 2;
+        field.width = Math.max(1, width - 8);
+        GL11.glPushMatrix();
+        GL11.glTranslatef(field.xPosition, field.yPosition, 0.0F);
+        GL11.glScalef(UI_TEXT_SCALE, UI_TEXT_SCALE, 1.0F);
+        GL11.glTranslatef(-field.xPosition, -field.yPosition, 0.0F);
+        field.drawTextBox();
+        GL11.glPopMatrix();
+        field.xPosition = x;
+        field.yPosition = y;
+        field.width = width;
+        field.height = height;
+        field.setEnableBackgroundDrawing(drawsBackground);
+    }
+
+    private void beginUiTransform() {
+        GL11.glPushMatrix();
+        GL11.glTranslatef(width / 2.0f, height / 2.0f, 0.0f);
+        GL11.glScalef(uiLayout.scale(), uiLayout.scale(), 1.0f);
+        GL11.glTranslatef(-width / 2.0f, -height / 2.0f, 0.0f);
+    }
+
+    private void endUiTransform() {
+        GL11.glPopMatrix();
+    }
+
+    private void drawPanelBackground(int left, int top) {
+        drawRect(left, top, left + PANEL_WIDTH, top + PANEL_HEIGHT, 0xFF202020);
+        drawRect(left + 3, top + 3, left + PANEL_WIDTH - 3, top + PANEL_HEIGHT - 3, 0xFF202020);
+        drawRect(
+            left + CONTENT_LEFT_INSET,
+            top + BODY_TOP_OFFSET,
+            left + CONTENT_LEFT_INSET + CONTENT_WIDTH,
+            top + BODY_BOTTOM_OFFSET,
+            0xFF242424);
+        drawRect(
+            left + QUEUE_LEFT_INSET,
+            top + BODY_TOP_OFFSET,
+            left + QUEUE_LEFT_INSET + QUEUE_WIDTH,
+            top + BODY_BOTTOM_OFFSET,
+            0xFF272727);
+        drawPanelBoxBorder(
+            left + CONTENT_LEFT_INSET,
+            top + BODY_TOP_OFFSET,
+            left + CONTENT_LEFT_INSET + CONTENT_WIDTH,
+            top + BODY_BOTTOM_OFFSET);
+        drawPanelBoxBorder(
+            left + QUEUE_LEFT_INSET,
+            top + BODY_TOP_OFFSET,
+            left + QUEUE_LEFT_INSET + QUEUE_WIDTH,
+            top + BODY_BOTTOM_OFFSET);
+        drawRect(
+            left + CONTENT_LEFT_INSET,
+            top + BODY_TOP_OFFSET,
+            left + CONTENT_LEFT_INSET + CONTENT_WIDTH,
+            top + BODY_TOP_OFFSET + 1,
+            0xFF555555);
+        drawRect(
+            left + QUEUE_LEFT_INSET,
+            top + BODY_TOP_OFFSET,
+            left + QUEUE_LEFT_INSET + QUEUE_WIDTH,
+            top + BODY_TOP_OFFSET + 1,
+            0xFF555555);
+    }
+
+    private void drawPanelBoxBorder(int left, int top, int right, int bottom) {
+        drawRect(left, top, right, top + 1, 0xFF555555);
+        drawRect(left, bottom - 1, right, bottom, 0xFF555555);
+        drawRect(left, top, left + 1, bottom, 0xFF555555);
+        drawRect(right - 1, top, right, bottom, 0xFF555555);
+    }
+
+    private void drawHeader(int left, int top) {
+        drawGradientRect(left + 3, top + 3, left + PANEL_WIDTH - 3, top + BODY_TOP_OFFSET, 0xFF202020, 0xFF1B1B1B);
+        drawRect(left + 8, top + BODY_TOP_OFFSET - 3, left + PANEL_WIDTH - 8, top + BODY_TOP_OFFSET - 2, 0xFF555555);
+        GL11.glColor4f(1.0F, 1.0F, 1.0F, 1.0F);
+        Minecraft.getMinecraft()
+            .getTextureManager()
+            .bindTexture(ICON_LOGO);
+        GL11.glPushAttrib(GL11.GL_ENABLE_BIT | GL11.GL_COLOR_BUFFER_BIT);
+        GL11.glEnable(GL11.GL_BLEND);
+        // Screen blending makes the clean logo's black backdrop invisible without an outer halo.
+        GL11.glBlendFunc(GL11.GL_ONE, GL11.GL_ONE_MINUS_SRC_COLOR);
+        GL11.glDisable(GL11.GL_ALPHA_TEST);
+        Gui.func_152125_a(left + 10, top + 11, 0, 210, 1853, 370, 94, 20, 1853, 849);
+        GL11.glPopAttrib();
+    }
+
+    private void drawVolumeLabels(int left, int top) {
+        int textHeight = uiTextWidth(fontRendererObj.FONT_HEIGHT);
+        int labelTop = (volumeSlider == null ? top + VOLUME_TOP_OFFSET + 2 : volumeSlider.yPosition)
+            + (VOLUME_HEIGHT - textHeight) / 2;
+        drawUiString("VOL", nowPlayingContentLeft(left), labelTop, 0xFFB3B3B3);
+        int value = volumeSlider == null ? Math.round(HorizonRadioClient.getVolume() * 100.0f)
+            : Math.round(volumeSlider.getValue() * 100.0f);
+        String valueText = value + "%";
+        drawUiString(
+            valueText,
+            left + PANEL_WIDTH - 13 - uiTextWidth(fontRendererObj.getStringWidth(valueText)),
+            labelTop,
+            0xFFB3B3B3);
     }
 
     private void drawPanelBorder(int left, int top) {
@@ -348,26 +590,37 @@ public class HorizonRadioScreen extends GuiScreen {
     }
 
     private void drawActiveTabBorder(int panelLeft, int panelTop) {
-        int tabLeft;
-        if (currentTab == CHARTS_TAB) {
-            tabLeft = panelLeft + CHARTS_TAB_X;
-        } else if (currentTab == SEARCH_TAB) {
-            tabLeft = panelLeft + SEARCH_TAB_X;
-        } else if (currentTab == PLAYLIST_DISCOVERY_TAB) {
-            tabLeft = panelLeft + PLAYLIST_DISCOVERY_TAB_X;
-        } else if (currentTab == RADIO_TAB) {
-            tabLeft = panelLeft + RADIO_TAB_X;
-        } else {
-            tabLeft = panelLeft + PLAYLIST_TAB_X;
+        GuiButton activeHeader = currentTab == RADIO_TAB ? radioTabButton : songsTabButton;
+        GuiButton activeMode = currentTab == CHARTS_TAB ? chartsTabButton
+            : (currentTab == SEARCH_TAB ? searchTabButton
+                : (currentTab == PLAYLIST_DISCOVERY_TAB ? playlistsTabButton : null));
+        drawButtonBorder(activeHeader, 0xFFFFFFFF);
+        drawButtonBorder(activeMode, 0xFFFFFFFF);
+    }
+
+    private void drawButtonBorder(GuiButton button, int color) {
+        if (button == null || !button.visible) {
+            return;
         }
-        int tabTop = panelTop + TAB_BUTTON_Y;
-        int tabRight = tabLeft + TAB_BUTTON_WIDTH;
-        int tabBottom = tabTop + TAB_BUTTON_HEIGHT;
-        int color = 0xFFFFFFFF;
-        drawRect(tabLeft - 1, tabTop - 1, tabRight + 1, tabTop, color);
-        drawRect(tabLeft - 1, tabBottom, tabRight + 1, tabBottom + 1, color);
-        drawRect(tabLeft - 1, tabTop, tabLeft, tabBottom, color);
-        drawRect(tabRight, tabTop, tabRight + 1, tabBottom, color);
+        drawRect(
+            button.xPosition - 1,
+            button.yPosition - 1,
+            button.xPosition + button.width + 1,
+            button.yPosition,
+            color);
+        drawRect(
+            button.xPosition - 1,
+            button.yPosition + button.height,
+            button.xPosition + button.width + 1,
+            button.yPosition + button.height + 1,
+            color);
+        drawRect(button.xPosition - 1, button.yPosition, button.xPosition, button.yPosition + button.height, color);
+        drawRect(
+            button.xPosition + button.width,
+            button.yPosition,
+            button.xPosition + button.width + 1,
+            button.yPosition + button.height,
+            color);
     }
 
     private void drawChartsTab(int left, int top, int mouseX, int mouseY) {
@@ -375,36 +628,32 @@ public class HorizonRadioScreen extends GuiScreen {
         if (shouldDrawProgressBar(resultsLoading)) {
             drawProgressBar(left, top, chartProgress);
         } else {
-            String chartHeader = chartHeaderLabel(hasChartRegion(), chartRegionDisplayName());
-            if (chartHeader.length() > 0) {
-                drawString(fontRendererObj, chartHeader, left + 10, top + CONTENT_LABEL_Y_OFFSET, 0xFFE0E0E0);
-            }
+            String chartHeader = chartResults.isEmpty() ? ""
+                : chartHeaderLabel(hasChartRegion(), chartRegionDisplayName());
             if (chartSearchMessage.length() > 0) {
-                drawString(
-                    fontRendererObj,
+                drawUiString(
                     chartSearchMessage,
-                    left + 10,
-                    top + CONTENT_HEADER_Y_OFFSET + 15,
+                    contentLeft(left) + 5,
+                    top + CONTENT_LABEL_Y_OFFSET + CHART_CONTENT_Y_OFFSET,
                     0xFFFF7777);
+            } else if (chartHeader.length() > 0) {
+                drawUiString(
+                    chartHeader,
+                    contentLeft(left) + 5,
+                    top + CONTENT_LABEL_Y_OFFSET + CHART_CONTENT_Y_OFFSET,
+                    0xFFF0F0F0);
             }
         }
         drawResultList(
             resultsLoading ? Collections.<SearchResult>emptyList() : chartResults,
             chartScrollOffset,
             left,
-            top + CONTENT_LIST_TOP_OFFSET,
+            top + CHART_LIST_TOP_OFFSET,
             mouseX,
             mouseY,
             resultsLoading ? "Loading charts..."
                 : (chartError.length() > 0 ? chartError
-                    : (hasChartRegion() ? "No charts available" : "Search for a country above")));
-        if (!resultsLoading && !chartResults.isEmpty()) {
-            drawQueueButtonAt(
-                left,
-                top + CHARTS_BULK_BUTTON_Y_OFFSET,
-                areAllChartsInQueueOrPending(),
-                isChartsBulkButtonAt(left, top, mouseX, mouseY) && !areAllChartsInQueueOrPending());
-        }
+                    : (chartSearchStarted && hasChartRegion() ? "No charts available" : "")));
     }
 
     private void drawSearchTab(int left, int top, int mouseX, int mouseY) {
@@ -420,48 +669,270 @@ public class HorizonRadioScreen extends GuiScreen {
             top + searchListTopOffset(resultsLoading),
             mouseX,
             mouseY,
-            resultsLoading ? "Searching..." : (searchError.length() > 0 ? searchError : "Search for songs above"));
+            isEmptySearchQuery() ? "No favorite songs yet"
+                : (resultsLoading ? "Searching..." : (searchError.length() > 0 ? searchError : "No songs found")));
     }
 
     private void drawPlaylistDiscoveryTab(int left, int top, int mouseX, int mouseY) {
         boolean resultsLoading = isPlaylistResultsLoading();
+        List<SearchResult> results = displayedPlaylistResults();
         if (shouldDrawProgressBar(resultsLoading)) {
             drawProgressBar(left, top, playlistProgress);
         }
+        if (hasVisiblePlaylistResults()) {
+            int labelLeft = contentLeft(left) + 5;
+            drawUiString(
+                truncateUi(
+                    playlistTitle.isEmpty() ? "YouTube Playlist" : playlistTitle,
+                    queueButtonLeft(left) - labelLeft - 5),
+                labelLeft,
+                top + CONTENT_LABEL_Y_OFFSET + CHART_CONTENT_Y_OFFSET,
+                0xFFF0F0F0);
+        }
+        String emptyMessage = resultsLoading ? "Loading playlist..."
+            : (playlistError.length() > 0 ? playlistError : (playlistSearchStarted ? "No songs found" : ""));
         drawResultList(
-            resultsLoading ? Collections.<SearchResult>emptyList() : playlistResults,
+            resultsLoading ? Collections.<SearchResult>emptyList() : results,
             playlistScrollOffset,
             left,
             playlistDiscoveryListTop(top),
             mouseX,
             mouseY,
-            resultsLoading ? "Loading playlist..."
-                : (playlistError.length() > 0 ? playlistError : "Paste a YouTube playlist URL"));
-        if (!resultsLoading && !playlistResults.isEmpty()) {
-            drawQueueButtonAt(
-                left,
-                top + CHARTS_BULK_BUTTON_Y_OFFSET,
-                areAllPlaylistResultsInQueueOrPending(),
-                isChartsBulkButtonAt(left, top, mouseX, mouseY) && !areAllPlaylistResultsInQueueOrPending());
+            emptyMessage);
+    }
+
+    private List<SearchResult> displayedPlaylistResults() {
+        return new ArrayList<SearchResult>(playlistResults);
+    }
+
+    private void drawQueuePanel(int left, int top, int mouseX, int mouseY) {
+        updateQueueDragScroll(mouseX, mouseY, System.currentTimeMillis());
+        int queueLeft = left + QUEUE_LEFT_INSET;
+        int headerTop = top + QUEUE_TOP_OFFSET;
+        int rowTop = top + QUEUE_LIST_TOP_OFFSET;
+        int queueCount = playlist.size() + (hasStandaloneRadioRow() ? 1 : 0);
+        drawUiString("QUEUE", queueLeft + 7, headerTop + 3, 0xFFF2F2F2);
+        drawUiString("(" + queueCount + "/" + QUEUE_DISPLAY_LIMIT + ")", queueLeft + 45, headerTop + 3, 0xFF8F9A91);
+        drawRect(
+            queueLeft + 5,
+            headerTop + TAB_BUTTON_HEIGHT + 2,
+            queueLeft + QUEUE_WIDTH - 5,
+            headerTop + TAB_BUTTON_HEIGHT + 3,
+            0xFF4B4B4B);
+
+        int dropIndex = queueDropIndex(mouseX, mouseY);
+        boolean preview = playlistDragMoved && dropIndex >= 0;
+        int renderedRows = 0;
+        if (hasStandaloneRadioRow() && !(preview && dropIndex == 0)) {
+            drawQueueRow(
+                queueLeft,
+                rowTop,
+                renderedRows++,
+                radioState.getStationName(),
+                "LIVE",
+                "LIVE",
+                true,
+                mouseX,
+                mouseY,
+                true);
         }
+        for (int index = queueScrollOffset; index < playlist.size() && renderedRows < QUEUE_MAX_VISIBLE_ROWS; index++) {
+            int sourceIndex = preview ? queuePreviewSourceIndex(index, draggedPlaylistIndex, dropIndex) : index;
+            // Immediate playback replaces the current song instead of queueing it again.
+            if (preview && dropIndex == 0
+                && index != dropIndex
+                && sourceIndex == 0
+                && nowPlaying != null
+                && !hasStandaloneRadioRow()) {
+                continue;
+            }
+            int displayRow = renderedRows++;
+            if (preview && index == dropIndex) {
+                int gapTop = rowTop + displayRow * ROW_HEIGHT;
+                int targetPosition = index + 1 + (hasStandaloneRadioRow() ? 1 : 0);
+                drawRect(queueLeft + 5, gapTop, queueLeft + QUEUE_WIDTH - 6, gapTop + ROW_HEIGHT - 1, 0xFF263F30);
+                drawRect(queueLeft + 5, gapTop, queueLeft + QUEUE_WIDTH - 6, gapTop + 2, 0xFF79D38A);
+                drawUiString(
+                    index == 0 ? "1 - Play now" : targetPosition + " - Move to #" + targetPosition,
+                    queueLeft + 9,
+                    gapTop + 7,
+                    0xFFB9F1C5);
+                continue;
+            }
+            PlaylistEntry entry = playlist.get(sourceIndex);
+            if (entry == null) {
+                continue;
+            }
+            boolean activeRadio = isRadioActive() && entry.sourceType == MediaSourceType.RADIO
+                && radioState.getStationUuid()
+                    .equals(entry.sourceId);
+            drawQueueRow(
+                queueLeft,
+                rowTop,
+                displayRow,
+                activeRadio ? radioState.getStationName() : entry.displayTitle(),
+                entry.addedBy,
+                activeRadio ? "LIVE" : entry.displayDuration(),
+                isPlaylistRowPlaying(sourceIndex, entry),
+                mouseX,
+                mouseY,
+                false);
+        }
+        if (queueCount == 0) {
+            drawUiString("Queue is empty", queueLeft + 8, rowTop + 10, 0xFF999999);
+        }
+        if (queueCount > QUEUE_MAX_VISIBLE_ROWS) {
+            drawQueueScrollbar(queueLeft, rowTop, queueCount);
+        }
+    }
+
+    static int queuePreviewSourceIndex(int position, int fromIndex, int targetIndex) {
+        if (position == targetIndex) {
+            return fromIndex;
+        }
+        if (fromIndex < targetIndex && position >= fromIndex && position < targetIndex) {
+            return position + 1;
+        }
+        if (fromIndex > targetIndex && position > targetIndex && position <= fromIndex) {
+            return position - 1;
+        }
+        return position;
+    }
+
+    void updateQueueDragScroll(int mouseX, int mouseY, long now) {
+        int row = queueRowAt(mouseX, mouseY);
+        if (!playlistDragMoved || !isPlaylistIndexDraggable(draggedPlaylistIndex)
+            || (row != 0 && row != QUEUE_MAX_VISIBLE_ROWS - 1)) {
+            queueDragScrollAt = 0L;
+            return;
+        }
+        if (queueDragScrollAt == 0L) {
+            queueDragScrollAt = now + 250L;
+        } else if (now >= queueDragScrollAt) {
+            queueScrollOffset = Math.max(0, Math.min(queueMaxScrollOffset(), queueScrollOffset + (row == 0 ? -1 : 1)));
+            queueDragScrollAt = now + 250L;
+        }
+    }
+
+    private int queueDropIndex(int mouseX, int mouseY) {
+        if (!playlistDragMoved || !isPlaylistIndexDraggable(draggedPlaylistIndex)) {
+            return -1;
+        }
+        int row = queueRowAt(mouseX, mouseY);
+        if (row < 0 || playlist.isEmpty()) {
+            return -1;
+        }
+        return Math.max(0, Math.min(playlist.size() - 1, queueIndexAtRow(row)));
+    }
+
+    private void drawQueueDragPreview(int mouseX, int mouseY) {
+        if (!playlistDragMoved || draggedPlaylistEntry == null || !isPlaylistIndexDraggable(draggedPlaylistIndex)) {
+            return;
+        }
+        int cardLeft = queuePanelLeft(panelLeft()) + 5 + mouseX - dragStartMouseX;
+        int cardTop = mouseY - Math.floorMod(dragStartMouseY - panelTop() - QUEUE_LIST_TOP_OFFSET, ROW_HEIGHT);
+        int cardRight = cardLeft + QUEUE_WIDTH - 11;
+        int accent = queueDropIndex(mouseX, mouseY) >= 0 ? 0xFF79D38A : 0xFFAAAAAA;
+        drawRect(cardLeft + 2, cardTop + 2, cardRight + 2, cardTop + ROW_HEIGHT + 1, 0xAA000000);
+        drawRect(cardLeft, cardTop, cardRight, cardTop + ROW_HEIGHT - 1, 0xFF35443A);
+        drawRect(cardLeft, cardTop, cardLeft + 2, cardTop + ROW_HEIGHT - 1, accent);
+        drawUiString(
+            truncateUi(draggedPlaylistEntry.displayTitle(), cardRight - cardLeft - 10),
+            cardLeft + 5,
+            cardTop + 3,
+            0xFFFFFFFF);
+        drawUiString(
+            truncateUi(draggedPlaylistEntry.addedBy, cardRight - cardLeft - 10),
+            cardLeft + 5,
+            cardTop + 13,
+            0xFFBACABB);
+    }
+
+    private void drawQueueRow(int queueLeft, int listTop, int row, String title, String artist, String duration,
+        boolean active, int mouseX, int mouseY, boolean radioRow) {
+        title = title == null ? "" : title;
+        artist = artist == null ? "" : artist;
+        duration = duration == null ? "" : duration;
+        int y = listTop + row * ROW_HEIGHT;
+        boolean hovered = mouseX >= queueLeft + 3 && mouseX <= queueLeft + QUEUE_WIDTH - 3
+            && mouseY >= y
+            && mouseY < y + ROW_HEIGHT;
+        int background = active ? 0xFF315B38 : (hovered ? 0xFF343434 : 0xFF292929);
+        drawRect(queueLeft + 5, y, queueLeft + QUEUE_WIDTH - 6, y + ROW_HEIGHT - 1, background);
+        drawUiString(
+            String.valueOf(row + 1 + (radioRow ? 0 : queueScrollOffset)),
+            queueLeft + 6,
+            y + 7,
+            active ? 0xFFC3F1C7 : 0xFF999999);
+        int textLeft = queueLeft + 17;
+        int removeLeft = queueLeft + QUEUE_WIDTH - QUEUE_BUTTON_WIDTH - 6;
+        int textWidth = removeLeft - 4 - textLeft - 17;
+        drawUiString(truncateUi(title, textWidth), textLeft, y + 3, active ? 0xFFE3F5E4 : 0xFFE6E6E6);
+        drawUiString(truncateUi(artist, textWidth), textLeft, y + 13, active ? 0xFFB9D5BC : 0xFF999999);
+        drawUiString(
+            duration,
+            removeLeft - uiTextWidth(fontRendererObj.getStringWidth(duration)) - 3,
+            y + 3,
+            active ? 0xFFE3F5E4 : 0xFF999999);
+        drawTextButtonAbsolute(
+            removeLeft,
+            queueButtonTop(y),
+            radioRow ? "×" : "×",
+            isMouseOver(removeLeft, queueButtonTop(y), QUEUE_BUTTON_WIDTH, QUEUE_BUTTON_HEIGHT, mouseX, mouseY));
+    }
+
+    private void drawQueueScrollbar(int queueLeft, int listTop, int resultCount) {
+        int trackLeft = queueLeft + QUEUE_WIDTH - 4;
+        int trackHeight = QUEUE_MAX_VISIBLE_ROWS * ROW_HEIGHT - 1;
+        int thumbHeight = resultScrollbarThumbHeight(resultCount, trackHeight, QUEUE_MAX_VISIBLE_ROWS);
+        int thumbTop = resultScrollbarThumbTop(
+            resultCount,
+            queueScrollOffset,
+            listTop,
+            trackHeight,
+            thumbHeight,
+            QUEUE_MAX_VISIBLE_ROWS);
+        drawRect(trackLeft, listTop, trackLeft + 2, listTop + trackHeight, 0x66555555);
+        drawRect(trackLeft, thumbTop, trackLeft + 2, thumbTop + thumbHeight, 0xFFDDDDDD);
+    }
+
+    private boolean isQueueScrollbarAt(int queueLeft, int listTop, int resultCount, int mouseX, int mouseY) {
+        if (resultCount <= QUEUE_MAX_VISIBLE_ROWS) {
+            return false;
+        }
+        int trackLeft = queueLeft + QUEUE_WIDTH - 4;
+        int trackHeight = QUEUE_MAX_VISIBLE_ROWS * ROW_HEIGHT - 1;
+        return isMouseOver(trackLeft - 1, listTop, 4, trackHeight, mouseX, mouseY);
+    }
+
+    private void updateQueueScrollbarScroll(int mouseY) {
+        int resultCount = playlist.size() + (hasStandaloneRadioRow() ? 1 : 0);
+        int listTop = panelTop() + QUEUE_LIST_TOP_OFFSET;
+        int trackHeight = QUEUE_MAX_VISIBLE_ROWS * ROW_HEIGHT - 1;
+        int thumbHeight = resultScrollbarThumbHeight(resultCount, trackHeight, QUEUE_MAX_VISIBLE_ROWS);
+        int maxOffset = Math.max(0, resultCount - QUEUE_MAX_VISIBLE_ROWS);
+        int maxThumbTop = Math.max(1, trackHeight - thumbHeight);
+        int desiredThumbTop = Math.max(listTop, Math.min(listTop + maxThumbTop, mouseY - queueScrollbarDragOffset));
+        queueScrollOffset = (desiredThumbTop - listTop) * maxOffset / maxThumbTop;
+        queueScrollOffset = Math.max(0, Math.min(queueScrollOffset, queueMaxScrollOffset()));
     }
 
     private List<SearchResult> displayedSearchResults() {
         if (searchField == null) {
             return new ArrayList<SearchResult>(searchResults);
         }
-        if (!isEmptySearchQuery()) {
-            return new ArrayList<SearchResult>(searchResults);
+        if (!isEmptySearchQuery() && autoSearchAt < 0L) {
+            return FavoriteResultComposer
+                .composeSongs(HorizonRadioClient.getFavoriteSongs(), searchResults, searchField.getText());
         }
-        return FavoriteResultComposer.composeSongs(HorizonRadioClient.getFavoriteSongs(), chartResults);
+        return FavoriteResultComposer
+            .composeSongs(HorizonRadioClient.getFavoriteSongs(), Collections.<SearchResult>emptyList());
     }
 
     private List<RadioStationResult> displayedRadioResults() {
-        if (searchField == null) {
-            return new ArrayList<RadioStationResult>(radioResults);
-        }
-        if (!isEmptySearchQuery()) {
-            return new ArrayList<RadioStationResult>(radioResults);
+        if (!isEmptySearchQuery() && autoSearchAt < 0L) {
+            return FavoriteResultComposer
+                .composeRadios(HorizonRadioClient.getFavoriteRadios(), radioResults, searchField.getText());
         }
         return FavoriteResultComposer.composeRadios(HorizonRadioClient.getFavoriteRadios(), radioResults);
     }
@@ -484,6 +955,8 @@ public class HorizonRadioScreen extends GuiScreen {
     public void drawRadioTab(int left, int top, int mouseX, int mouseY) {
         boolean resultsLoading = isRadioResultsLoading();
         List<RadioStationResult> results = displayedRadioResults();
+        int contentLeft = contentLeft(left);
+        int contentRight = contentRight(left);
         if (shouldDrawProgressBar(resultsLoading)) {
             drawProgressBar(left, top, radioProgress);
         }
@@ -491,57 +964,79 @@ public class HorizonRadioScreen extends GuiScreen {
         if (results.isEmpty()) {
             String emptyMessage = resultsLoading ? "Loading stations..."
                 : (radioError.length() > 0 ? radioError : "No radio stations available");
-            drawCenteredString(fontRendererObj, emptyMessage, left + PANEL_WIDTH / 2, listTop + 20, 0xFF888888);
+            drawUiCenteredString(emptyMessage, contentLeft + CONTENT_WIDTH / 2, listTop + 20, 0xFF888888);
             return;
         }
-        for (int row = 0; row < MAX_VISIBLE_ROWS && radioScrollOffset + row < results.size(); row++) {
+        for (int row = 0; row < RADIO_MAX_VISIBLE_ROWS && radioScrollOffset + row < results.size(); row++) {
             int y = listTop + row * ROW_HEIGHT;
             RadioStationResult station = results.get(radioScrollOffset + row);
-            boolean hovered = mouseX >= left + 10 && mouseX <= left + PANEL_WIDTH - 10
+            boolean hovered = mouseX >= contentLeft + 5 && mouseX <= contentRight
                 && mouseY >= y
                 && mouseY < y + ROW_HEIGHT;
             boolean active = isActiveRadioStation(station.stationUuid);
             drawRect(
-                left + 10,
+                contentLeft + 5,
                 y,
-                left + PANEL_WIDTH - 10,
-                y + ROW_HEIGHT - 2,
-                active ? 0x4400FF00 : (hovered ? 0x44FFFFFF : 0x22FFFFFF));
-            int textColor = active ? 0xFF55FF55 : 0xFFFFFFFF;
-            int textWidth = active ? radioStationNameMaxWidth(left) : left + PANEL_WIDTH - 25 - (left + 15);
-            drawString(fontRendererObj, truncate(station.name, textWidth), left + 15, y + 8, textColor);
-            if (active) {
-                drawString(fontRendererObj, "LIVE", radioLiveLabelLeft(left), y + 8, 0xFF55FF55);
-            }
+                contentRight,
+                y + ROW_HEIGHT - 1,
+                active ? 0xFF315B38 : (hovered ? 0xFF343434 : 0xFF292929));
+            int textColor = active ? 0xFFE3F5E4 : 0xFFF2F2F2;
+            int liveLeft = contentRight - 5 - uiTextWidth(fontRendererObj.getStringWidth("LIVE"));
+            int textLeft = contentLeft + RESULT_GLYPH_LEFT_INSET + RESULT_GLYPH_AREA_WIDTH;
+            int textWidth = liveLeft - 5 - textLeft;
+            drawResultGlyph(
+                HorizonRadioClient.isRadioFavorite(station.stationUuid),
+                contentLeft,
+                y,
+                active ? 0xFFC3F1C7 : 0xFFB0B0B0);
+            drawUiString(truncateUi(station.name, textWidth), textLeft, y + 3, textColor);
+            drawUiString("LIVE", liveLeft, y + 3, active ? 0xFFC3F1C7 : 0xFF999999);
         }
         drawResultScrollbar(results.size(), radioScrollOffset, left, listTop);
     }
 
     private void drawResultList(List<SearchResult> results, int scrollOffset, int left, int listTop, int mouseX,
         int mouseY, String emptyMessage) {
+        int contentLeft = contentLeft(left);
+        int contentRight = contentRight(left);
         if (results.isEmpty()) {
-            drawCenteredString(fontRendererObj, emptyMessage, left + PANEL_WIDTH / 2, listTop + 20, 0xFF888888);
+            drawUiCenteredString(emptyMessage, contentLeft + CONTENT_WIDTH / 2, listTop + 20, 0xFF888888);
             return;
         }
-        for (int row = 0; row < MAX_VISIBLE_ROWS && scrollOffset + row < results.size(); row++) {
+        for (int row = 0; row < resultVisibleRows() && scrollOffset + row < results.size(); row++) {
             int y = listTop + row * ROW_HEIGHT;
             SearchResult result = results.get(scrollOffset + row);
-            boolean hovered = mouseX >= left + 10 && mouseX <= left + PANEL_WIDTH - 10
+            boolean hovered = mouseX >= contentLeft + 5 && mouseX <= contentRight
                 && mouseY >= y
                 && mouseY < y + ROW_HEIGHT;
-            drawRect(left + 10, y, left + PANEL_WIDTH - 10, y + ROW_HEIGHT - 2, hovered ? 0x44FFFFFF : 0x22FFFFFF);
+            boolean active = !isRadioActive() && nowPlaying != null && nowPlaying.equals(result.title);
+            drawRect(
+                contentLeft + 5,
+                y,
+                contentRight,
+                y + ROW_HEIGHT - 1,
+                active ? 0xFF315B38 : (hovered ? 0xFF343434 : 0xFF292929));
             int queueButtonLeft = queueButtonLeft(left);
-            int durationLeft = queueButtonLeft - RESULT_DURATION_COLUMN_WIDTH;
+            int durationLeft = queueButtonLeft - 5 - uiTextWidth(fontRendererObj.getStringWidth(result.duration));
             int textRight = durationLeft - 5;
-            int textWidth = textRight - (left + 15);
-            drawString(fontRendererObj, truncate(result.title, textWidth), left + 15, y + 4, 0xFFFFFFFF);
-            drawString(
-                fontRendererObj,
+            int resultTextLeft = contentLeft + RESULT_GLYPH_LEFT_INSET + RESULT_GLYPH_AREA_WIDTH;
+            int textWidth = textRight - resultTextLeft;
+            drawResultGlyph(
+                HorizonRadioClient.isSongFavorite(result.videoId),
+                contentLeft,
+                y,
+                active ? 0xFFC3F1C7 : 0xFFB0B0B0);
+            drawUiString(truncateUi(result.title, textWidth), resultTextLeft, y + 3, active ? 0xFFE3F5E4 : 0xFFF2F2F2);
+            drawUiString(
                 result.duration,
-                queueButtonLeft - fontRendererObj.getStringWidth(result.duration) - 5,
-                y + 4,
-                0xFFAAAAAA);
-            drawString(fontRendererObj, truncate(result.channel, textWidth), left + 15, y + 14, 0xFF888888);
+                queueButtonLeft - uiTextWidth(fontRendererObj.getStringWidth(result.duration)) - 5,
+                y + 3,
+                0xFFB3B3B3);
+            drawUiString(
+                truncateUi(result.channel, textWidth),
+                resultTextLeft,
+                y + 13,
+                active ? 0xFFC9E6CB : 0xFF999999);
             boolean pending = isCurrentResultAddPending(result.videoId);
             drawQueueButton(
                 left,
@@ -552,10 +1047,16 @@ public class HorizonRadioScreen extends GuiScreen {
         drawResultScrollbar(results.size(), scrollOffset, left, listTop);
     }
 
+    private void drawResultGlyph(boolean favorite, int contentLeft, int rowTop, int color) {
+        int glyphAreaLeft = contentLeft + RESULT_GLYPH_LEFT_INSET;
+        int glyphCenterX = glyphAreaLeft + RESULT_GLYPH_AREA_WIDTH / 2;
+        int glyphTop = rowTop + (ROW_HEIGHT - RESULT_GLYPH_HEIGHT) / 2;
+        drawUiCenteredString(searchResultGlyph(favorite), glyphCenterX, glyphTop, color);
+    }
+
     private void drawPlaylistTab(int left, int top, int mouseX, int mouseY) {
         int listTop = playlistListTop(top);
-        drawString(
-            fontRendererObj,
+        drawUiString(
             "Queue (" + playlist.size() + " von " + QUEUE_DISPLAY_LIMIT + ")",
             left + 10,
             top + PLAYLIST_TITLE_Y_OFFSET,
@@ -568,13 +1069,8 @@ public class HorizonRadioScreen extends GuiScreen {
                 isPlaylistClearButtonAt(left, top, mouseX, mouseY));
         }
         if (playlist.isEmpty()) {
-            drawCenteredString(fontRendererObj, "Playlist is empty", left + PANEL_WIDTH / 2, listTop + 20, 0xFF888888);
-            drawCenteredString(
-                fontRendererObj,
-                "Search and add songs!",
-                left + PANEL_WIDTH / 2,
-                listTop + 35,
-                0xFF666666);
+            drawUiCenteredString("Playlist is empty", left + PANEL_WIDTH / 2, listTop + 20, 0xFF888888);
+            drawUiCenteredString("Search and add songs!", left + PANEL_WIDTH / 2, listTop + 35, 0xFF666666);
             return;
         }
         for (int row = 0; row < MAX_VISIBLE_ROWS && queueScrollOffset + row < playlist.size(); row++) {
@@ -592,11 +1088,11 @@ public class HorizonRadioScreen extends GuiScreen {
                 left + PANEL_WIDTH - 10,
                 y + ROW_HEIGHT - 2,
                 isPlaying ? 0x4400FF00 : (isDragged ? 0x6688AAFF : (hovered ? 0x44FFFFFF : 0x22FFFFFF)));
-            drawString(fontRendererObj, (index + 1) + ".", left + 15, y + 8, 0xFFAAAAAA);
+            drawUiString((index + 1) + ".", left + 15, y + 8, 0xFFAAAAAA);
             boolean canRemove = true;
             int titleWidth = queueButtonLeft(left) - 5 - (left + 35);
-            drawString(fontRendererObj, truncate(entry.displayTitle(), titleWidth), left + 35, y + 4, 0xFFFFFFFF);
-            drawString(fontRendererObj, "by " + entry.addedBy, left + 35, y + 14, 0xFF888888);
+            drawUiString(truncateUi(entry.displayTitle(), titleWidth), left + 35, y + 4, 0xFFFFFFFF);
+            drawUiString("by " + entry.addedBy, left + 35, y + 14, 0xFF888888);
             if (canRemove) {
                 int removeY = queueButtonTop(y);
                 drawTextButtonAt(
@@ -625,52 +1121,84 @@ public class HorizonRadioScreen extends GuiScreen {
         drawResultScrollbar(playlist.size(), queueScrollOffset, left, listTop);
     }
 
+    private void drawMediaStatus(int left, int top) {
+        String message = HorizonRadioClient.mediaStatusMessage();
+        if (message.isEmpty()) return;
+        int x = nowPlayingContentLeft(left);
+        int right = nowPlayingContentRight(left);
+        int y = top + 39;
+        drawRect(x, y, right, y + 10, 0xFF402A25);
+        drawUiString(truncateUi(message, right - x - 18), x + 3, y + 1, 0xFFFFB09A);
+        drawUiString("x", right - 8, y + 1, 0xFFFFB09A);
+    }
+
     private void drawNowPlaying(int left, int y) {
-        drawRect(left, y, left + PANEL_WIDTH, y + 25, 0x60000000);
+        drawRect(
+            left + NOW_PLAYING_PANEL_INSET,
+            y,
+            left + PANEL_WIDTH - NOW_PLAYING_PANEL_INSET,
+            y + NOW_PLAYING_PANEL_HEIGHT,
+            0xFF181818);
+        drawPanelBoxBorder(
+            left + NOW_PLAYING_PANEL_INSET,
+            y,
+            left + PANEL_WIDTH - NOW_PLAYING_PANEL_INSET,
+            y + NOW_PLAYING_PANEL_HEIGHT);
+        int contentLeft = nowPlayingContentLeft(left);
+        int contentRight = nowPlayingContentRight(left);
+        int contentWidth = contentRight - contentLeft;
+        int contentTop = nowPlayingContentTop(y);
         boolean radioActive = isRadioActive();
         boolean pausedRadio = !radioActive && isPausedRadio();
         if (radioActive || pausedRadio) {
             String radioLabel = radioNowPlayingDisplayLabel(nowPlaying, radioActive || pausedRadio);
-            drawString(fontRendererObj, truncate(radioLabel, PANEL_WIDTH - 40), left + 10, y + 8, 0xFF55FF55);
+            drawUiString(truncateUi(radioLabel, contentWidth), contentLeft, contentTop, 0xFFA8D6AB);
         }
         if (!shouldDrawPlaybackProgress(radioActive, pausedRadio)) {
             return;
         }
         if (!isRadioActive() && hasRadioStatus()) {
-            drawString(
-                fontRendererObj,
-                "Radio: " + truncate(radioStatus(), PANEL_WIDTH - 40),
-                left + 10,
-                y + 8,
+            drawUiString(
+                truncateUiWithPrefix("Radio: ", radioStatus(), contentWidth),
+                contentLeft,
+                contentTop,
                 0xFFFF7777);
             return;
         }
         if (nowPlaying == null) {
-            drawString(fontRendererObj, "Nothing playing", left + 10, y + 8, 0xFF666666);
+            drawUiString("Nothing playing", contentLeft, contentTop, 0xFF666666);
             return;
         }
-        drawString(fontRendererObj, "\u266A " + truncate(nowPlaying, PANEL_WIDTH - 40), left + 10, y + 4, 0xFF55FF55);
-        int barLeft = left + TIME_BAR_SIDE_SPACE;
-        int barWidth = PANEL_WIDTH - 2 * TIME_BAR_SIDE_SPACE;
-        int barTop = y + 18;
+        drawUiString(truncateUiWithPrefix("\u266A ", nowPlaying, contentWidth), contentLeft, contentTop, 0xFFFFFFFF);
+        String artist = currentArtistLabel();
+        if (artist.length() > 0) {
+            drawUiString(truncateUi(artist, contentWidth), contentLeft, contentTop + 10, 0xFFA6A6A6);
+        }
+        int barLeft = timeBarLeft(left);
+        int barWidth = timeBarWidth();
+        int barTop = timeBarTopFromNowPlaying(y);
         float displayedProgress = seeking ? seekProgress : playbackProgress;
         long totalMillis = DurationParser.parseMillisStrict(currentDuration);
         long elapsedMillis = totalMillis < 0L ? 0L : Math.min(totalMillis, (long) (totalMillis * displayedProgress));
-        drawString(fontRendererObj, formatTime(elapsedMillis), left + 10, barTop - 2, 0xFFE0E0E0);
-        drawString(
-            fontRendererObj,
-            totalMillis < 0L ? "--:--" : formatTime(totalMillis),
-            barLeft + barWidth + 5,
-            barTop - 2,
+        int timeLabelTop = barTop + (TIME_BAR_HEIGHT - uiTextWidth(fontRendererObj.FONT_HEIGHT)) / 2;
+        drawUiString(formatTime(elapsedMillis), contentLeft, timeLabelTop, 0xFFE0E0E0);
+        String totalTime = totalMillis < 0L ? "--:--" : formatTime(totalMillis);
+        drawUiString(
+            totalTime,
+            contentRight - uiTextWidth(fontRendererObj.getStringWidth(totalTime)),
+            timeLabelTop,
             0xFFE0E0E0);
-        drawRect(barLeft, barTop, barLeft + barWidth, barTop + 3, 0x44FFFFFF);
-        drawRect(barLeft, barTop, barLeft + (int) (barWidth * displayedProgress), barTop + 3, 0xFF55FF55);
-        int knobX = barLeft + (int) ((barWidth - 1) * displayedProgress);
-        drawRect(knobX - 2, barTop - 1, knobX + 2, barTop + 4, 0xFFFFFFFF);
+        drawRect(barLeft, barTop, barLeft + barWidth, barTop + TIME_BAR_HEIGHT, TIME_BAR_TRACK_COLOR);
+        drawRect(
+            barLeft,
+            barTop,
+            barLeft + timeBarFillWidth(barWidth, displayedProgress),
+            barTop + TIME_BAR_HEIGHT,
+            TIME_BAR_PROGRESS_COLOR);
     }
 
     private void addControlButtons(int panelLeft, int panelTop) {
-        int controlLeft = panelLeft + (PANEL_WIDTH - controlGroupWidth()) / 2;
+        int controlLeft = panelLeft + (PANEL_WIDTH - controlGroupWidth() - 10 - CONTROL_BUTTON_WIDTH) / 2;
         int controlTop = controlTop(nowPlayingTop(panelTop));
         shuffleButton = new ControlButton(
             4,
@@ -716,11 +1244,12 @@ public class HorizonRadioScreen extends GuiScreen {
         addButton(loopButton);
         favoriteButton = new ControlButton(
             BUTTON_FAVORITE,
-            controlLeft + 5 * (CONTROL_BUTTON_WIDTH + CONTROL_BUTTON_GAP),
+            controlLeft + controlGroupWidth() + 10,
             controlTop,
             CONTROL_BUTTON_WIDTH,
             CONTROL_BUTTON_HEIGHT,
-            "\u2605");
+            ICON_FAVORITE);
+        favoriteButton.setGreenActive(true);
         addButton(favoriteButton);
         updateFavoriteState();
     }
@@ -730,23 +1259,43 @@ public class HorizonRadioScreen extends GuiScreen {
         buttonList.add(button);
     }
 
+    private ControlButton createTextButton(int id, int x, int y, String label) {
+        return new ControlButton(id, x, y, TAB_BUTTON_WIDTH, TAB_BUTTON_HEIGHT, label);
+    }
+
+    private ControlButton createModeButton(int id, int x, int y, String label) {
+        ControlButton button = createTextButton(id, x, y, label);
+        button.setLabelScale(MODE_BUTTON_TEXT_SCALE);
+        return button;
+    }
+
     private void drawControlCenter(int left, int nowPlayingTop) {
         int groupWidth = controlGroupWidth();
-        int controlLeft = left + (PANEL_WIDTH - groupWidth) / 2;
+        int controlLeft = left + (PANEL_WIDTH - groupWidth - 10 - CONTROL_BUTTON_WIDTH) / 2;
         int controlTop = controlTop(nowPlayingTop);
+        int favoriteLeft = controlLeft + groupWidth + 10;
         drawRect(
-            controlLeft - 3,
-            controlTop - 2,
-            controlLeft + groupWidth + 3,
-            controlTop + CONTROL_BUTTON_HEIGHT + 2,
-            0xCC000000);
+            favoriteLeft - 5,
+            controlTop + 3,
+            favoriteLeft - 4,
+            controlTop + CONTROL_BUTTON_HEIGHT - 3,
+            0xFF606060);
     }
 
     @Override
     protected void actionPerformed(GuiButton button) {
         if (button.id == BUTTON_SEARCH) {
             if (currentTab == PLAYLIST_DISCOVERY_TAB) {
-                performPlaylistImport();
+                if (playlistUrlField != null && playlistUrlField.getText()
+                    .trim()
+                    .length() > 0
+                    && (searchField == null || searchField.getText()
+                        .trim()
+                        .length() == 0)) {
+                    performPlaylistImport();
+                } else {
+                    performSearch();
+                }
             } else {
                 performSearch();
             }
@@ -754,12 +1303,28 @@ public class HorizonRadioScreen extends GuiScreen {
             openCharts();
         } else if (button.id == BUTTON_SEARCH_TAB) {
             currentTab = SEARCH_TAB;
+            updateChartControlVisibility();
         } else if (button.id == BUTTON_PLAYLIST_TAB) {
             currentTab = PLAYLIST_TAB;
+            updateChartControlVisibility();
         } else if (button.id == BUTTON_PLAYLIST_DISCOVERY_TAB) {
             currentTab = PLAYLIST_DISCOVERY_TAB;
+            updateChartControlVisibility();
         } else if (button.id == BUTTON_RADIO_TAB) {
             openRadio();
+        } else if (button.id == BUTTON_SONGS_TAB) {
+            if (currentTab == RADIO_TAB) {
+                openCharts();
+            }
+        } else if (button.id == BUTTON_BULK_ADD) {
+            performBulkAdd();
+        } else if (button.id == BUTTON_QUEUE_CLEAR) {
+            if (isRadioActive()) {
+                HorizonRadioClient.sendStopRadio();
+            }
+            if (!playlist.isEmpty()) {
+                HorizonRadioClient.sendClearPlaylist();
+            }
         } else if (button.id == BUTTON_SETTINGS) {
             Minecraft.getMinecraft()
                 .displayGuiScreen(new HorizonRadioSettingsScreen(this));
@@ -789,6 +1354,55 @@ public class HorizonRadioScreen extends GuiScreen {
     }
 
     @Override
+    public void updateScreen() {
+        super.updateScreen();
+        updateAutoSearch(System.currentTimeMillis());
+    }
+
+    void updateAutoSearch(long now) {
+        GuiTextField field = currentTab == PLAYLIST_DISCOVERY_TAB ? playlistUrlField : searchField;
+        if (field == null) {
+            return;
+        }
+        String text = field.getText();
+        if (!usesSharedSearchField() && currentTab != PLAYLIST_DISCOVERY_TAB) {
+            observedSearchText = text;
+            autoSearchAt = -1L;
+            return;
+        }
+        if (!text.equals(observedSearchText)) {
+            observedSearchText = text;
+            if (currentTab == SEARCH_TAB) {
+                HorizonRadioClient.cancelPendingSongSearch();
+                searchResults.clear();
+                searchLoading = false;
+                searchResultsRevealPending = false;
+                searchError = "";
+                searchScrollOffset = 0;
+            }
+            if (text.trim()
+                .isEmpty()) {
+                autoSearchAt = -1L;
+            } else {
+                autoSearchAt = now + 500L;
+            }
+        }
+        if (autoSearchAt >= 0L && now >= autoSearchAt) {
+            if (currentTab == PLAYLIST_DISCOVERY_TAB && playlistLoading) {
+                return;
+            }
+            autoSearchAt = -1L;
+            if (currentTab == PLAYLIST_DISCOVERY_TAB) {
+                if (looksLikePlaylistUrl(text.trim())) {
+                    performPlaylistImport();
+                }
+            } else {
+                performSearch();
+            }
+        }
+    }
+
+    @Override
     protected void keyTyped(char typedChar, int keyCode) {
         if (usesSharedSearchField()) {
             boolean wasEmpty = isEmptySearchQuery();
@@ -796,10 +1410,12 @@ public class HorizonRadioScreen extends GuiScreen {
                 if (wasEmpty != isEmptySearchQuery()) {
                     clampSharedSearchResultScrollOffsets();
                 }
+                updateAutoSearch(System.currentTimeMillis());
                 return;
             }
         }
         if (currentTab == PLAYLIST_DISCOVERY_TAB && playlistUrlField.textboxKeyTyped(typedChar, keyCode)) {
+            updateAutoSearch(System.currentTimeMillis());
             return;
         }
         if (usesSharedSearchField() && keyCode == Keyboard.KEY_RETURN && searchField.isFocused()) {
@@ -822,18 +1438,39 @@ public class HorizonRadioScreen extends GuiScreen {
 
     @Override
     protected void mouseClicked(int mouseX, int mouseY, int button) {
+        if (uiLayout == null) {
+            uiLayout = HorizonRadioUiLayout.create(width, height);
+        }
+        mouseX = uiLayout.toLogicalMouseX(mouseX);
+        mouseY = uiLayout.toLogicalMouseY(mouseY);
+        if (button == 0 && !HorizonRadioClient.mediaStatusMessage()
+            .isEmpty()
+            && isMouseOver(
+                nowPlayingContentRight(panelLeft()) - 12,
+                nowPlayingTop(panelTop()) + 39,
+                12,
+                10,
+                mouseX,
+                mouseY)) {
+            HorizonRadioClient.dismissMediaError();
+            return;
+        }
+        if (button == 0 && handleQueueClick(mouseX, mouseY)) {
+            return;
+        }
         if (button == 0 && currentTab == RADIO_TAB) {
             List<RadioStationResult> results = displayedRadioResults();
             int listTop = panelTop() + radioListTopOffset(isRadioResultsLoading());
             if (isResultScrollbarAt(panelLeft(), listTop, results.size(), mouseX, mouseY)) {
-                int trackHeight = MAX_VISIBLE_ROWS * ROW_HEIGHT - 2;
-                int thumbHeight = resultScrollbarThumbHeight(results.size(), trackHeight);
+                int trackHeight = RADIO_MAX_VISIBLE_ROWS * ROW_HEIGHT - 2;
+                int thumbHeight = resultScrollbarThumbHeight(results.size(), trackHeight, RADIO_MAX_VISIBLE_ROWS);
                 int thumbTop = resultScrollbarThumbTop(
                     results.size(),
                     radioScrollOffset,
                     listTop,
                     trackHeight,
-                    thumbHeight);
+                    thumbHeight,
+                    RADIO_MAX_VISIBLE_ROWS);
                 resultScrollbarDragOffset = mouseY - thumbTop;
                 draggingResultScrollbar = true;
                 updateResultScrollbarScroll(mouseY);
@@ -841,7 +1478,16 @@ public class HorizonRadioScreen extends GuiScreen {
             }
             int row = rowAt(mouseX, mouseY, listTop);
             if (row >= 0 && row < results.size() - radioScrollOffset) {
-                HorizonRadioClient.sendSelectRadio(results.get(radioScrollOffset + row).stationUuid);
+                RadioStationResult station = results.get(radioScrollOffset + row);
+                int glyphLeft = contentLeft(panelLeft()) + RESULT_GLYPH_LEFT_INSET;
+                if (mouseX >= glyphLeft && mouseX < glyphLeft + RESULT_GLYPH_AREA_WIDTH) {
+                    HorizonRadioClient.toggleRadioFavorite(station);
+                    radioScrollOffset = Math
+                        .min(radioScrollOffset, Math.max(0, displayedRadioResults().size() - RADIO_MAX_VISIBLE_ROWS));
+                    updateFavoriteState();
+                    return;
+                }
+                HorizonRadioClient.sendSelectRadio(station.stationUuid, station.name);
                 return;
             }
         }
@@ -850,32 +1496,25 @@ public class HorizonRadioScreen extends GuiScreen {
             boolean charts = currentTab == CHARTS_TAB;
             boolean playlistDiscovery = currentTab == PLAYLIST_DISCOVERY_TAB;
             if ((charts || playlistDiscovery) && isChartsBulkButtonAt(panelLeft(), panelTop(), mouseX, mouseY)) {
-                if (charts && areAllChartsInQueue()) {
-                    HorizonRadioClient.sendAddChartsToPlaylist(toPlaylistSelections(chartResults), true);
-                } else if (playlistDiscovery && areAllPlaylistResultsInQueue()) {
-                    HorizonRadioClient.sendPlaylistResultsToQueue(toPlaylistSelections(playlistResults), true);
-                } else {
-                    List<SearchResult> request = charts ? beginChartAdd(chartResults)
-                        : beginPlaylistAdd(playlistResults);
-                    if (!request.isEmpty()) {
-                        if (charts) {
-                            HorizonRadioClient.sendAddChartsToPlaylist(request);
-                        } else {
-                            HorizonRadioClient.sendPlaylistResultsToQueue(request);
-                        }
-                    }
-                }
+                performBulkAdd();
                 return;
             }
             List<SearchResult> results = charts ? chartResults
-                : (playlistDiscovery ? playlistResults : displayedSearchResults());
+                : (playlistDiscovery ? displayedPlaylistResults() : displayedSearchResults());
             int scrollOffset = charts ? chartScrollOffset
                 : (playlistDiscovery ? playlistScrollOffset : searchScrollOffset);
             int listTop = playlistDiscovery ? playlistDiscoveryListTop(panelTop()) : resultListTop(panelTop());
             if (isResultScrollbarAt(panelLeft(), listTop, results.size(), mouseX, mouseY)) {
-                int trackHeight = MAX_VISIBLE_ROWS * ROW_HEIGHT - 2;
-                int thumbHeight = resultScrollbarThumbHeight(results.size(), trackHeight);
-                int thumbTop = resultScrollbarThumbTop(results.size(), scrollOffset, listTop, trackHeight, thumbHeight);
+                int visibleRows = resultVisibleRows();
+                int trackHeight = visibleRows * ROW_HEIGHT - 2;
+                int thumbHeight = resultScrollbarThumbHeight(results.size(), trackHeight, visibleRows);
+                int thumbTop = resultScrollbarThumbTop(
+                    results.size(),
+                    scrollOffset,
+                    listTop,
+                    trackHeight,
+                    thumbHeight,
+                    visibleRows);
                 resultScrollbarDragOffset = mouseY - thumbTop;
                 draggingResultScrollbar = true;
                 updateResultScrollbarScroll(mouseY);
@@ -885,6 +1524,15 @@ public class HorizonRadioScreen extends GuiScreen {
             if (row >= 0 && row < results.size() - scrollOffset) {
                 SearchResult result = results.get(scrollOffset + row);
                 int rowTop = listTop + row * ROW_HEIGHT;
+                int glyphLeft = contentLeft(panelLeft()) + RESULT_GLYPH_LEFT_INSET;
+                if (mouseX >= glyphLeft && mouseX < glyphLeft + RESULT_GLYPH_AREA_WIDTH) {
+                    HorizonRadioClient.toggleSongFavorite(result);
+                    searchScrollOffset = Math.min(
+                        searchScrollOffset,
+                        Math.max(0, displayedSearchResults().size() - SEARCH_MAX_VISIBLE_ROWS));
+                    updateFavoriteState();
+                    return;
+                }
                 if (isQueueButtonAt(panelLeft(), rowTop, mouseX, mouseY)) {
                     if ((charts && isChartAddPending(result.videoId))
                         || (playlistDiscovery && isPlaylistAddPending(result.videoId))) {
@@ -910,7 +1558,6 @@ public class HorizonRadioScreen extends GuiScreen {
                     return;
                 }
                 playResultNow(result);
-                currentTab = PLAYLIST_TAB;
                 return;
             }
         }
@@ -960,28 +1607,109 @@ public class HorizonRadioScreen extends GuiScreen {
             seekProgress = seekProgressAt(mouseX);
             return;
         }
-        if (usesSharedSearchField()) {
+        if (usesSharedSearchField() && searchField != null) {
             searchField.mouseClicked(mouseX, mouseY, button);
-        } else if (currentTab == PLAYLIST_DISCOVERY_TAB) {
+        } else if (currentTab == PLAYLIST_DISCOVERY_TAB && playlistUrlField != null) {
             playlistUrlField.mouseClicked(mouseX, mouseY, button);
         }
         super.mouseClicked(mouseX, mouseY, button);
+    }
+
+    private boolean handleQueueClick(int mouseX, int mouseY) {
+        int left = queuePanelLeft(panelLeft());
+        int listTop = panelTop() + QUEUE_LIST_TOP_OFFSET;
+        int queueCount = playlist.size() + (hasStandaloneRadioRow() ? 1 : 0);
+        if (queueCount > QUEUE_MAX_VISIBLE_ROWS && isQueueScrollbarAt(left, listTop, queueCount, mouseX, mouseY)) {
+            int trackHeight = QUEUE_MAX_VISIBLE_ROWS * ROW_HEIGHT - 1;
+            int thumbHeight = resultScrollbarThumbHeight(queueCount, trackHeight, QUEUE_MAX_VISIBLE_ROWS);
+            int thumbTop = resultScrollbarThumbTop(
+                queueCount,
+                queueScrollOffset,
+                listTop,
+                trackHeight,
+                thumbHeight,
+                QUEUE_MAX_VISIBLE_ROWS);
+            queueScrollbarDragOffset = mouseY - thumbTop;
+            draggingQueueScrollbar = true;
+            updateQueueScrollbarScroll(mouseY);
+            return true;
+        }
+        int row = queueRowAt(mouseX, mouseY);
+        if (row < 0) {
+            return false;
+        }
+        int removeLeft = left + QUEUE_WIDTH - QUEUE_BUTTON_WIDTH - 4;
+        int rowTop = listTop + row * ROW_HEIGHT;
+        if (isMouseOver(removeLeft, queueButtonTop(rowTop), QUEUE_BUTTON_WIDTH, QUEUE_BUTTON_HEIGHT, mouseX, mouseY)) {
+            if (isActiveRadioQueueRow(row)) {
+                HorizonRadioClient.sendStopRadio();
+            } else {
+                int playlistIndex = queueIndexAtRow(row);
+                if (playlistIndex >= 0 && playlistIndex < playlist.size()) {
+                    HorizonRadioClient.sendRemove(playlist.get(playlistIndex).sourceId);
+                }
+            }
+            return true;
+        }
+        if (isActiveRadioQueueRow(row)) {
+            return true;
+        }
+        int playlistIndex = queueIndexAtRow(row);
+        if (playlistIndex >= 0 && playlistIndex < playlist.size()) {
+            draggedPlaylistIndex = playlistIndex;
+            draggedPlaylistEntry = playlist.get(playlistIndex);
+            playlistDragMoved = false;
+            dragStartMouseX = mouseX;
+            dragStartMouseY = mouseY;
+            return true;
+        }
+        return true;
     }
 
     @Override
     public void handleMouseInput() {
         int wheel = Mouse.getEventDWheel();
         if (wheel != 0) {
-            if (currentTab == CHARTS_TAB) {
+            int eventMouseX = width / 2;
+            int eventMouseY = height / 2;
+            Minecraft minecraft = Minecraft.getMinecraft();
+            if (minecraft.displayWidth > 0 && minecraft.displayHeight > 0) {
+                eventMouseX = Mouse.getEventX() * width / minecraft.displayWidth;
+                eventMouseY = height - Mouse.getEventY() * height / minecraft.displayHeight - 1;
+            }
+            if (uiLayout == null) {
+                uiLayout = HorizonRadioUiLayout.create(width, height);
+            }
+            int logicalMouseX = uiLayout.toLogicalMouseX(eventMouseX);
+            int logicalMouseY = uiLayout.toLogicalMouseY(eventMouseY);
+            if (queueRowAt(logicalMouseX, logicalMouseY) >= 0) {
+                queueScrollOffset = scroll(
+                    queueScrollOffset,
+                    playlist.size() + (hasStandaloneRadioRow() ? 1 : 0),
+                    wheel,
+                    QUEUE_MAX_VISIBLE_ROWS);
+            } else if (currentTab == CHARTS_TAB) {
                 chartScrollOffset = scroll(chartScrollOffset, chartResults.size(), wheel);
             } else if (currentTab == SEARCH_TAB) {
-                searchScrollOffset = scroll(searchScrollOffset, displayedSearchResults().size(), wheel);
+                searchScrollOffset = scroll(
+                    searchScrollOffset,
+                    displayedSearchResults().size(),
+                    wheel,
+                    SEARCH_MAX_VISIBLE_ROWS);
             } else if (currentTab == PLAYLIST_DISCOVERY_TAB) {
-                playlistScrollOffset = scroll(playlistScrollOffset, playlistResults.size(), wheel);
+                playlistScrollOffset = scroll(playlistScrollOffset, displayedPlaylistResults().size(), wheel);
             } else if (currentTab == RADIO_TAB) {
-                radioScrollOffset = scroll(radioScrollOffset, displayedRadioResults().size(), wheel);
+                radioScrollOffset = scroll(
+                    radioScrollOffset,
+                    displayedRadioResults().size(),
+                    wheel,
+                    RADIO_MAX_VISIBLE_ROWS);
             } else {
-                queueScrollOffset = scroll(queueScrollOffset, playlist.size(), wheel);
+                queueScrollOffset = scroll(
+                    queueScrollOffset,
+                    playlist.size() + (hasStandaloneRadioRow() ? 1 : 0),
+                    wheel,
+                    QUEUE_MAX_VISIBLE_ROWS);
             }
         }
         super.handleMouseInput();
@@ -989,6 +1717,10 @@ public class HorizonRadioScreen extends GuiScreen {
 
     /** Forge 1.7.10-compatible drag hook retained for slider/input integrations. */
     protected void mouseDragged(Minecraft minecraft, int mouseX, int mouseY) {
+        if (uiLayout != null) {
+            mouseX = uiLayout.toLogicalMouseX(mouseX);
+            mouseY = uiLayout.toLogicalMouseY(mouseY);
+        }
         updatePlaylistDrag(mouseX, mouseY);
         if (volumeSlider != null) {
             volumeSlider.mouseDragged(minecraft, mouseX, mouseY);
@@ -998,7 +1730,15 @@ public class HorizonRadioScreen extends GuiScreen {
     /** Forge 1.7.10 dispatches held-mouse movement through this hook. */
     @Override
     protected void mouseClickMove(int mouseX, int mouseY, int clickedMouseButton, long timeSinceClick) {
+        if (uiLayout != null) {
+            mouseX = uiLayout.toLogicalMouseX(mouseX);
+            mouseY = uiLayout.toLogicalMouseY(mouseY);
+        }
         if (clickedMouseButton == 0) {
+            if (draggingQueueScrollbar) {
+                updateQueueScrollbarScroll(mouseY);
+                return;
+            }
             if (draggingResultScrollbar) {
                 updateResultScrollbarScroll(mouseY);
                 return;
@@ -1016,7 +1756,7 @@ public class HorizonRadioScreen extends GuiScreen {
 
     private void updatePlaylistDrag(int mouseX, int mouseY) {
         if (draggedPlaylistIndex >= 0) {
-            if (mouseX != dragStartMouseX || mouseY != dragStartMouseY) {
+            if (Math.abs(mouseX - dragStartMouseX) >= 3 || Math.abs(mouseY - dragStartMouseY) >= 3) {
                 playlistDragMoved = true;
             }
         }
@@ -1025,9 +1765,14 @@ public class HorizonRadioScreen extends GuiScreen {
     /** Forge 1.7.10 release hook for slider/input integrations. */
     @Override
     protected void mouseMovedOrUp(int mouseX, int mouseY, int state) {
+        if (uiLayout != null) {
+            mouseX = uiLayout.toLogicalMouseX(mouseX);
+            mouseY = uiLayout.toLogicalMouseY(mouseY);
+        }
         super.mouseMovedOrUp(mouseX, mouseY, state);
         if (state == 0) {
             draggingResultScrollbar = false;
+            draggingQueueScrollbar = false;
         }
         if (state == 0 && seeking) {
             float requestedProgress = seekProgress;
@@ -1036,9 +1781,14 @@ public class HorizonRadioScreen extends GuiScreen {
         }
         if (state == 0 && draggedPlaylistIndex >= 0) {
             int fromIndex = draggedPlaylistIndex;
-            int targetIndex = playlistIndexAt(mouseX, mouseY);
+            int targetIndex = playlistDragMoved ? queueDropIndex(mouseX, mouseY) : playlistIndexAt(mouseX, mouseY);
             PlaylistEntry clickedEntry = draggedPlaylistEntry;
             boolean shouldPlay = !playlistDragMoved && targetIndex == fromIndex && clickedEntry != null;
+            boolean shouldStartFromDrop = playlistDragMoved && isPlaylistIndexDraggable(fromIndex)
+                && targetIndex == 0
+                && clickedEntry != null
+                && clickedEntry.isFinite()
+                && (fromIndex != 0 || isRadioActive());
             boolean shouldSendReorder = playlistDragMoved && isPlaylistIndexDraggable(fromIndex)
                 && targetIndex >= 0
                 && targetIndex != fromIndex
@@ -1046,7 +1796,10 @@ public class HorizonRadioScreen extends GuiScreen {
             draggedPlaylistIndex = -1;
             draggedPlaylistEntry = null;
             playlistDragMoved = false;
-            if (shouldSendReorder) {
+            queueDragScrollAt = 0L;
+            if (shouldStartFromDrop) {
+                HorizonRadioClient.sendPlayNow(clickedEntry.sourceId, clickedEntry.durationMs);
+            } else if (shouldSendReorder) {
                 HorizonRadioClient.sendReorder(fromIndex, targetIndex);
             } else if (shouldPlay && clickedEntry.isFinite()) {
                 HorizonRadioClient.sendPlayNow(clickedEntry.sourceId, clickedEntry.durationMs);
@@ -1063,8 +1816,24 @@ public class HorizonRadioScreen extends GuiScreen {
     }
 
     private void performSearch() {
+        if (searchField == null) {
+            return;
+        }
+        autoSearchAt = -1L;
+        observedSearchText = searchField.getText();
         String query = searchField.getText()
             .trim();
+        if (currentTab == PLAYLIST_DISCOVERY_TAB) {
+            if (query.length() > 0 && looksLikePlaylistUrl(query)) {
+                if (playlistUrlField != null) {
+                    playlistUrlField.setText(query);
+                    performPlaylistImport();
+                }
+            } else {
+                playlistScrollOffset = 0;
+            }
+            return;
+        }
         if (currentTab == CHARTS_TAB) {
             requestChartSearch(query);
             return;
@@ -1090,6 +1859,8 @@ public class HorizonRadioScreen extends GuiScreen {
     }
 
     private void performPlaylistImport() {
+        autoSearchAt = -1L;
+        observedSearchText = playlistUrlField.getText();
         if (playlistLoading) {
             return;
         }
@@ -1098,6 +1869,7 @@ public class HorizonRadioScreen extends GuiScreen {
 
     private void openCharts() {
         currentTab = CHARTS_TAB;
+        updateChartRefreshButtonState();
         if (!hasChartRegion()) {
             chartLoading = false;
             updateChartRefreshButtonState();
@@ -1126,6 +1898,7 @@ public class HorizonRadioScreen extends GuiScreen {
         }
         chartSearchMessage = "";
         chartRegionCode = region.getCode();
+        chartSearchStarted = true;
         chartResults.clear();
         chartScrollOffset = 0;
         beginChartLoading();
@@ -1134,6 +1907,7 @@ public class HorizonRadioScreen extends GuiScreen {
 
     public void openRadio() {
         currentTab = RADIO_TAB;
+        updateChartControlVisibility();
         if (!radioPopularRequested) {
             radioPopularRequested = true;
             requestRadioSearch("");
@@ -1186,6 +1960,7 @@ public class HorizonRadioScreen extends GuiScreen {
         chartRegionCode = normalizeChartRegionCode(regionCode);
         chartSearchMessage = "";
         chartResults = results == null ? new ArrayList<SearchResult>() : new ArrayList<SearchResult>(results);
+        chartSearchStarted = chartSearchStarted || !chartResults.isEmpty();
         chartScrollOffset = 0;
         chartLoading = false;
         chartError = "";
@@ -1310,6 +2085,7 @@ public class HorizonRadioScreen extends GuiScreen {
             }
         }
         updateControlVisibility();
+        updateQueueClearButtonVisibility();
     }
 
     public void beginChartLoading() {
@@ -1322,6 +2098,7 @@ public class HorizonRadioScreen extends GuiScreen {
     }
 
     public void beginPlaylistLoading() {
+        playlistSearchStarted = true;
         playlistResultsRevealPending = false;
         playlistResults.clear();
         playlistScrollOffset = 0;
@@ -1329,9 +2106,15 @@ public class HorizonRadioScreen extends GuiScreen {
         playlistError = "";
         playlistProgress = 0.02f;
         playlistStartedAt = System.currentTimeMillis();
+        updateChartControlVisibility();
     }
 
     public void updatePlaylistResults(List<SearchResult> results) {
+        updatePlaylistResults(results, "");
+    }
+
+    public void updatePlaylistResults(List<SearchResult> results, String title) {
+        playlistTitle = title == null ? "" : title;
         boolean requestWasLoading = playlistLoading;
         playlistResults = results == null ? new ArrayList<SearchResult>() : new ArrayList<SearchResult>(results);
         playlistScrollOffset = 0;
@@ -1339,6 +2122,8 @@ public class HorizonRadioScreen extends GuiScreen {
         playlistError = "";
         playlistProgress = 1.0f;
         schedulePlaylistResultsReveal(requestWasLoading);
+        playlistSearchStarted = playlistSearchStarted || !playlistResults.isEmpty();
+        updateChartControlVisibility();
     }
 
     public void showPlaylistError(String message) {
@@ -1348,6 +2133,7 @@ public class HorizonRadioScreen extends GuiScreen {
         playlistScrollOffset = 0;
         playlistError = message == null ? "" : message;
         playlistProgress = 1.0f;
+        updateChartControlVisibility();
     }
 
     void showSearchError() {
@@ -1383,7 +2169,7 @@ public class HorizonRadioScreen extends GuiScreen {
     }
 
     static String chartHeaderLabel(boolean hasRegion, String regionDisplayName) {
-        return hasRegion ? "Top 50 Charts " + regionDisplayName + " (Weekly)" : "";
+        return hasRegion ? "Top 50 Charts \u00B7 " + regionDisplayName : "";
     }
 
     static boolean shouldRevealResults(long now, long revealAt) {
@@ -1417,7 +2203,15 @@ public class HorizonRadioScreen extends GuiScreen {
     }
 
     static int radioListTopOffset(boolean radioLoading) {
-        return radioLoading ? CONTENT_LIST_TOP_OFFSET : SEARCH_LIST_TOP_WITHOUT_PROGRESS_OFFSET;
+        return radioLoading ? RADIO_LIST_TOP_WITH_PROGRESS_OFFSET : RADIO_LIST_TOP_OFFSET;
+    }
+
+    static int radioSearchControlYOffset() {
+        return RADIO_SEARCH_CONTROL_Y_OFFSET;
+    }
+
+    static boolean shouldShowSongModeButtons(int tab) {
+        return tab != RADIO_TAB;
     }
 
     boolean hasSearchResultsRevealPending() {
@@ -1451,6 +2245,38 @@ public class HorizonRadioScreen extends GuiScreen {
         if (refreshChartsButton != null) {
             refreshChartsButton.enabled = !isChartRefreshBusy();
         }
+        updateChartControlVisibility();
+    }
+
+    private void updateChartControlVisibility() {
+        if (observedSearchTab != currentTab) {
+            if (searchField != null) {
+                if (currentTab == RADIO_TAB) {
+                    musicSearchText = searchField.getText();
+                    searchField.setText(radioSearchText);
+                    radioScrollOffset = 0;
+                } else if (observedSearchTab == RADIO_TAB) {
+                    radioSearchText = searchField.getText();
+                    searchField.setText(musicSearchText);
+                }
+            }
+            observedSearchTab = currentTab;
+            GuiTextField field = currentTab == PLAYLIST_DISCOVERY_TAB ? playlistUrlField : searchField;
+            observedSearchText = field == null ? "" : field.getText();
+            autoSearchAt = -1L;
+        }
+        boolean showChartControls = currentTab == CHARTS_TAB && hasVisibleChartResults();
+        boolean showPlaylistControls = currentTab == PLAYLIST_DISCOVERY_TAB && hasVisiblePlaylistResults();
+        setVisible(refreshChartsButton, showChartControls);
+        setVisible(bulkAddButton, showChartControls || showPlaylistControls);
+    }
+
+    private boolean hasVisibleChartResults() {
+        return !chartResults.isEmpty() && !isChartResultsLoading();
+    }
+
+    private boolean hasVisiblePlaylistResults() {
+        return playlistSearchStarted && !playlistResults.isEmpty() && !isPlaylistResultsLoading();
     }
 
     public void updatePlaylist(List<PlaylistEntry> entries) {
@@ -1462,12 +2288,14 @@ public class HorizonRadioScreen extends GuiScreen {
             }
         }
         refreshCurrentDuration();
-        queueScrollOffset = Math.min(queueScrollOffset, Math.max(0, playlist.size() - MAX_VISIBLE_ROWS));
-        if (draggedPlaylistIndex >= playlist.size()) {
+        queueScrollOffset = Math.min(queueScrollOffset, queueMaxScrollOffset());
+        if (draggedPlaylistIndex >= playlist.size()
+            || (draggedPlaylistIndex >= 0 && playlist.get(draggedPlaylistIndex) != draggedPlaylistEntry)) {
             draggedPlaylistIndex = -1;
             draggedPlaylistEntry = null;
             playlistDragMoved = false;
         }
+        updateQueueClearButtonVisibility();
     }
 
     void completeChartAdds(List<String> videoIds) {
@@ -1532,6 +2360,10 @@ public class HorizonRadioScreen extends GuiScreen {
         return inQueue || pending ? "-" : "+";
     }
 
+    static String searchResultGlyph(boolean favorite) {
+        return favorite ? FAVORITE_GLYPH : "\u266B";
+    }
+
     boolean isInQueue(String videoId) {
         if (videoId == null) {
             return false;
@@ -1583,6 +2415,7 @@ public class HorizonRadioScreen extends GuiScreen {
     public void onGuiClosed() {
         seeking = false;
         draggingResultScrollbar = false;
+        draggingQueueScrollbar = false;
         draggedPlaylistIndex = -1;
         draggedPlaylistEntry = null;
         playlistDragMoved = false;
@@ -1615,6 +2448,10 @@ public class HorizonRadioScreen extends GuiScreen {
         return new ArrayList<PlaylistEntry>(playlist);
     }
 
+    String getPlaylistTitle() {
+        return playlistTitle;
+    }
+
     List<SearchResult> getPlaylistResultsSnapshot() {
         return new ArrayList<SearchResult>(playlistResults);
     }
@@ -1628,39 +2465,112 @@ public class HorizonRadioScreen extends GuiScreen {
     }
 
     private int panelLeft() {
-        return width / 2 - PANEL_WIDTH / 2;
+        return uiLayout == null ? width / 2 - PANEL_WIDTH / 2 : uiLayout.referencePanelLeft();
     }
 
     private int panelTop() {
-        return height / 2 - PANEL_HEIGHT / 2;
+        return uiLayout == null ? height / 2 - PANEL_HEIGHT / 2 : uiLayout.referencePanelTop();
+    }
+
+    private int contentLeft(int panelLeft) {
+        return panelLeft + CONTENT_LEFT_INSET;
+    }
+
+    private int contentRight(int panelLeft) {
+        return contentLeft(panelLeft) + CONTENT_WIDTH - 7;
+    }
+
+    private int queuePanelLeft(int panelLeft) {
+        return panelLeft + QUEUE_LEFT_INSET;
+    }
+
+    private int queuePanelRight(int panelLeft) {
+        return queuePanelLeft(panelLeft) + QUEUE_WIDTH;
     }
 
     private int rowAt(int mouseX, int mouseY, int listTop) {
-        if (mouseX < panelLeft() + 10 || mouseX > panelLeft() + PANEL_WIDTH - 10) {
+        if (mouseX < contentLeft(panelLeft()) + 5 || mouseX > contentRight(panelLeft())) {
             return -1;
         }
         int row = (mouseY - listTop) / ROW_HEIGHT;
-        return mouseY >= listTop && row >= 0 && row < MAX_VISIBLE_ROWS ? row : -1;
+        return mouseY >= listTop && row >= 0 && row < resultVisibleRows() ? row : -1;
+    }
+
+    private int resultVisibleRows() {
+        if (currentTab == RADIO_TAB) {
+            return RADIO_MAX_VISIBLE_ROWS;
+        }
+        return currentTab == SEARCH_TAB ? SEARCH_MAX_VISIBLE_ROWS : MAX_VISIBLE_ROWS;
+    }
+
+    private int queueRowAt(int mouseX, int mouseY) {
+        int left = queuePanelLeft(panelLeft());
+        if (mouseX < left + 3 || mouseX > queuePanelRight(panelLeft()) - 3) {
+            return -1;
+        }
+        int listTop = panelTop() + QUEUE_LIST_TOP_OFFSET;
+        int row = (mouseY - listTop) / ROW_HEIGHT;
+        return mouseY >= listTop && row >= 0 && row < QUEUE_MAX_VISIBLE_ROWS ? row : -1;
+    }
+
+    private int queueIndexAtRow(int row) {
+        return queueScrollOffset + row - (hasStandaloneRadioRow() ? 1 : 0);
+    }
+
+    boolean hasStandaloneRadioRow() {
+        if (!isRadioActive()) return false;
+        for (PlaylistEntry entry : playlist) {
+            if (entry != null && entry.sourceType == MediaSourceType.RADIO
+                && radioState.getStationUuid()
+                    .equals(entry.sourceId)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private boolean isActiveRadioQueueRow(int row) {
+        if (hasStandaloneRadioRow()) return row == 0;
+        int index = queueIndexAtRow(row);
+        return isRadioActive() && index >= 0
+            && index < playlist.size()
+            && playlist.get(index).sourceType == MediaSourceType.RADIO
+            && radioState.getStationUuid()
+                .equals(playlist.get(index).sourceId);
+    }
+
+    private int queueMaxScrollOffset() {
+        int visiblePlaylistRows = QUEUE_MAX_VISIBLE_ROWS - (hasStandaloneRadioRow() ? 1 : 0);
+        return Math.max(0, playlist.size() - Math.max(1, visiblePlaylistRows));
     }
 
     private boolean isTimeBarAt(int mouseX, int mouseY) {
         if (isRadioActive()) {
             return false;
         }
-        int left = panelLeft() + TIME_BAR_SIDE_SPACE;
+        int left = timeBarLeft(panelLeft());
         int right = left + timeBarWidth();
         int top = timeBarTop(panelTop()) - 2;
-        return mouseX >= left && mouseX <= right && mouseY >= top && mouseY <= top + 7;
+        return mouseX >= left && mouseX <= right && mouseY >= top && mouseY <= top + TIME_BAR_HEIGHT + 4;
     }
 
     private float seekProgressAt(int mouseX) {
-        int left = panelLeft() + TIME_BAR_SIDE_SPACE;
+        int left = timeBarLeft(panelLeft());
         int width = timeBarWidth();
         return Math.max(0.0f, Math.min(1.0f, (float) (mouseX - left) / (float) Math.max(1, width - 1)));
     }
 
+    private int timeBarLeft(int left) {
+        return left + TIME_BAR_SIDE_SPACE;
+    }
+
     private int timeBarWidth() {
         return PANEL_WIDTH - 2 * TIME_BAR_SIDE_SPACE;
+    }
+
+    static int timeBarFillWidth(int barWidth, float progress) {
+        float clampedProgress = Math.max(0.0f, Math.min(1.0f, progress));
+        return (int) (Math.max(0, barWidth) * clampedProgress);
     }
 
     private void refreshCurrentDuration() {
@@ -1674,6 +2584,22 @@ public class HorizonRadioScreen extends GuiScreen {
                 return;
             }
         }
+    }
+
+    private String currentArtistLabel() {
+        if (nowPlaying == null) {
+            return "";
+        }
+        String currentArtist = HorizonRadioClient.getCurrentSongArtist();
+        if (currentArtist.length() > 0) {
+            return currentArtist;
+        }
+        for (PlaylistEntry entry : playlist) {
+            if (entry != null && nowPlaying.equals(entry.displayTitle()) && entry.localVideoMetadata != null) {
+                return entry.localVideoMetadata.channel == null ? "" : entry.localVideoMetadata.channel;
+            }
+        }
+        return "";
     }
 
     private static String formatTime(long millis) {
@@ -1692,24 +2618,61 @@ public class HorizonRadioScreen extends GuiScreen {
     }
 
     private int nowPlayingTop(int top) {
-        return top + PANEL_HEIGHT - CONTROL_CENTER_HEIGHT - NOW_PLAYING_HEIGHT - 5;
+        return top + FOOTER_TOP_OFFSET;
+    }
+
+    private int nowPlayingContentLeft(int panelLeft) {
+        return panelLeft + NOW_PLAYING_PANEL_INSET + NOW_PLAYING_CONTENT_MARGIN;
+    }
+
+    private int nowPlayingContentRight(int panelLeft) {
+        return panelLeft + PANEL_WIDTH - NOW_PLAYING_PANEL_INSET - NOW_PLAYING_CONTENT_MARGIN;
+    }
+
+    private int nowPlayingContentTop(int nowPlayingTop) {
+        return nowPlayingTop + NOW_PLAYING_CONTENT_MARGIN + 3;
+    }
+
+    private int nowPlayingContentBottom(int nowPlayingTop) {
+        return nowPlayingTop + NOW_PLAYING_PANEL_HEIGHT - NOW_PLAYING_CONTENT_MARGIN;
     }
 
     private int timeBarTop(int top) {
-        return nowPlayingTop(top) + 18;
+        return timeBarTopFromNowPlaying(nowPlayingTop(top));
+    }
+
+    private int timeBarTopFromNowPlaying(int nowPlayingTop) {
+        return nowPlayingTop + 33;
     }
 
     private int controlTop(int nowPlayingTop) {
-        return nowPlayingTop + NOW_PLAYING_HEIGHT + 4;
+        return nowPlayingContentBottom(nowPlayingTop) - CONTROL_BUTTON_HEIGHT;
     }
 
     private int controlGroupWidth() {
         return CONTROL_BUTTON_COUNT * CONTROL_BUTTON_WIDTH + (CONTROL_BUTTON_COUNT - 1) * CONTROL_BUTTON_GAP;
     }
 
+    static boolean shouldShowQueueClearButton(int playlistSize, boolean radioActive) {
+        return playlistSize > 0 || radioActive;
+    }
+
+    private void updateQueueClearButtonVisibility() {
+        if (queueClearButton == null) {
+            return;
+        }
+        boolean visible = shouldShowQueueClearButton(playlist.size(), isRadioActive());
+        queueClearButton.visible = visible;
+        queueClearButton.enabled = visible;
+    }
+
     private int queueButtonLeft(int panelLeft) {
-        int columnLeft = panelLeft + PANEL_WIDTH - QUEUE_BUTTON_RIGHT_MARGIN - QUEUE_BUTTON_COLUMN_WIDTH;
+        int columnLeft = contentRight(panelLeft) - QUEUE_BUTTON_RIGHT_MARGIN - QUEUE_BUTTON_COLUMN_WIDTH;
         return columnLeft + (QUEUE_BUTTON_COLUMN_WIDTH - QUEUE_BUTTON_WIDTH) / 2;
+    }
+
+    private int queueRemoveButtonLeft(int panelLeft) {
+        return queuePanelRight(panelLeft) - QUEUE_BUTTON_WIDTH - 6;
     }
 
     private int queueButtonTop(int rowTop) {
@@ -1751,33 +2714,50 @@ public class HorizonRadioScreen extends GuiScreen {
     }
 
     private void drawResultScrollbar(int resultCount, int scrollOffset, int panelLeft, int listTop) {
-        if (resultCount <= MAX_VISIBLE_ROWS) {
+        int visibleRows = resultVisibleRows();
+        if (resultCount <= visibleRows) {
             return;
         }
-        int trackLeft = panelLeft + PANEL_WIDTH - RESULT_SCROLLBAR_LEFT_OFFSET;
-        int trackHeight = MAX_VISIBLE_ROWS * ROW_HEIGHT - 2;
-        int thumbHeight = resultScrollbarThumbHeight(resultCount, trackHeight);
-        int thumbTop = resultScrollbarThumbTop(resultCount, scrollOffset, listTop, trackHeight, thumbHeight);
+        int trackLeft = contentRight(panelLeft) - RESULT_SCROLLBAR_LEFT_OFFSET;
+        int trackHeight = visibleRows * ROW_HEIGHT - 2;
+        int thumbHeight = resultScrollbarThumbHeight(resultCount, trackHeight, visibleRows);
+        int thumbTop = resultScrollbarThumbTop(
+            resultCount,
+            scrollOffset,
+            listTop,
+            trackHeight,
+            thumbHeight,
+            visibleRows);
         drawRect(trackLeft, listTop, trackLeft + RESULT_SCROLLBAR_WIDTH, listTop + trackHeight, 0x66555555);
         drawRect(trackLeft, thumbTop, trackLeft + RESULT_SCROLLBAR_WIDTH, thumbTop + thumbHeight, 0xFFDDDDDD);
     }
 
     private boolean isResultScrollbarAt(int panelLeft, int listTop, int resultCount, int mouseX, int mouseY) {
-        if (resultCount <= MAX_VISIBLE_ROWS) {
+        int visibleRows = resultVisibleRows();
+        if (resultCount <= visibleRows) {
             return false;
         }
-        int trackLeft = panelLeft + PANEL_WIDTH - RESULT_SCROLLBAR_LEFT_OFFSET;
-        int trackHeight = MAX_VISIBLE_ROWS * ROW_HEIGHT - 2;
+        int trackLeft = contentRight(panelLeft) - RESULT_SCROLLBAR_LEFT_OFFSET;
+        int trackHeight = visibleRows * ROW_HEIGHT - 2;
         return isMouseOver(trackLeft, listTop, RESULT_SCROLLBAR_WIDTH, trackHeight, mouseX, mouseY);
     }
 
     private int resultScrollbarThumbHeight(int resultCount, int trackHeight) {
-        return Math.max(RESULT_SCROLLBAR_MIN_THUMB_HEIGHT, trackHeight * MAX_VISIBLE_ROWS / resultCount);
+        return resultScrollbarThumbHeight(resultCount, trackHeight, MAX_VISIBLE_ROWS);
+    }
+
+    private int resultScrollbarThumbHeight(int resultCount, int trackHeight, int visibleRows) {
+        return Math.max(RESULT_SCROLLBAR_MIN_THUMB_HEIGHT, trackHeight * visibleRows / resultCount);
     }
 
     private int resultScrollbarThumbTop(int resultCount, int scrollOffset, int listTop, int trackHeight,
         int thumbHeight) {
-        int maxOffset = Math.max(1, resultCount - MAX_VISIBLE_ROWS);
+        return resultScrollbarThumbTop(resultCount, scrollOffset, listTop, trackHeight, thumbHeight, MAX_VISIBLE_ROWS);
+    }
+
+    private int resultScrollbarThumbTop(int resultCount, int scrollOffset, int listTop, int trackHeight,
+        int thumbHeight, int visibleRows) {
+        int maxOffset = Math.max(1, resultCount - visibleRows);
         int maxThumbTop = trackHeight - thumbHeight;
         return listTop + maxThumbTop * Math.max(0, Math.min(maxOffset, scrollOffset)) / maxOffset;
     }
@@ -1792,7 +2772,7 @@ public class HorizonRadioScreen extends GuiScreen {
             resultCount = displayedSearchResults().size();
             listTop = resultListTop(panelTop());
         } else if (currentTab == PLAYLIST_DISCOVERY_TAB) {
-            resultCount = playlistResults.size();
+            resultCount = displayedPlaylistResults().size();
             listTop = playlistDiscoveryListTop(panelTop());
         } else if (currentTab == RADIO_TAB) {
             resultCount = displayedRadioResults().size();
@@ -1801,9 +2781,10 @@ public class HorizonRadioScreen extends GuiScreen {
             resultCount = playlist.size();
             listTop = playlistListTop(panelTop());
         }
-        int trackHeight = MAX_VISIBLE_ROWS * ROW_HEIGHT - 2;
-        int thumbHeight = resultScrollbarThumbHeight(resultCount, trackHeight);
-        int maxOffset = Math.max(0, resultCount - MAX_VISIBLE_ROWS);
+        int visibleRows = resultVisibleRows();
+        int trackHeight = visibleRows * ROW_HEIGHT - 2;
+        int thumbHeight = resultScrollbarThumbHeight(resultCount, trackHeight, visibleRows);
+        int maxOffset = Math.max(0, resultCount - visibleRows);
         int maxThumbTop = Math.max(1, trackHeight - thumbHeight);
         int desiredThumbTop = Math.max(listTop, Math.min(listTop + maxThumbTop, mouseY - resultScrollbarDragOffset));
         int offset = (desiredThumbTop - listTop) * maxOffset / maxThumbTop;
@@ -1829,21 +2810,29 @@ public class HorizonRadioScreen extends GuiScreen {
     }
 
     private void drawTextButtonAt(int panelLeft, int top, String label, boolean hovered) {
-        int left = queueButtonLeft(panelLeft);
-        int outer = hovered ? 0xFF777777 : 0xFF5F5F5F;
-        int inner = hovered ? 0xFF666666 : 0xFF4A4A4A;
-        drawRect(left, top, left + QUEUE_BUTTON_WIDTH, top + QUEUE_BUTTON_HEIGHT, 0xFF111111);
-        drawRect(left + 1, top + 1, left + QUEUE_BUTTON_WIDTH - 1, top + QUEUE_BUTTON_HEIGHT - 1, outer);
-        drawRect(left + 3, top + 3, left + QUEUE_BUTTON_WIDTH - 3, top + QUEUE_BUTTON_HEIGHT - 3, inner);
-        drawCenteredString(fontRendererObj, label, left + QUEUE_BUTTON_WIDTH / 2, queueButtonTextTop(top), 0xFFFFFFFF);
+        drawTextButtonAbsolute(queueButtonLeft(panelLeft), top, label, hovered);
+    }
+
+    private void drawTextButtonAbsolute(int left, int top, String label, boolean hovered) {
+        boolean queued = "-".equals(label);
+        drawRect(left, top, left + QUEUE_BUTTON_WIDTH, top + QUEUE_BUTTON_HEIGHT, queued ? 0xFFA8D7AB : 0xFF858585);
+        drawRect(
+            left + 1,
+            top + 1,
+            left + QUEUE_BUTTON_WIDTH - 1,
+            top + QUEUE_BUTTON_HEIGHT - 1,
+            queued ? 0xFF365C3C : (hovered ? 0xFF555555 : 0xFF454545));
+        drawUiCenteredString(label, left + QUEUE_BUTTON_WIDTH / 2, queueButtonTextTop(top), 0xFFFFFFFF);
     }
 
     private static final class ControlButton extends GuiButton {
 
         private ResourceLocation iconTexture;
         private boolean active;
+        private boolean greenActive;
         private final int borderColor;
-        private final String label;
+        private String label;
+        private float labelScale = UI_TEXT_SCALE;
 
         private ControlButton(int id, int x, int y, int width, int height, ResourceLocation iconTexture) {
             this(id, x, y, width, height, iconTexture, 0xFF111111);
@@ -1855,6 +2844,7 @@ public class HorizonRadioScreen extends GuiScreen {
             this.iconTexture = iconTexture;
             this.borderColor = borderColor;
             this.label = "";
+            this.greenActive = true;
         }
 
         private ControlButton(int id, int x, int y, int width, int height, String label) {
@@ -1862,10 +2852,23 @@ public class HorizonRadioScreen extends GuiScreen {
             this.iconTexture = null;
             this.borderColor = 0xFF111111;
             this.label = label == null ? "" : label;
+            this.greenActive = false;
         }
 
         private void setIcon(ResourceLocation iconTexture) {
             this.iconTexture = iconTexture;
+        }
+
+        private void setLabel(String label) {
+            this.label = label == null ? "" : label;
+        }
+
+        private void setLabelScale(float labelScale) {
+            this.labelScale = Math.max(0.5F, Math.min(1.0F, labelScale));
+        }
+
+        private void setGreenActive(boolean greenActive) {
+            this.greenActive = greenActive;
         }
 
         private void setActive(boolean active) {
@@ -1881,24 +2884,37 @@ public class HorizonRadioScreen extends GuiScreen {
                 && mouseX < xPosition + width
                 && mouseY >= yPosition
                 && mouseY < yPosition + height;
-            int outer = !enabled ? 0xFF4A4A4A : (active ? 0xFF6EAA6E : (hovered ? 0xFF777777 : 0xFF5F5F5F));
-            int inner = !enabled ? 0xFF383838 : (active ? 0xFF456B45 : (hovered ? 0xFF666666 : 0xFF4A4A4A));
-            drawRect(xPosition, yPosition, xPosition + width, yPosition + height, borderColor);
-            drawRect(xPosition + 1, yPosition + 1, xPosition + width - 1, yPosition + height - 1, outer);
-            drawRect(xPosition + 3, yPosition + 3, xPosition + width - 3, yPosition + height - 4, inner);
-            drawRect(xPosition + 2, yPosition + 2, xPosition + width - 2, yPosition + 3, 0xFF9A9A9A);
+            int outer = !enabled ? 0xFF555555 : (active && greenActive ? 0xFFA8D7AB : 0xFF858585);
+            int inner = !enabled ? 0xFF383838
+                : (active && greenActive ? 0xFF365C3C : (hovered ? 0xFF505050 : 0xFF3A3A3A));
+            drawRect(
+                xPosition,
+                yPosition,
+                xPosition + width,
+                yPosition + height,
+                borderColor == SEARCH_BUTTON_BORDER_COLOR ? borderColor : outer);
+            drawRect(xPosition + 1, yPosition + 1, xPosition + width - 1, yPosition + height - 1, inner);
             if (enabled) {
                 GL11.glColor4f(1.0F, 1.0F, 1.0F, 1.0F);
             } else {
                 GL11.glColor4f(0.5F, 0.5F, 0.5F, 1.0F);
             }
+            int labelColor = !enabled ? 0xFF777777 : (active && greenActive ? 0xFFDCF6DE : 0xFFFFFFFF);
             if (iconTexture == null) {
-                drawCenteredString(
-                    minecraft.fontRenderer,
-                    label,
-                    xPosition + width / 2,
-                    yPosition + (height - 8) / 2 + 1,
-                    0xFFFFFFFF);
+                if (labelScale == 1.0F) {
+                    drawCenteredString(
+                        minecraft.fontRenderer,
+                        label,
+                        xPosition + width / 2,
+                        yPosition + (height - 8) / 2 + 1,
+                        labelColor);
+                } else {
+                    GL11.glPushMatrix();
+                    GL11.glTranslatef(xPosition + width / 2.0F, yPosition + height / 2.0F, 0.0F);
+                    GL11.glScalef(labelScale, labelScale, 1.0F);
+                    drawCenteredString(minecraft.fontRenderer, label, 0, -4, labelColor);
+                    GL11.glPopMatrix();
+                }
                 return;
             }
             minecraft.getTextureManager()
@@ -1917,11 +2933,15 @@ public class HorizonRadioScreen extends GuiScreen {
         }
     }
 
+    static int searchProgressTopOffset(boolean radio) {
+        return SEARCH_PROGRESS_Y_OFFSET + (radio ? RADIO_SEARCH_CONTROL_Y_OFFSET - SEARCH_CONTROL_Y_OFFSET : 0);
+    }
+
     private void drawProgressBar(int left, int top, float progress) {
-        int barLeft = left + 10;
-        int barRight = left + PANEL_WIDTH - 10;
-        int barTop = top + SEARCH_PROGRESS_Y_OFFSET;
-        drawRect(barLeft, barTop, barRight, barTop + SEARCH_PROGRESS_HEIGHT, 0xFF333333);
+        int barLeft = left + SEARCH_FIELD_X_OFFSET - 1;
+        int barRight = left + SEARCH_FIELD_X_OFFSET + SEARCH_FIELD_WIDTH + SEARCH_CONTROL_GAP + SEARCH_BUTTON_WIDTH;
+        int barTop = top + searchProgressTopOffset(currentTab == RADIO_TAB);
+        drawRect(barLeft, barTop, barRight, barTop + SEARCH_PROGRESS_HEIGHT, 0xFF454545);
         int fillWidth = (int) ((barRight - barLeft) * Math.max(0.0f, Math.min(1.0f, progress)));
         if (fillWidth > 0) {
             drawRect(barLeft, barTop, barLeft + fillWidth, barTop + SEARCH_PROGRESS_HEIGHT, 0xFF55AA55);
@@ -2055,6 +3075,26 @@ public class HorizonRadioScreen extends GuiScreen {
         return radioStatus().length() > 0;
     }
 
+    private void updateModeVisibility() {
+        boolean showSongModes = shouldShowSongModeButtons(currentTab);
+        setVisible(chartsTabButton, showSongModes);
+        setVisible(searchTabButton, showSongModes);
+        setVisible(playlistsTabButton, showSongModes);
+        updateChartControlVisibility();
+
+        int searchOffset = currentTab == RADIO_TAB ? RADIO_SEARCH_CONTROL_Y_OFFSET : SEARCH_CONTROL_Y_OFFSET;
+        int top = panelTop();
+        if (searchField != null) {
+            searchField.yPosition = top + searchOffset;
+        }
+        if (playlistUrlField != null) {
+            playlistUrlField.yPosition = top + searchOffset;
+        }
+        if (searchButton != null) {
+            searchButton.yPosition = top + searchOffset - 1;
+        }
+    }
+
     private void updateControlVisibility() {
         boolean radioActive = isRadioActive();
         boolean controlsLocked = radioControlsLocked();
@@ -2116,10 +3156,11 @@ public class HorizonRadioScreen extends GuiScreen {
     }
 
     private boolean areAllPlaylistResultsInQueue() {
-        if (playlistResults.isEmpty()) {
+        List<SearchResult> results = displayedPlaylistResults();
+        if (results.isEmpty()) {
             return false;
         }
-        for (SearchResult result : playlistResults) {
+        for (SearchResult result : results) {
             if (!isInQueue(result.videoId)) {
                 return false;
             }
@@ -2128,10 +3169,11 @@ public class HorizonRadioScreen extends GuiScreen {
     }
 
     private boolean areAllPlaylistResultsInQueueOrPending() {
-        if (playlistResults.isEmpty()) {
+        List<SearchResult> results = displayedPlaylistResults();
+        if (results.isEmpty()) {
             return false;
         }
-        for (SearchResult result : playlistResults) {
+        for (SearchResult result : results) {
             if (result == null || (!isInQueue(result.videoId) && !isPlaylistAddPending(result.videoId))) {
                 return false;
             }
@@ -2154,6 +3196,32 @@ public class HorizonRadioScreen extends GuiScreen {
         }
     }
 
+    private void performBulkAdd() {
+        boolean charts = currentTab == CHARTS_TAB;
+        List<SearchResult> results = charts ? chartResults : displayedPlaylistResults();
+        if (results.isEmpty()) {
+            return;
+        }
+        boolean playlistTransport = !charts && !playlistResults.isEmpty();
+        if (charts ? areAllChartsInQueue() : areAllPlaylistResultsInQueue()) {
+            if (playlistTransport) {
+                HorizonRadioClient.sendPlaylistResultsToQueue(toPlaylistSelections(results), true);
+            } else {
+                HorizonRadioClient.sendAddChartsToPlaylist(toPlaylistSelections(results), true);
+            }
+            return;
+        }
+        List<SearchResult> request = charts ? beginChartAdd(results) : beginPlaylistAdd(results);
+        if (request.isEmpty()) {
+            return;
+        }
+        if (playlistTransport) {
+            HorizonRadioClient.sendPlaylistResultsToQueue(request);
+        } else {
+            HorizonRadioClient.sendAddChartsToPlaylist(request);
+        }
+    }
+
     private void playResultNow(SearchResult result) {
         if (result == null) {
             return;
@@ -2162,7 +3230,9 @@ public class HorizonRadioScreen extends GuiScreen {
     }
 
     private boolean usesSharedSearchField() {
-        return currentTab == CHARTS_TAB || currentTab == SEARCH_TAB || currentTab == RADIO_TAB;
+        return currentTab == CHARTS_TAB || currentTab == SEARCH_TAB
+            || currentTab == PLAYLIST_DISCOVERY_TAB
+            || currentTab == RADIO_TAB;
     }
 
     private boolean showsSearchButton() {
@@ -2227,13 +3297,13 @@ public class HorizonRadioScreen extends GuiScreen {
     }
 
     private int playlistIndexAt(int mouseX, int mouseY) {
-        int row = rowAt(mouseX, mouseY, playlistListTop(panelTop()));
-        int index = row < 0 ? -1 : queueScrollOffset + row;
+        int row = queueRowAt(mouseX, mouseY);
+        int index = row < 0 ? -1 : queueIndexAtRow(row);
         return index >= 0 && index < playlist.size() ? index : -1;
     }
 
     private boolean isPlaylistIndexDraggable(int index) {
-        return index >= 0 && index < playlist.size() && !(index == 0 && nowPlaying != null);
+        return index >= 0 && index < playlist.size() && !(index == 0 && nowPlaying != null && !hasStandaloneRadioRow());
     }
 
     static boolean isPlaylistRowPlaying(int index, boolean hasNowPlaying, boolean radioActive) {
@@ -2257,25 +3327,29 @@ public class HorizonRadioScreen extends GuiScreen {
     }
 
     private int playlistDiscoveryListTop(int top) {
-        return top + CONTENT_LIST_TOP_OFFSET;
+        return top + CHART_LIST_TOP_OFFSET;
     }
 
     private int resultListTop(int top) {
         return currentTab == SEARCH_TAB ? top + searchListTopOffset(isSearchListLoading())
-            : top + CONTENT_LIST_TOP_OFFSET;
+            : top + (currentTab == CHARTS_TAB ? CHART_LIST_TOP_OFFSET : CONTENT_LIST_TOP_OFFSET);
     }
 
     private boolean isPlaylistDropAllowed(int index) {
-        return isPlaylistIndexDraggable(index);
+        return index >= 0 && index < playlist.size();
     }
 
     private static int scroll(int offset, int size, int wheel) {
+        return scroll(offset, size, wheel, MAX_VISIBLE_ROWS);
+    }
+
+    private static int scroll(int offset, int size, int wheel, int visibleRows) {
         int direction = wheel > 0 ? -1 : 1;
-        return Math.max(0, Math.min(offset + direction, Math.max(0, size - MAX_VISIBLE_ROWS)));
+        return Math.max(0, Math.min(offset + direction, Math.max(0, size - visibleRows)));
     }
 
     static int radioStationNameMaxWidth(int panelLeft) {
-        return radioLiveLabelLeft(panelLeft) - 5 - (panelLeft + 15);
+        return CONTENT_WIDTH - 60;
     }
 
     static String activeRadioNowPlayingLabel(String stationName) {
@@ -2292,10 +3366,11 @@ public class HorizonRadioScreen extends GuiScreen {
     }
 
     private static int radioLiveLabelLeft(int panelLeft) {
-        return panelLeft + PANEL_WIDTH - 38;
+        return panelLeft + CONTENT_LEFT_INSET + CONTENT_WIDTH - 49;
     }
 
     private String truncate(String text, int maxWidth) {
+        text = text == null ? "" : text;
         if (fontRendererObj.getStringWidth(text) <= maxWidth) {
             return text;
         }
@@ -2303,6 +3378,15 @@ public class HorizonRadioScreen extends GuiScreen {
             text = text.substring(0, text.length() - 1);
         }
         return text + "...";
+    }
+
+    private String truncateUi(String text, int maxWidth) {
+        return truncate(text, (int) Math.ceil(maxWidth / UI_TEXT_SCALE));
+    }
+
+    private String truncateUiWithPrefix(String prefix, String text, int maxWidth) {
+        int prefixWidth = uiTextWidth(fontRendererObj.getStringWidth(prefix));
+        return prefix + truncateUi(text, Math.max(0, maxWidth - prefixWidth));
     }
 
     private static boolean isMouseOver(int x, int y, int width, int height, int mouseX, int mouseY) {

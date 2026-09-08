@@ -63,8 +63,9 @@ public class YouTubeParserTest {
             results.get(1)
                 .getDuration());
         SearchResult video = PlaylistImportService
-            .parseVideo("{\"id\":\"single\",\"title\":\"Single\",\"duration\":95}");
+            .parseVideo("{\"id\":\"single\",\"title\":\"Single\",\"uploader\":\"Artist\",\"duration\":95}");
         assertEquals("single", video.getVideoId());
+        assertEquals("Artist", video.getChannel());
         assertEquals("1:35", video.getDuration());
         assertTrue(PlaylistImportService.isVideoUrl("https://youtu.be/single"));
         assertTrue(PlaylistImportService.isVideoUrl("https://www.youtube.com/watch?v=single"));

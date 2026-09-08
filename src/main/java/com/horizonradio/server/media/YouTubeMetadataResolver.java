@@ -56,22 +56,40 @@ public final class YouTubeMetadataResolver {
 
     /** Returns PlaylistImportService-compatible video JSON, or null for safe failures. */
     public String resolveVideoJson(String videoUrl) {
+        return resolveVideoJson(videoUrl, false);
+    }
+
+    public String resolveVideoJsonOrThrow(String videoUrl) {
+        return resolveVideoJson(videoUrl, true);
+    }
+
+    private String resolveVideoJson(String videoUrl, boolean propagateErrors) {
         try {
             String videoId = YouTubeUrlParser.parseVideoId(videoUrl);
             VideoMetadata metadata = fetchVideo(videoId);
             return metadata == null ? null : gson.toJson(metadata.toJson());
         } catch (IOException exception) {
+            if (propagateErrors) throw new java.util.concurrent.CompletionException(exception);
             return null;
         }
     }
 
     /** Returns PlaylistImportService-compatible playlist JSON, or null for safe failures. */
     public String resolvePlaylistJson(String playlistUrl) {
+        return resolvePlaylistJson(playlistUrl, false);
+    }
+
+    public String resolvePlaylistJsonOrThrow(String playlistUrl) {
+        return resolvePlaylistJson(playlistUrl, true);
+    }
+
+    private String resolvePlaylistJson(String playlistUrl, boolean propagateErrors) {
         try {
             String playlistId = parsePlaylistId(playlistUrl);
             List<VideoMetadata> entries = new ArrayList<VideoMetadata>();
             Set<String> seenIds = new HashSet<String>();
             String continuation = null;
+            String playlistTitle = "";
             int rawRendererCount = 0;
             for (int page = 0; page < MAX_PLAYLIST_PAGES && entries.size() < MAX_PLAYLIST_ENTRIES
                 && rawRendererCount < MAX_RAW_PLAYLIST_RENDERERS; page++) {
@@ -79,6 +97,13 @@ public final class YouTubeMetadataResolver {
                 JsonObject response = continuation == null ? browsePlaylist(playlistId)
                     : browseContinuation(continuation);
                 if (response == null) break;
+                if (page == 0) {
+                    playlistTitle = string(object(object(response, "metadata"), "playlistMetadataRenderer"), "title");
+                    if (playlistTitle.isEmpty()) {
+                        playlistTitle = text(
+                            object(object(object(response, "header"), "playlistHeaderRenderer"), "title"));
+                    }
+                }
                 PlaylistItems items = collectPlaylistItems(
                     response,
                     seenIds,
@@ -90,11 +115,13 @@ public final class YouTubeMetadataResolver {
                 if (continuation == null) break;
             }
             JsonObject output = new JsonObject();
+            output.addProperty("title", playlistTitle);
             JsonArray outputEntries = new JsonArray();
             for (VideoMetadata entry : entries) outputEntries.add(entry.toJson());
             output.add("entries", outputEntries);
             return gson.toJson(output);
         } catch (IOException exception) {
+            if (propagateErrors) throw new java.util.concurrent.CompletionException(exception);
             return null;
         }
     }
@@ -137,13 +164,14 @@ public final class YouTubeMetadataResolver {
         if (details == null || bool(details, "isLiveContent")) return null;
         String id = string(details, "videoId");
         String title = string(details, "title");
+        String channel = firstNonBlank(string(details, "author"), string(details, "channelName"));
         long duration = positiveDuration(string(details, "lengthSeconds"));
         try {
             id = YouTubeUrlParser.requireVideoId(id);
         } catch (IOException invalid) {
             return null;
         }
-        return title.length() == 0 || duration <= 0L ? null : new VideoMetadata(id, title, duration);
+        return title.length() == 0 || duration <= 0L ? null : new VideoMetadata(id, title, channel, duration);
     }
 
     private JsonObject browsePlaylist(String playlistId) throws IOException {
@@ -175,6 +203,9 @@ public final class YouTubeMetadataResolver {
             TIMEOUT_MILLIS,
             maximumBytes,
             YouTubeMediaModels.RedirectPolicy.INNER_TUBE)) {
+            if (response.getStatusCode() >= 400) {
+                throw new YouTubeMediaModels.HttpStatusException(response.getStatusCode());
+            }
             return new JsonParser().parse(readExactly(response, maximumBytes))
                 .getAsJsonObject();
         } catch (RuntimeException exception) {
@@ -409,12 +440,18 @@ public final class YouTubeMetadataResolver {
 
         private final String id;
         private final String title;
+        private final String channel;
         private final long duration;
         private final String durationString;
 
         private VideoMetadata(String id, String title, long duration) {
+            this(id, title, "", duration);
+        }
+
+        private VideoMetadata(String id, String title, String channel, long duration) {
             this.id = id;
             this.title = title;
+            this.channel = channel;
             this.duration = duration;
             this.durationString = formatDuration(duration);
         }
@@ -423,10 +460,23 @@ public final class YouTubeMetadataResolver {
             JsonObject json = new JsonObject();
             json.addProperty("id", id);
             json.addProperty("title", title);
+            json.addProperty("channel", channel);
             json.addProperty("duration", duration);
             json.addProperty("duration_string", durationString);
             json.addProperty("webpage_url", "https://www.youtube.com/watch?v=" + id);
             return json;
         }
+    }
+
+    private static String firstNonBlank(String... values) {
+        if (values != null) {
+            for (String value : values) {
+                if (value != null && value.trim()
+                    .length() > 0) {
+                    return value;
+                }
+            }
+        }
+        return "";
     }
 }

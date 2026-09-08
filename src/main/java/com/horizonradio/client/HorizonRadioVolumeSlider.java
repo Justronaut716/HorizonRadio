@@ -50,24 +50,37 @@ public final class HorizonRadioVolumeSlider extends GuiButton {
         HorizonRadioClient.setVolumePreview(value);
     }
 
+    static int volumeTrackFillWidth(int width, float value) {
+        return Math.round(Math.max(0, width - 4) * clamp(value));
+    }
+
     @Override
     public void drawButton(Minecraft minecraft, int mouseX, int mouseY) {
         if (!visible) {
             return;
         }
-        int background = 0xFF333333;
-        int filled = 0xFF55AA55;
-        int knob = 0xFFFFFFFF;
-        drawRect(xPosition, yPosition, xPosition + width, yPosition + height, background);
-        drawRect(xPosition, yPosition, xPosition + (int) (width * value), yPosition + height, filled);
-        int knobX = xPosition + (int) ((width - 1) * value);
-        drawRect(knobX - 2, yPosition, knobX + 2, yPosition + height, knob);
-        drawCenteredString(
-            minecraft.fontRenderer,
-            "Volume: " + (int) (value * 100) + "%",
-            xPosition + width / 2,
-            yPosition + 6,
-            0xFFFFFFFF);
+        int trackLeft = xPosition + 2;
+        int trackTop = yPosition + (height - 3) / 2;
+        int trackRight = xPosition + width - 2;
+        int trackBottom = trackTop + 3;
+        boolean hovered = enabled && mouseX >= xPosition
+            && mouseX < xPosition + width
+            && mouseY >= yPosition
+            && mouseY < yPosition + height;
+        drawRect(trackLeft, trackTop, trackRight, trackBottom, 0xFF303030);
+        int fillWidth = volumeTrackFillWidth(width, value);
+        if (fillWidth > 0) {
+            drawRect(trackLeft, trackTop, trackLeft + fillWidth, trackBottom, 0xFF929292);
+            drawRect(trackLeft, trackTop, trackLeft + fillWidth, trackTop + 1, 0xFFB0B0B0);
+        }
+        int thumbX = trackLeft + fillWidth;
+        drawGradientRect(
+            thumbX - 1,
+            trackTop - 2,
+            thumbX + 1,
+            trackBottom + 2,
+            hovered || dragging ? 0xFFFFFFFF : 0xFFDDDDDD,
+            hovered || dragging ? 0xFFBDBDBD : 0xFF8C8C8C);
     }
 
     private static float clamp(float input) {
