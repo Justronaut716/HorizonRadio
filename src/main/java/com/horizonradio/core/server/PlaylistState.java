@@ -21,7 +21,7 @@ public final class PlaylistState {
 
     private static final long DEFAULT_TRACK_DURATION_MS = 3L * 60L * 1000L;
     private final CopyOnWriteArrayList<PlaylistEntry> playlist = new CopyOnWriteArrayList<PlaylistEntry>();
-    private final int maxPlaylistSize;
+    private int maxPlaylistSize;
     private final Set<UUID> pendingPlayers = new HashSet<UUID>();
 
     private int currentIndex = -1;
@@ -105,6 +105,10 @@ public final class PlaylistState {
 
     public int remove(String videoId) {
         return removeAt(findIndex(videoId));
+    }
+
+    public int remove(MediaSourceType sourceType, String sourceId) {
+        return removeAt(findIndex(sourceType, sourceId));
     }
 
     private int removeAt(int index) {
@@ -567,6 +571,11 @@ public final class PlaylistState {
 
     public boolean hasPendingPlayers() {
         return !pendingPlayers.isEmpty();
+    }
+
+    public void setMaxPlaylistSize(int limit) {
+        if (limit <= 0) throw new IllegalArgumentException("Queue limit must be positive");
+        maxPlaylistSize = limit;
     }
 
     int getMaxPlaylistSize() {

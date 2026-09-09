@@ -127,6 +127,13 @@ Example configuration:
 }
 ```
 
+Server operators can also change these two limits in the in-game settings panel
+under **OP Settings**. Enter the queue size (1–1024) and song duration limit in
+whole minutes, then click **Apply**. The server checks OP permission, saves the
+values in `config/horizonradio.json`, and applies them to new entries immediately.
+Existing queue entries are kept when reducing the limits. Both clients and the
+server need the version containing this tab and its settings packets.
+
 `maxPlaylistSize` limits the total number of entries in the shared playlist;
 additional songs are rejected once the configured maximum is reached.
 `maxTrackDurationMinutes` limits the finite duration that the server accepts

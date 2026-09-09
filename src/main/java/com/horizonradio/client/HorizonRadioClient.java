@@ -6,6 +6,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
@@ -45,6 +46,8 @@ import com.horizonradio.network.packets.RemoveFromPlaylistPacket;
 import com.horizonradio.network.packets.ReorderPlaylistPacket;
 import com.horizonradio.network.packets.SeekRequestPacket;
 import com.horizonradio.network.packets.SelectRadioStationPacket;
+import com.horizonradio.network.packets.ServerSettingsPacket;
+import com.horizonradio.network.packets.ServerSettingsRequestPacket;
 import com.horizonradio.network.packets.SkipTrackPacket;
 import com.horizonradio.network.packets.StopRadioPacket;
 import com.horizonradio.network.packets.ToggleLoopPacket;
@@ -58,6 +61,7 @@ public final class HorizonRadioClient {
 
     private static final List<HorizonRadioScreen.PlaylistEntry> CACHED_PLAYLIST = new ArrayList<HorizonRadioScreen.PlaylistEntry>();
     private static final List<HorizonRadioScreen.SearchResult> CACHED_CHARTS = new ArrayList<HorizonRadioScreen.SearchResult>();
+    private static final List<HorizonRadioScreen.SearchResult> CACHED_SEARCH_RESULTS = new ArrayList<HorizonRadioScreen.SearchResult>();
     private static final List<HorizonRadioScreen.SearchResult> CACHED_PLAYLIST_RESULTS = new ArrayList<HorizonRadioScreen.SearchResult>();
     private static String cachedPlaylistTitle = "";
     private static final List<RadioStation> CACHED_RADIO_RESULTS = new ArrayList<RadioStation>();
@@ -104,6 +108,53 @@ public final class HorizonRadioClient {
     private static HorizonRadioScreen chartRequestScreen;
     private static ClientTransport transport = new NoopClientTransport();
     private static HorizonRadioClientConfig clientConfig;
+    private static ClientUiSettings uiSettings = new ClientUiSettings();
+
+    private static ServerSettingsPacket serverSettings;
+    private static long serverSettingsRevision;
+
+    static ServerSettingsPacket serverSettings() {
+        return serverSettings;
+    }
+
+    static int queueLimit() {
+        return playbackMode == PlaybackMode.SERVER && serverSettings != null ? serverSettings.getQueueLimit()
+            : HorizonRadioConfig.DEFAULT_MAX_PLAYLIST_SIZE;
+    }
+
+    static long serverSettingsRevision() {
+        return serverSettingsRevision;
+    }
+
+    public static synchronized void handleServerSettings(ServerSettingsPacket packet) {
+        if (packet == null || !HorizonRadioConfig.validLimits(packet.getQueueLimit(), packet.getDurationMinutes()))
+            return;
+        serverSettings = packet;
+        serverSettingsRevision++;
+    }
+
+    static void resetServerSettings() {
+        serverSettings = null;
+        serverSettingsRevision++;
+    }
+
+    static void requestServerSettings() {
+        HorizonRadioNetwork.CHANNEL.sendToServer(new ServerSettingsRequestPacket(false, 0, 0));
+    }
+
+    static void updateServerSettings(int queueLimit, int durationMinutes) {
+        HorizonRadioNetwork.CHANNEL.sendToServer(new ServerSettingsRequestPacket(true, queueLimit, durationMinutes));
+    }
+
+    static ClientUiSettings uiSettings() {
+        return uiSettings;
+    }
+
+    static void saveUiSettings() {
+        NotificationOverlay.configure(uiSettings);
+        persistVolume();
+    }
+
     private static ClientFavorites clientFavorites = new ClientFavorites();
     private static AudioDownloadService clientAudioDownloadService;
     private static ClientMediaService clientMediaService;
@@ -406,6 +457,80 @@ public final class HorizonRadioClient {
         return playbackMode;
     }
 
+    static synchronized NotificationCenter.Snapshot notificationSnapshot() {
+        NotificationCenter.Snapshot state = new NotificationCenter.Snapshot();
+        if (activeTrackSourceType != null && activeTrackSourceId != null) {
+            state.trackId = activeTrackSourceType + ":" + activeTrackSourceId;
+            state.trackKey = state.trackId + ":" + activeTrackGeneration + ":" + localPlaybackGeneration;
+            state.radio = activeTrackSourceType == MediaSourceType.RADIO;
+            state.trackTitle = state.radio && cachedRadioPresentation != null ? cachedRadioPresentation.getStationName()
+                : cachedNowPlaying;
+            if (state.trackTitle == null || state.trackTitle.isEmpty()
+                || state.trackTitle.equals(activeTrackSourceId)) {
+                state.trackTitle = state.radio ? "Radio station" : "YouTube song";
+            }
+        }
+        state.paused = cachedPaused;
+        state.loop = cachedLooping;
+        state.shuffle = cachedShuffling;
+        state.audioEnabled = youtubeAudioEnabled;
+        state.mode = playbackMode == PlaybackMode.PRIVATE ? "Private" : "Server";
+        state.volume = Math.round(getVolume() * 100);
+        state.error = mediaStatusMessage();
+        if (state.error.isEmpty() && cachedRadioPresentation != null && !cachedRadioPresentation.isActive()) {
+            state.error = cachedRadioPresentation.getStatus();
+        }
+        for (HorizonRadioScreen.PlaylistEntry entry : CACHED_PLAYLIST) {
+            if (entry == null) continue;
+            String title = entry.displayTitle();
+            if (entry.sourceType == MediaSourceType.RADIO) {
+                title = entry.localStationMetadata == null ? initialRadioName(entry.sourceId)
+                    : entry.localStationMetadata.name;
+                if (title == null || title.trim()
+                    .isEmpty() || title.equals(entry.sourceId) || title.equals("Loading station..."))
+                    title = "Radio station";
+            } else {
+                title = notificationSongTitle(entry);
+            }
+            state.queue.put(entry.sourceType + ":" + entry.sourceId, title);
+        }
+        for (ClientFavorites.Song song : clientFavorites.getSongs()) {
+            state.favorites.put("song:" + song.getVideoId(), song.getTitle());
+        }
+        for (ClientFavorites.Radio station : clientFavorites.getRadios()) {
+            state.favorites.put("radio:" + station.getStationUuid(), station.getName());
+        }
+        return state;
+    }
+
+    private static String notificationSongTitle(HorizonRadioScreen.PlaylistEntry entry) {
+        String id = entry.sourceId;
+        if (entry.localVideoMetadata != null && isKnownSongTitle(entry.localVideoMetadata.title, id)) {
+            return entry.localVideoMetadata.title;
+        }
+        for (HorizonRadioScreen.SearchResult result : CACHED_SEARCH_RESULTS) {
+            if (Objects.equals(id, result.videoId) && isKnownSongTitle(result.title, id)) return result.title;
+        }
+        for (HorizonRadioScreen.SearchResult result : CACHED_PLAYLIST_RESULTS) {
+            if (Objects.equals(id, result.videoId) && isKnownSongTitle(result.title, id)) return result.title;
+        }
+        SearchResult metadata = clientMetadataCache == null ? null : clientMetadataCache.getVideo(id);
+        if (metadata != null && isKnownSongTitle(metadata.getTitle(), id)) return metadata.getTitle();
+        for (HorizonRadioScreen.SearchResult result : CACHED_CHARTS) {
+            if (Objects.equals(id, result.videoId) && isKnownSongTitle(result.title, id)) return result.title;
+        }
+        for (ClientFavorites.Song favorite : clientFavorites.getSongs()) {
+            if (Objects.equals(id, favorite.getVideoId()) && isKnownSongTitle(favorite.getTitle(), id))
+                return favorite.getTitle();
+        }
+        return null;
+    }
+
+    private static boolean isKnownSongTitle(String title, String id) {
+        return title != null && !title.trim()
+            .isEmpty() && !title.equals(id);
+    }
+
     public static synchronized void setPlaybackMode(PlaybackMode mode) {
         setActivePlaybackMode(mode);
     }
@@ -490,7 +615,7 @@ public final class HorizonRadioClient {
             return;
         }
         final long generation = ++searchTabDiscoveryGeneration;
-        clientMediaService.search(query, maxTrackDurationMs())
+        clientMediaService.search(query, maxTrackDurationMs(), uiSettings.songResults)
             .whenComplete(new BiConsumer<List<SearchResult>, Throwable>() {
 
                 @Override
@@ -603,6 +728,39 @@ public final class HorizonRadioClient {
             return;
         }
         completeLocalImport(clientMediaService.importPlaylist(playlistUrl));
+    }
+
+    static synchronized void cancelPendingPlaylistDiscovery() {
+        playlistImportGeneration++;
+        playlistImportScreen = null;
+    }
+
+    public static synchronized void sendPlaylistSearch(String query) {
+        mediaError = "";
+        final HorizonRadioScreen screen = getOpenScreen();
+        final long generation = ++playlistImportGeneration;
+        playlistImportScreen = screen;
+        if (screen == null) return;
+        screen.beginPlaylistSearch();
+        if (clientMediaService == null) {
+            screen.showPlaylistError("Playlist search unavailable");
+            return;
+        }
+        clientMediaService.searchPlaylists(query)
+            .whenComplete((results, failure) -> ClientProxy.scheduleOnClientThread(() -> {
+                synchronized (HorizonRadioClient.class) {
+                    if (!isCurrentPlaylistImport(generation, screen)) return;
+                    playlistImportScreen = null;
+                    if (failure != null) {
+                        showMediaError(failure, "Playlist search failed - please try again.");
+                        screen.showPlaylistError("Playlist search failed");
+                    } else {
+                        screen.updatePlaylistSearchResults(results);
+                        NotificationOverlay
+                            .post("search-playlist", "Playlist search finished", results.size() + " playlists");
+                    }
+                }
+            }));
     }
 
     public static synchronized void sendPlaylistImport(String playlistUrl) {
@@ -856,6 +1014,7 @@ public final class HorizonRadioClient {
                 long alignedPositionMs = LOCAL_QUEUE.seek(positionMs, nowMs);
                 if (alignedPositionMs >= 0L) {
                     alignPrivateFiniteAudio(alignedPositionMs, LOCAL_QUEUE.isPaused());
+                    NotificationOverlay.post("seek", "Playback position", formatDuration(alignedPositionMs));
                     updatePrivateFinitePresentation(entry, alignedPositionMs);
                     refreshCachedPlaylistFromActiveQueue();
                 }
@@ -866,6 +1025,7 @@ public final class HorizonRadioClient {
             return;
         }
         transport.sendSeek(progress);
+        NotificationOverlay.post("seek", "Seek requested", Math.round(Math.max(0, Math.min(1, progress)) * 100) + "%");
     }
 
     public static synchronized void sendTogglePlayback() {
@@ -1005,7 +1165,7 @@ public final class HorizonRadioClient {
             return;
         }
         final long generation = ++radioSearchGeneration;
-        clientMediaService.searchRadio(query)
+        clientMediaService.searchRadio(query, uiSettings.radioResults)
             .whenComplete(new BiConsumer<List<RadioStation>, Throwable>() {
 
                 @Override
@@ -1223,6 +1383,8 @@ public final class HorizonRadioClient {
 
     static synchronized void loadClientConfig(File configDirectory) {
         clientConfig = HorizonRadioClientConfig.load(configDirectory);
+        uiSettings = clientConfig.getUiSettings();
+        NotificationOverlay.configure(uiSettings);
         clientFavorites = clientConfig.getFavorites();
         youtubeAudioEnabled = clientConfig.isYoutubeAudioEnabled();
         youtubeAudioTestStatus = "Not tested";
@@ -1363,6 +1525,13 @@ public final class HorizonRadioClient {
     }
 
     public static synchronized void updateSearchResults(List<HorizonRadioScreen.SearchResult> results) {
+        CACHED_SEARCH_RESULTS.clear();
+        if (results != null) {
+            for (HorizonRadioScreen.SearchResult result : results)
+                if (result != null) CACHED_SEARCH_RESULTS.add(result);
+        }
+        NotificationOverlay
+            .post("search-songs", "Song search finished", (results == null ? 0 : results.size()) + " results");
         HorizonRadioScreen screen = getOpenScreen();
         if (screen != null) {
             screen.updateSearchResults(results);
@@ -1394,6 +1563,7 @@ public final class HorizonRadioClient {
         HorizonRadioScreen screen = getOpenScreen();
         if (screen != null) {
             screen.updateChartResults(CACHED_CHARTS, cachedChartRegionCode);
+            NotificationOverlay.post("search-charts", "Charts loaded", CACHED_CHARTS.size() + " songs");
         }
     }
 
@@ -1854,6 +2024,7 @@ public final class HorizonRadioClient {
     }
 
     public static synchronized void clearCache() {
+        NotificationOverlay.clear();
         localPlaybackGeneration++;
         if (clientRadioPlayback != null) {
             clientRadioPlayback.stop();
@@ -1861,6 +2032,7 @@ public final class HorizonRadioClient {
         cancelActiveTrackDownload();
         CACHED_PLAYLIST.clear();
         CACHED_CHARTS.clear();
+        CACHED_SEARCH_RESULTS.clear();
         CACHED_PLAYLIST_RESULTS.clear();
         cachedPlaylistTitle = "";
         CACHED_RADIO_RESULTS.clear();
@@ -2553,7 +2725,7 @@ public final class HorizonRadioClient {
             return converted;
         }
         for (SearchResult result : results) {
-            if (result == null) {
+            if (result == null || !isValidChartDuration(result.getVideoId(), durationMillis(result.getDuration()))) {
                 continue;
             }
             converted.add(
@@ -2563,9 +2735,6 @@ public final class HorizonRadioClient {
                     result.getChannel(),
                     result.getDuration(),
                     result.getThumbnail()));
-            if (converted.size() >= 50) {
-                break;
-            }
         }
         return converted;
     }
@@ -2578,6 +2747,10 @@ public final class HorizonRadioClient {
         }
         if (screen != null) {
             screen.updatePlaylistResults(CACHED_PLAYLIST_RESULTS, cachedPlaylistTitle);
+            NotificationOverlay.post(
+                "search-playlist",
+                "Playlist loaded",
+                cachedPlaylistTitle.isEmpty() ? CACHED_PLAYLIST_RESULTS.size() + " songs" : cachedPlaylistTitle);
         }
     }
 
@@ -2650,6 +2823,8 @@ public final class HorizonRadioClient {
     }
 
     public static synchronized void updateRadioSearchResults(List<RadioStation> stations) {
+        NotificationOverlay
+            .post("search-radio", "Radio search finished", (stations == null ? 0 : stations.size()) + " stations");
         CACHED_RADIO_RESULTS.clear();
         if (stations != null) {
             CACHED_RADIO_RESULTS.addAll(stations);
@@ -3149,6 +3324,8 @@ public final class HorizonRadioClient {
     }
 
     private static long maxTrackDurationMs() {
+        if (playbackMode == PlaybackMode.SERVER && serverSettings != null)
+            return serverSettings.getDurationMinutes() * 60L * 1000L;
         int minutes = HorizonRadio.getConfig() == null ? HorizonRadioConfig.DEFAULT_MAX_TRACK_DURATION_MINUTES
             : HorizonRadio.getConfig()
                 .getMaxTrackDurationMinutes();

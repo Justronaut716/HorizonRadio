@@ -58,13 +58,21 @@ public class RadioBrowserService {
     }
 
     public CompletableFuture<List<RadioStation>> search(final String query) {
+        return search(query, 50);
+    }
+
+    public CompletableFuture<List<RadioStation>> search(final String query, final int limit) {
         final String boundedQuery = boundQuery(query);
         return CompletableFuture.supplyAsync(new java.util.function.Supplier<List<RadioStation>>() {
 
             @Override
             public List<RadioStation> get() {
                 boolean popular = boundedQuery.length() == 0;
-                return requestStations("json/stations/search", boundedQuery, popular);
+                int count = Math.max(1, Math.min(100, limit));
+                String response = request("json/stations/search", boundedQuery, popular, count);
+                List<RadioStation> stations = response == null ? new ArrayList<RadioStation>()
+                    : parseStations(response);
+                return new ArrayList<RadioStation>(stations.subList(0, Math.min(count, stations.size())));
             }
         }, executor);
     }
@@ -137,11 +145,16 @@ public class RadioBrowserService {
     }
 
     public static URI buildSearchUri(URI base, String query, boolean popular) {
+        return buildSearchUri(base, query, popular, 50);
+    }
+
+    public static URI buildSearchUri(URI base, String query, boolean popular, int limit) {
         String baseUrl = base.toString();
         if (!baseUrl.endsWith("/")) {
             baseUrl += "/";
         }
-        StringBuilder uri = new StringBuilder(baseUrl).append("json/stations/search?hidebroken=true&limit=50");
+        StringBuilder uri = new StringBuilder(baseUrl).append("json/stations/search?hidebroken=true&limit=")
+            .append(Math.max(1, Math.min(100, limit)));
         if (popular) {
             uri.append("&order=votes&reverse=true");
         } else {
@@ -157,11 +170,15 @@ public class RadioBrowserService {
     }
 
     private String request(String path, String query, boolean popular) {
+        return request(path, query, popular, 50);
+    }
+
+    private String request(String path, String query, boolean popular, int limit) {
         List<URI> mirrors = resolveMirrors();
         for (URI base : mirrors) {
             HttpURLConnection connection = null;
             try {
-                URI uri = "json/stations/search".equals(path) ? buildSearchUri(base, query, popular)
+                URI uri = "json/stations/search".equals(path) ? buildSearchUri(base, query, popular, limit)
                     : URI.create(base.toString() + path);
                 connection = (HttpURLConnection) uri.toURL()
                     .openConnection();

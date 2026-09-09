@@ -14,7 +14,10 @@ final class RadioPcmPacer {
         if (bytes <= 0) {
             return nowNanos;
         }
-        if (!started || nextDeadlineNanos < nowNanos) {
+        // Keep the sample timeline anchored for this connection. Resetting it after
+        // every late chunk turns scheduler/network stalls into permanent live delay.
+        // Past deadlines let decoding catch up; a new connection gets a new pacer.
+        if (!started) {
             nextDeadlineNanos = nowNanos;
             started = true;
         }

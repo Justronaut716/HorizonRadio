@@ -32,7 +32,7 @@ playlist state.
 | `com.horizonradio.core.protocol` | Version and the `horizonradio_1_0` channel contract. |
 | `com.horizonradio.core.integration` | Project-owned integration interface and context. |
 | `com.horizonradio.integration` | Optional capability detection, manager, and adapter implementation. |
-| `com.horizonradio.network` and `.network.packets` | `SimpleNetworkWrapper`, handlers, codecs, and 24 production-registered packet types. Legacy serializers are retained for compatibility tests but are not registered. |
+| `com.horizonradio.network` and `.network.packets` | `SimpleNetworkWrapper`, handlers, codecs, and 26 production-registered packet types. Legacy serializers are retained for compatibility tests but are not registered. |
 | `com.horizonradio.server` | Forge/server-facing queue manager, events, validation, timing, and server-thread services. It does not perform YouTube, Radio Browser, station-stream, or media-relay work in production. |
 | `com.horizonradio.client` and `.client.audio` | Client proxy, GUI, keybinds, direct discovery, local metadata/cache, finite playback, direct radio playback, and Java Sound. |
 
@@ -61,10 +61,10 @@ opens the station stream, and plays its own current live edge.
 
 ## Forge message contract
 
-The channel is `horizonradio_1_0`. The current production contract has 24
-registrations: 16 C2S and 8 S2C. IDs are not compacted; removed production
+The channel is `horizonradio_1_0`. The current production contract has 26
+registrations: 17 C2S and 9 S2C. IDs are not compacted; removed production
 messages leave their previous IDs unused. IDs 36 and 37 extend the contract for
-revisioned queue state.
+revisioned queue state. IDs 38 and 39 add operator settings without changing existing packet layouts.
 
 | ID | Direction | Packet | Fields |
 |---:|:---:|---|---|
@@ -92,6 +92,14 @@ revisioned queue state.
 | 35 | S2C | `TrackSyncPacket` | source-aware playback state (described below) |
 | 36 | S2C | `PlaylistDeltaPacket` | queue revision and one compact add/remove/move/clear/replace operation |
 | 37 | C2S | `PlaylistResyncRequestPacket` | client-known queue revision |
+| 38 | C2S | `ServerSettingsRequestPacket` | update flag, queue limit, duration limit in minutes |
+| 39 | S2C | `ServerSettingsPacket` | recipient OP permission, queue limit, duration limit in minutes, result status |
+
+Server limits are sent on login, when opening settings, and after an operator
+saves a change. The server checks current OP permission on every update,
+validates both limits, saves them before applying them, and sends confirmed
+values to each client. Lower limits preserve existing queue entries and affect
+new additions. Server-mode client duration checks use the synchronized limit.
 
 `PlaylistSyncPacket` and `PlaylistDeltaPacket` are ID-only queue projections:
 they contain source type, source ID, and the queue adder, but no title,
@@ -187,7 +195,7 @@ server-authoritative queue. The `N` key opens the GUI only when both
 | Playlist/control authority | Reimplemented | The server coordinates source IDs, queue order, revisions, generations, finite timing, and controls. |
 | Discovery and metadata | Reimplemented | YouTube and Radio Browser discovery/metadata are client-local; the server has no production lookup path. |
 | Finite audio and live radio | Reimplemented | Clients download finite audio and connect to radio streams directly; no Minecraft audio relay is registered. |
-| Protocol | Reimplemented | 24 active `IMessage` registrations carry compact mutations, ID-only queue state, source-aware sync, and clock data. Legacy serializers are compatibility-only. |
+| Protocol | Reimplemented | 26 active `IMessage` registrations carry compact mutations, ID-only queue state, source-aware sync, and clock data. Legacy serializers are compatibility-only. |
 | JSON config | Preserved | Server/common queue limits remain; client volume and finite audio cache are stored separately. |
 | GUI and N key | Reimplemented | Forge 1.7.10 GUI/input classes preserve the existing panel and interactions. |
 | Items, blocks, recipes, machines, TileEntities, NBT persistence | Omitted | No world content or persistent playlist exists. |

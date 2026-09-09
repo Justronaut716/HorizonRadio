@@ -53,6 +53,19 @@ public final class ClientMediaService implements ClientMetadataCache.MetadataPro
         return remoteProvider.search(query, maxDurationMs);
     }
 
+    public CompletableFuture<List<SearchResult>> search(String query, long maxDurationMs, int limit) {
+        return remoteProvider.search(query, maxDurationMs, limit);
+    }
+
+    public CompletableFuture<List<RadioStation>> searchRadio(String query, int limit) {
+        return remoteProvider.searchRadio(query, limit)
+            .thenApply(ClientMediaService::sanitizeStations);
+    }
+
+    public CompletableFuture<List<com.horizonradio.core.model.PlaylistSearchResult>> searchPlaylists(String query) {
+        return remoteProvider.searchPlaylists(query);
+    }
+
     public CompletableFuture<List<SearchResult>> fetchCharts(ChartRegion region) {
         return remoteProvider.fetchCharts(region);
     }
@@ -153,7 +166,26 @@ public final class ClientMediaService implements ClientMetadataCache.MetadataPro
 
     public interface RemoteProvider {
 
+        default CompletableFuture<List<com.horizonradio.core.model.PlaylistSearchResult>> searchPlaylists(
+            String query) {
+            CompletableFuture<List<com.horizonradio.core.model.PlaylistSearchResult>> result = new CompletableFuture<>();
+            result.completeExceptionally(new UnsupportedOperationException("Playlist search unavailable"));
+            return result;
+        }
+
         CompletableFuture<List<SearchResult>> search(String query, long maxDurationMs);
+
+        default CompletableFuture<List<SearchResult>> search(String query, long maxDurationMs, int limit) {
+            return search(query, maxDurationMs).thenApply(
+                results -> new ArrayList<SearchResult>(
+                    results.subList(0, Math.min(results.size(), Math.max(1, limit)))));
+        }
+
+        default CompletableFuture<List<RadioStation>> searchRadio(String query, int limit) {
+            return searchRadio(query).thenApply(
+                results -> results == null ? new ArrayList<RadioStation>()
+                    : new ArrayList<RadioStation>(results.subList(0, Math.min(results.size(), Math.max(1, limit)))));
+        }
 
         CompletableFuture<List<SearchResult>> fetchCharts(ChartRegion region);
 
@@ -180,8 +212,23 @@ public final class ClientMediaService implements ClientMetadataCache.MetadataPro
         }
 
         @Override
+        public CompletableFuture<List<com.horizonradio.core.model.PlaylistSearchResult>> searchPlaylists(String query) {
+            return youTubeService.searchPlaylists(query);
+        }
+
+        @Override
         public CompletableFuture<List<SearchResult>> search(String query, long maxDurationMs) {
             return youTubeService.search(query, maxDurationMs);
+        }
+
+        @Override
+        public CompletableFuture<List<SearchResult>> search(String query, long maxDurationMs, int limit) {
+            return youTubeService.search(query, maxDurationMs, limit);
+        }
+
+        @Override
+        public CompletableFuture<List<RadioStation>> searchRadio(String query, int limit) {
+            return radioBrowserService.search(query, limit);
         }
 
         @Override

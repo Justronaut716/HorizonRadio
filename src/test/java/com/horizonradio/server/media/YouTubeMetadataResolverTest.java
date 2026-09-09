@@ -164,19 +164,50 @@ public class YouTubeMetadataResolverTest {
     }
 
     @Test
-    public void stopsPlaylistAtConfiguredEntryCapAndRejectsUnsafeUrls() throws Exception {
+    public void followsAndroidEncodedContinuationsBeyondFivePages() throws Exception {
+        FixtureHttp http = new FixtureHttp();
+        for (int page = 0; page < 7; page++) {
+            String[][] entries = new String[10][];
+            for (int i = 0; i < 10; i++)
+                entries[i] = new String[] { String.format("a%010d", page * 10 + i), "Song", "1:00" };
+            JsonObject response = new JsonParser().parse(playlistPage("fixture", entries, null))
+                .getAsJsonObject();
+            if (page < 6) {
+                JsonObject next = new JsonObject();
+                next.addProperty("continuation", "page" + page + "%3D");
+                response.add("nextContinuationData", next);
+            }
+            http.enqueue(response.toString());
+        }
+        JsonObject output = new JsonParser()
+            .parse(
+                new YouTubeMetadataResolver(http)
+                    .resolvePlaylistJsonOrThrow("https://www.youtube.com/playlist?list=PLfixture"))
+            .getAsJsonObject();
+        assertEquals(
+            70,
+            output.getAsJsonArray("entries")
+                .size());
+        assertEquals(7, http.postBodies.size());
+        assertTrue(
+            http.postBodies.get(1)
+                .contains("page0%3D"));
+    }
+
+    @Test
+    public void loadsMoreThanFiftyPlaylistEntriesAndRejectsUnsafeUrls() throws Exception {
         FixtureHttp http = new FixtureHttp();
         String[][] entries = new String[55][];
         for (int index = 0; index < entries.length; index++) {
             entries[index] = new String[] { String.format("a%010d", index), "Song " + index, "1:00" };
         }
-        http.enqueue(playlistPage("PLfixture", entries, "would-not-be-requested"));
+        http.enqueue(playlistPage("PLfixture", entries, null));
 
         String output = new YouTubeMetadataResolver(http)
             .resolvePlaylistJson("https://www.youtube.com/watch?list=PLfixture");
 
         assertEquals(
-            50,
+            55,
             new JsonParser().parse(output)
                 .getAsJsonObject()
                 .getAsJsonArray("entries")
@@ -217,7 +248,7 @@ public class YouTubeMetadataResolverTest {
     }
 
     @Test
-    public void enforcesTheRawRendererCapAcrossPlaylistContinuationPages() throws Exception {
+    public void continuesPastDuplicateRenderersAcrossPlaylistPages() throws Exception {
         FixtureHttp http = new FixtureHttp();
         String[][] firstPage = new String[150][];
         String[][] secondPage = new String[51][];
@@ -236,7 +267,7 @@ public class YouTubeMetadataResolverTest {
             .getAsJsonObject()
             .getAsJsonArray("entries");
 
-        assertEquals(1, output.size());
+        assertEquals(2, output.size());
         assertEquals(
             "dQw4w9WgXcQ",
             output.get(0)
@@ -258,6 +289,42 @@ public class YouTubeMetadataResolverTest {
 
         assertEquals("dQw4w9WgXcQ\t1:05\na234567890_\tNA\nb234567890_\tNA", output);
         assertEquals(3, http.closedInputs());
+    }
+
+    @Test
+    public void importsLargeWatchPlaylistResponseAndModernHeaderTitle() throws Exception {
+        FixtureHttp http = new FixtureHttp();
+        JsonObject response = new JsonParser()
+            .parse(playlistPage("fixture", new String[][] { { "J414kTfsozU", "Fixture song", "3:00" } }, null))
+            .getAsJsonObject();
+        response.remove("metadata");
+        JsonObject header = new JsonObject();
+        JsonObject pageHeader = new JsonObject();
+        pageHeader.addProperty("pageTitle", "Modern playlist title");
+        header.add("pageHeaderRenderer", pageHeader);
+        response.add("header", header);
+        char[] padding = new char[3 * 1024 * 1024];
+        java.util.Arrays.fill(padding, 'x');
+        response.addProperty("responseContext", new String(padding));
+        http.enqueue(response.toString());
+        String output = new YouTubeMetadataResolver(http).resolvePlaylistJsonOrThrow(
+            "https://www.youtube.com/watch?v=J414kTfsozU&list=PLDIoUOhQQPlXzhp-83rECoLaV6BwFtNC4");
+        JsonObject playlist = new JsonParser().parse(output)
+            .getAsJsonObject();
+        assertEquals(
+            "Modern playlist title",
+            playlist.get("title")
+                .getAsString());
+        assertEquals(
+            1,
+            playlist.getAsJsonArray("entries")
+                .size());
+        assertEquals(
+            "VLPLDIoUOhQQPlXzhp-83rECoLaV6BwFtNC4",
+            new JsonParser().parse(http.postBodies.get(0))
+                .getAsJsonObject()
+                .get("browseId")
+                .getAsString());
     }
 
     @Test

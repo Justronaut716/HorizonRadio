@@ -30,6 +30,7 @@ import com.horizonradio.network.packets.PlaylistDeltaPacket;
 import com.horizonradio.network.packets.PlaylistSyncPacket;
 import com.horizonradio.network.packets.ResumePacket;
 import com.horizonradio.network.packets.SelectRadioStationPacket;
+import com.horizonradio.network.packets.ServerSettingsPacket;
 import com.horizonradio.network.packets.ShuffleStatePacket;
 import com.horizonradio.network.packets.TrackSyncPacket;
 import com.horizonradio.server.media.MediaException;
@@ -62,8 +63,9 @@ public final class PlaylistManager {
 
     private final MinecraftServer server;
     private final PlaylistState state;
-    private final int maxPlaylistSize;
-    private final long maxTrackDurationMs;
+    private final File configDirectory;
+    private HorizonRadioConfig config;
+    private long maxTrackDurationMs;
     private final boolean serverDebugChat;
     private final ScheduledExecutorService scheduler;
     private final PacketBroadcaster packetBroadcaster;
@@ -80,14 +82,12 @@ public final class PlaylistManager {
     PlaylistManager(MinecraftServer server, File configDirectory, PacketBroadcaster packetBroadcaster) {
         this.server = server;
         this.packetBroadcaster = packetBroadcaster == null ? NETWORK_BROADCASTER : packetBroadcaster;
-        HorizonRadioConfig config = HorizonRadio.getConfig();
-        if (config == null) {
-            config = HorizonRadioConfig.load(configDirectory);
-        }
-        maxPlaylistSize = config.getMaxPlaylistSize();
+        this.configDirectory = configDirectory;
+        config = configDirectory == null ? HorizonRadio.getConfig() : HorizonRadioConfig.load(configDirectory);
+        if (config == null) config = HorizonRadioConfig.load(null);
         maxTrackDurationMs = config.getMaxTrackDurationMinutes() * 60L * 1000L;
         serverDebugChat = config.isServerDebugChat();
-        state = new PlaylistState(maxPlaylistSize);
+        state = new PlaylistState(config.getMaxPlaylistSize());
         scheduler = Executors.newSingleThreadScheduledExecutor(new ThreadFactory() {
 
             @Override
@@ -97,6 +97,51 @@ public final class PlaylistManager {
                 return thread;
             }
         });
+    }
+
+    public void handleServerSettings(EntityPlayerMP player, boolean update, int queueLimit, int durationMinutes) {
+        if (player == null || shuttingDown) return;
+        if (!update) {
+            sendServerSettings(player, ServerSettingsPacket.SYNC);
+            return;
+        }
+        if (!canEditSettings(player)) {
+            sendServerSettings(player, ServerSettingsPacket.DENIED);
+            return;
+        }
+        if (!HorizonRadioConfig.validLimits(queueLimit, durationMinutes)) {
+            sendServerSettings(player, ServerSettingsPacket.INVALID);
+            return;
+        }
+        HorizonRadioConfig updated = config.withLimits(queueLimit, durationMinutes);
+        try {
+            updated.save(configDirectory);
+        } catch (java.io.IOException e) {
+            LOGGER.warning("Could not save HorizonRadio server settings: " + e.getMessage());
+            sendServerSettings(player, ServerSettingsPacket.SAVE_FAILED);
+            return;
+        }
+        config = updated;
+        state.setMaxPlaylistSize(queueLimit);
+        maxTrackDurationMs = durationMinutes * 60L * 1000L;
+        for (EntityPlayerMP recipient : onlinePlayersSnapshot()) {
+            if (recipient != player) sendServerSettings(recipient, ServerSettingsPacket.SYNC);
+        }
+        sendServerSettings(player, ServerSettingsPacket.SAVED);
+    }
+
+    private static boolean canEditSettings(EntityPlayerMP player) {
+        return player != null && player.canCommandSenderUseCommand(0, "horizonradio");
+    }
+
+    private void sendServerSettings(EntityPlayerMP player, int status) {
+        packetBroadcaster.broadcast(
+            new ServerSettingsPacket(
+                canEditSettings(player),
+                config.getMaxPlaylistSize(),
+                config.getMaxTrackDurationMinutes(),
+                status),
+            java.util.Collections.singletonList(player));
     }
 
     public void handleAddToPlaylist(EntityPlayerMP player, String videoId, long durationMs) {
@@ -226,7 +271,7 @@ public final class PlaylistManager {
                 .isEmpty()) {
             return;
         }
-        removeFiniteById(videoId, true);
+        removeById(videoId, true);
     }
 
     public void handleClearPlaylist(EntityPlayerMP player) {
@@ -393,10 +438,32 @@ public final class PlaylistManager {
         }
     }
 
+    public void onPlayerLoggedOut() {
+        // Logout callbacks run on the server tick after the player list has been updated.
+        pauseWhenServerEmpty(onlinePlayersSnapshot().size());
+    }
+
+    void pauseWhenServerEmpty(int onlinePlayerCount) {
+        if (onlinePlayerCount != 0 || shuttingDown || !state.isPlaying() || state.isPaused()) {
+            return;
+        }
+        cancelAdvancement();
+        if (state.getCurrentSourceType() == MediaSourceType.RADIO) {
+            if (state.pauseRadioPlayback()) {
+                broadcastTrackSync(TrackSyncPacket.stop(nextPlaybackGeneration()));
+            }
+        } else if (state.getCurrentSourceType() == MediaSourceType.YOUTUBE) {
+            long nowMs = System.currentTimeMillis();
+            long positionMs = state.pausePlayback(currentPositionMs(nowMs), nowMs);
+            if (positionMs >= 0L) broadcast(new PausePacket(positionMs));
+        }
+    }
+
     public void syncToPlayer(EntityPlayerMP player) {
         if (player == null) {
             return;
         }
+        if (server != null) sendServerSettings(player, ServerSettingsPacket.SYNC);
         sendTo(
             new PlaylistSyncPacket(
                 state.getQueueRevision(),
@@ -491,8 +558,13 @@ public final class PlaylistManager {
         }
     }
 
-    private void removeFiniteById(String videoId, boolean startReplacement) {
-        int index = state.findIndex(MediaSourceType.YOUTUBE, videoId);
+    private void removeById(String videoId, boolean startReplacement) {
+        MediaSourceType sourceType = MediaSourceType.YOUTUBE;
+        int index = state.findIndex(sourceType, videoId);
+        if (index < 0) {
+            sourceType = MediaSourceType.RADIO;
+            index = state.findIndex(sourceType, videoId);
+        }
         if (index < 0) {
             return;
         }
@@ -500,7 +572,7 @@ public final class PlaylistManager {
         if (removedCurrent) {
             cancelAdvancement();
         }
-        state.remove(videoId);
+        state.remove(sourceType, videoId);
         broadcastDelta(PlaylistDeltaPacket.remove(state.getQueueRevision(), index));
         if (removedCurrent && startReplacement) {
             startNextFinite();
@@ -572,7 +644,8 @@ public final class PlaylistManager {
     private void advanceAfterCompletion(long generation) {
         if (shuttingDown || generation != playbackGeneration
             || state.getCurrentSourceType() != MediaSourceType.YOUTUBE
-            || !state.isPlaying()) {
+            || !state.isPlaying()
+            || state.isPaused()) {
             return;
         }
         advanceFuture = null;

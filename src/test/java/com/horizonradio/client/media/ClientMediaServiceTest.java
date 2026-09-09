@@ -50,7 +50,7 @@ public class ClientMediaServiceTest {
     }
 
     @Test
-    public void importPlaylistKeepsFirstFiftyValidUniqueEntriesInSourceOrder() throws Exception {
+    public void importPlaylistKeepsAllValidUniqueEntriesInSourceOrder() throws Exception {
         FakeProvider provider = new FakeProvider();
         provider.playlistJson = playlistFixtureWithFiftyUniqueResults();
 
@@ -58,9 +58,9 @@ public class ClientMediaServiceTest {
             .importPlaylist("https://www.youtube.com/playlist?list=PL50")
             .get();
 
-        assertEquals(50, imported.size());
+        assertEquals(70, imported.size());
         assertEquals(new SearchResult("fixture-01", "Fixture 1", "", "1:00", ""), imported.get(0));
-        assertEquals(new SearchResult("fixture-52", "Fixture 52", "", "1:51", ""), imported.get(49));
+        assertEquals(new SearchResult("fixture-72", "Fixture 72", "", "2:11", ""), imported.get(69));
     }
 
     @Test
@@ -117,7 +117,7 @@ public class ClientMediaServiceTest {
 
     private static String playlistFixtureWithFiftyUniqueResults() {
         StringBuilder json = new StringBuilder("{\"entries\":[");
-        for (int index = 1; index <= 52; index++) {
+        for (int index = 1; index <= 72; index++) {
             if (index > 1) {
                 json.append(',');
             }

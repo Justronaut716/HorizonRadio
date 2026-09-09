@@ -31,14 +31,11 @@ public final class YouTubeMetadataResolver {
     private static final String CLIENT_USER_AGENT = "com.google.android.youtube/20.10.38 (Linux; U; Android 11) gzip";
     private static final int TIMEOUT_MILLIS = 10000;
     private static final long MAX_PLAYER_BYTES = 512L * 1024L;
-    private static final long MAX_BROWSE_BYTES = 1024L * 1024L;
-    private static final int MAX_PLAYLIST_ENTRIES = 50;
-    private static final int MAX_RAW_PLAYLIST_RENDERERS = 200;
-    private static final int MAX_PLAYLIST_PAGES = 5;
+    private static final long MAX_BROWSE_BYTES = 8L * 1024L * 1024L;
     private static final int MAX_DURATION_IDS = 50;
     private static final long MAX_DURATION_SECONDS = 24L * 60L * 60L;
     private static final int MAX_URL_LENGTH = 2048;
-    private static final int MAX_CONTINUATION_LENGTH = 512;
+    private static final int MAX_CONTINUATION_LENGTH = 8192;
 
     private final YouTubeMediaModels.HttpRequester http;
     private final Gson gson = new Gson();
@@ -90,9 +87,8 @@ public final class YouTubeMetadataResolver {
             Set<String> seenIds = new HashSet<String>();
             String continuation = null;
             String playlistTitle = "";
-            int rawRendererCount = 0;
-            for (int page = 0; page < MAX_PLAYLIST_PAGES && entries.size() < MAX_PLAYLIST_ENTRIES
-                && rawRendererCount < MAX_RAW_PLAYLIST_RENDERERS; page++) {
+            Set<String> seenContinuations = new HashSet<String>();
+            for (int page = 0;; page++) {
                 checkInterrupted();
                 JsonObject response = continuation == null ? browsePlaylist(playlistId)
                     : browseContinuation(continuation);
@@ -103,16 +99,16 @@ public final class YouTubeMetadataResolver {
                         playlistTitle = text(
                             object(object(object(response, "header"), "playlistHeaderRenderer"), "title"));
                     }
+                    if (playlistTitle.isEmpty()) {
+                        playlistTitle = string(object(object(response, "header"), "pageHeaderRenderer"), "pageTitle");
+                    }
                 }
-                PlaylistItems items = collectPlaylistItems(
-                    response,
-                    seenIds,
-                    MAX_PLAYLIST_ENTRIES - entries.size(),
-                    MAX_RAW_PLAYLIST_RENDERERS - rawRendererCount);
-                rawRendererCount += items.rawRendererCount;
+                PlaylistItems items = collectPlaylistItems(response, seenIds);
                 entries.addAll(items.entries);
                 continuation = isSafeContinuation(items.continuation) ? items.continuation : null;
                 if (continuation == null) break;
+                if (!seenContinuations.add(continuation))
+                    throw new MediaException("YouTube repeated a playlist page; please retry");
             }
             JsonObject output = new JsonObject();
             output.addProperty("title", playlistTitle);
@@ -233,18 +229,14 @@ public final class YouTubeMetadataResolver {
         return new String(output.toByteArray(), StandardCharsets.UTF_8);
     }
 
-    private static PlaylistItems collectPlaylistItems(JsonElement response, Set<String> seenIds, int entryLimit,
-        int rawRendererLimit) {
-        PlaylistItems result = new PlaylistItems(entryLimit, rawRendererLimit);
+    private static PlaylistItems collectPlaylistItems(JsonElement response, Set<String> seenIds) {
+        PlaylistItems result = new PlaylistItems();
         collectPlaylistItems(response, result, seenIds, 0);
         return result;
     }
 
     private static void collectPlaylistItems(JsonElement value, PlaylistItems result, Set<String> seenIds, int depth) {
-        if (value == null || value.isJsonNull()
-            || depth > 64
-            || result.entries.size() >= result.entryLimit
-            || result.rawRendererCount >= result.rawRendererLimit) return;
+        if (value == null || value.isJsonNull() || depth > 64) return;
         if (value.isJsonArray()) {
             for (JsonElement element : value.getAsJsonArray())
                 collectPlaylistItems(element, result, seenIds, depth + 1);
@@ -254,11 +246,12 @@ public final class YouTubeMetadataResolver {
         JsonObject object = value.getAsJsonObject();
         JsonObject renderer = object(object, "playlistVideoRenderer");
         if (renderer != null) {
-            result.rawRendererCount++;
             VideoMetadata entry = playlistEntry(renderer);
             if (entry != null && seenIds.add(entry.id)) result.entries.add(entry);
             return;
         }
+        JsonObject next = object(object, "nextContinuationData");
+        if (next != null && result.continuation == null) result.continuation = string(next, "continuation");
         JsonObject continuationItem = object(object, "continuationItemRenderer");
         if (continuationItem != null && result.continuation == null) {
             JsonObject endpoint = object(continuationItem, "continuationEndpoint");
@@ -351,7 +344,7 @@ public final class YouTubeMetadataResolver {
     private static boolean isSafeContinuation(String continuation) {
         return continuation != null && continuation.length() > 0
             && continuation.length() <= MAX_CONTINUATION_LENGTH
-            && continuation.matches("[A-Za-z0-9._~=-]+");
+            && continuation.matches("(?:[A-Za-z0-9._~=+-]|%[0-9A-Fa-f]{2})+");
     }
 
     private static JsonObject object(JsonObject object, String name) {
@@ -424,16 +417,8 @@ public final class YouTubeMetadataResolver {
     private static final class PlaylistItems {
 
         private final List<VideoMetadata> entries = new ArrayList<VideoMetadata>();
-        private final int entryLimit;
-        private int rawRendererCount;
         private String continuation;
 
-        private final int rawRendererLimit;
-
-        private PlaylistItems(int entryLimit, int rawRendererLimit) {
-            this.entryLimit = entryLimit;
-            this.rawRendererLimit = rawRendererLimit;
-        }
     }
 
     private static final class VideoMetadata {

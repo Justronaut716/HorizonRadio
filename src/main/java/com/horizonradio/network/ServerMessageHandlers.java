@@ -17,6 +17,7 @@ import com.horizonradio.network.packets.RemoveFromPlaylistPacket;
 import com.horizonradio.network.packets.ReorderPlaylistPacket;
 import com.horizonradio.network.packets.SeekRequestPacket;
 import com.horizonradio.network.packets.SelectRadioStationPacket;
+import com.horizonradio.network.packets.ServerSettingsRequestPacket;
 import com.horizonradio.network.packets.SkipTrackPacket;
 import com.horizonradio.network.packets.StopRadioPacket;
 import com.horizonradio.network.packets.ToggleLoopPacket;
@@ -55,6 +56,8 @@ public final class ServerMessageHandlers {
     }
 
     public interface ServerPacketHook {
+
+        default void handleServerSettings(EntityPlayerMP player, boolean update, int queueLimit, int durationMinutes) {}
 
         void handleAdd(EntityPlayerMP player, String videoId, long durationMs);
 
@@ -134,6 +137,21 @@ public final class ServerMessageHandlers {
 
         @Override
         public void handlePlaylistResyncRequest(EntityPlayerMP player, long knownRevision) {}
+    }
+
+    public static final class ServerSettingsHandler implements IMessageHandler<ServerSettingsRequestPacket, IMessage> {
+
+        @Override
+        public IMessage onMessage(final ServerSettingsRequestPacket message, MessageContext context) {
+            final EntityPlayerMP player = player(context);
+            if (player != null && message != null) schedule(
+                () -> hook.handleServerSettings(
+                    player,
+                    message.isUpdate(),
+                    message.getQueueLimit(),
+                    message.getDurationMinutes()));
+            return null;
+        }
     }
 
     public static final class ClockSyncRequestHandler implements IMessageHandler<ClockSyncRequestPacket, IMessage> {

@@ -170,6 +170,20 @@ public class YouTubeServiceTest {
     }
 
     @Test
+    public void customSearchCountFollowsPagesAndStopsAtRequestedCount() throws Exception {
+        RecordingRequester requester = new RecordingRequester(
+            page(manyResults("first-", 10), "page-2"),
+            page(manyResults("second-", 10), "page-3"));
+        List<SearchResult> results = new YouTubeService(requester, directExecutor()).search("funk", 900000L, 15)
+            .get();
+        assertEquals(15, results.size());
+        assertEquals(
+            2,
+            requester.continuations()
+                .size());
+    }
+
+    @Test
     public void durationAwareSearchStopsAfterTenPlayableResults() throws Exception {
         RecordingRequester requester = new RecordingRequester(
             page(manyResults("song-", 10), "page-2"),
