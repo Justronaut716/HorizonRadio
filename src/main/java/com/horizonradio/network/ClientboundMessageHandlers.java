@@ -7,6 +7,7 @@ import com.horizonradio.network.packets.PausePacket;
 import com.horizonradio.network.packets.PlaylistDeltaPacket;
 import com.horizonradio.network.packets.PlaylistSyncPacket;
 import com.horizonradio.network.packets.ResumePacket;
+import com.horizonradio.network.packets.ServerSettingsPacket;
 import com.horizonradio.network.packets.ShuffleStatePacket;
 import com.horizonradio.network.packets.TrackSyncPacket;
 
@@ -17,6 +18,15 @@ import cpw.mods.fml.common.network.simpleimpl.MessageContext;
 public final class ClientboundMessageHandlers {
 
     private ClientboundMessageHandlers() {}
+
+    public static final class ServerSettingsHandler implements IMessageHandler<ServerSettingsPacket, IMessage> {
+
+        @Override
+        public IMessage onMessage(ServerSettingsPacket message, MessageContext context) {
+            HorizonRadio.proxy.handleServerSettings(message);
+            return null;
+        }
+    }
 
     public static final class PlaylistSyncHandler implements IMessageHandler<PlaylistSyncPacket, IMessage> {
 

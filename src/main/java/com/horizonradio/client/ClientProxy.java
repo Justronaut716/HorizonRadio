@@ -22,6 +22,7 @@ import com.horizonradio.network.packets.PausePacket;
 import com.horizonradio.network.packets.PlaylistDeltaPacket;
 import com.horizonradio.network.packets.PlaylistSyncPacket;
 import com.horizonradio.network.packets.ResumePacket;
+import com.horizonradio.network.packets.ServerSettingsPacket;
 import com.horizonradio.network.packets.TrackSyncPacket;
 import com.horizonradio.server.AudioDownloadService;
 import com.horizonradio.server.RadioBrowserService;
@@ -276,6 +277,11 @@ public class ClientProxy extends CommonProxy {
         });
     }
 
+    @Override
+    public void handleServerSettings(final ServerSettingsPacket packet) {
+        schedule(() -> HorizonRadioClient.handleServerSettings(packet));
+    }
+
     private void schedule(Runnable task) {
         clientTaskScheduler.schedule(task);
     }
@@ -337,7 +343,13 @@ public class ClientProxy extends CommonProxy {
             if (event.phase == TickEvent.Phase.END) {
                 HorizonRadioKeybinds.onClientTick();
                 HorizonRadioClient.onClientTick();
+                NotificationOverlay.tick();
             }
+        }
+
+        @SubscribeEvent
+        public void onRenderTick(TickEvent.RenderTickEvent event) {
+            if (event.phase == TickEvent.Phase.END) NotificationOverlay.render();
         }
 
         @SubscribeEvent
@@ -357,6 +369,7 @@ public class ClientProxy extends CommonProxy {
 
                 @Override
                 public void run() {
+                    HorizonRadioClient.resetServerSettings();
                     HorizonRadioClient.clearCache();
                 }
             });

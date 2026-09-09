@@ -70,6 +70,19 @@ public class RadioBrowserServiceTest {
     }
 
     @Test
+    public void customResultCountIsSentToRadioBrowserAndBounded() {
+        URI base = URI.create("https://de1.api.radio-browser.info/");
+        assertTrue(
+            RadioBrowserService.buildSearchUri(base, "rock", false, 25)
+                .getQuery()
+                .contains("limit=25"));
+        assertTrue(
+            RadioBrowserService.buildSearchUri(base, "", true, 500)
+                .getQuery()
+                .contains("limit=100"));
+    }
+
+    @Test
     public void buildSearchUriRequestsPopularStationsWhenQueryIsEmpty() {
         URI uri = RadioBrowserService.buildSearchUri(URI.create("https://de1.api.radio-browser.info"), "", true);
 

@@ -22,14 +22,16 @@ public class HorizonRadioProtocolTest {
     }
 
     @Test
-    public void productionProtocolRegistersTwentyFourMessagesIncludingRevisionedQueuePackets() throws IOException {
+    public void productionProtocolIncludesRevisionedQueueAndOperatorSettingsPackets() throws IOException {
         String source = new String(
             Files.readAllBytes(Paths.get("src/main/java/com/horizonradio/network/HorizonRadioNetwork.java")),
             Charset.forName("UTF-8"));
 
-        assertEquals(24, countOccurrences(source, "registerMessage("));
+        assertEquals(26, countOccurrences(source, "registerMessage("));
         assertTrue(source.contains("PlaylistDeltaPacket.class,\n            36,\n            Side.CLIENT"));
         assertTrue(source.contains("PlaylistResyncRequestPacket.class,\n            37,\n            Side.SERVER"));
+        assertTrue(source.contains("ServerSettingsRequestPacket.class,\n            38,\n            Side.SERVER"));
+        assertTrue(source.contains("ServerSettingsPacket.class,\n            39,\n            Side.CLIENT"));
         assertFalse(source.contains("AudioChunkPacket.class"));
         assertFalse(source.contains("ChartAddCompletionPacket.class"));
         assertFalse(source.contains("NowPlayingPacket.class"));

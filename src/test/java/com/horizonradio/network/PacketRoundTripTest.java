@@ -49,6 +49,8 @@ import com.horizonradio.network.packets.SearchRequestPacket;
 import com.horizonradio.network.packets.SearchResultsPacket;
 import com.horizonradio.network.packets.SeekRequestPacket;
 import com.horizonradio.network.packets.SelectRadioStationPacket;
+import com.horizonradio.network.packets.ServerSettingsPacket;
+import com.horizonradio.network.packets.ServerSettingsRequestPacket;
 import com.horizonradio.network.packets.ShuffleStatePacket;
 import com.horizonradio.network.packets.SkipTrackPacket;
 import com.horizonradio.network.packets.StopRadioPacket;
@@ -62,6 +64,28 @@ import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 
 public class PacketRoundTripTest {
+
+    @Test
+    public void roundTripsServerLimitsAndOperatorPermission() {
+        ServerSettingsRequestPacket request = roundTrip(
+            new ServerSettingsRequestPacket(true, 1024, 30),
+            new ServerSettingsRequestPacket());
+        assertTrue(request.isUpdate());
+        assertEquals(1024, request.getQueueLimit());
+        assertEquals(30, request.getDurationMinutes());
+        assertFalse(
+            roundTrip(new ServerSettingsRequestPacket(false, 0, 0), new ServerSettingsRequestPacket()).isUpdate());
+        ServerSettingsPacket response = roundTrip(
+            new ServerSettingsPacket(true, 100, 20, ServerSettingsPacket.SAVED),
+            new ServerSettingsPacket());
+        assertTrue(response.canEdit());
+        assertEquals(100, response.getQueueLimit());
+        assertEquals(20, response.getDurationMinutes());
+        assertEquals(ServerSettingsPacket.SAVED, response.getStatus());
+        assertFalse(
+            roundTrip(new ServerSettingsPacket(false, 50, 15, ServerSettingsPacket.DENIED), new ServerSettingsPacket())
+                .canEdit());
+    }
 
     @Test
     public void roundTripsProductionRadioSelectionPackets() {
@@ -504,7 +528,13 @@ public class PacketRoundTripTest {
         assertFalse(source.contains("RadioStatePacket.class"));
         assertFalse(source.contains("RadioAudioStartPacket.class"));
         assertFalse(source.contains("RadioAudioChunkPacket.class"));
-        assertEquals(24, countOccurrences(source, "registerMessage("));
+        assertTrue(
+            source.contains(
+                "registerMessage(ServerMessageHandlers.ServerSettingsHandler.class, ServerSettingsRequestPacket.class, 38, Side.SERVER)"));
+        assertTrue(
+            source.contains(
+                "registerMessage(ClientboundMessageHandlers.ServerSettingsHandler.class, ServerSettingsPacket.class, 39, Side.CLIENT)"));
+        assertEquals(26, countOccurrences(source, "registerMessage("));
         assertEquals(1, countOccurrences(source, "registerMessages()"));
     }
 

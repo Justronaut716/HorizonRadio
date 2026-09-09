@@ -14,6 +14,7 @@ import com.horizonradio.network.packets.PausePacket;
 import com.horizonradio.network.packets.PlaylistDeltaPacket;
 import com.horizonradio.network.packets.PlaylistSyncPacket;
 import com.horizonradio.network.packets.ResumePacket;
+import com.horizonradio.network.packets.ServerSettingsPacket;
 import com.horizonradio.network.packets.TrackSyncPacket;
 import com.horizonradio.server.PlaylistManager;
 
@@ -48,6 +49,12 @@ public class CommonProxy {
         playlistManager = new PlaylistManager(server, configDirectory);
         final PlaylistManager manager = playlistManager;
         ServerMessageHandlers.setHook(new ServerMessageHandlers.ServerPacketHook() {
+
+            @Override
+            public void handleServerSettings(EntityPlayerMP player, boolean update, int queueLimit,
+                int durationMinutes) {
+                manager.handleServerSettings(player, update, queueLimit, durationMinutes);
+            }
 
             @Override
             public void handleAdd(EntityPlayerMP player, String videoId, long durationMs) {
@@ -142,7 +149,13 @@ public class CommonProxy {
         }
     }
 
-    public void onPlayerLoggedOut(EntityPlayerMP player) {}
+    public void onPlayerLoggedOut(EntityPlayerMP player) {
+        if (playlistManager != null) {
+            playlistManager.onPlayerLoggedOut();
+        }
+    }
+
+    public void handleServerSettings(ServerSettingsPacket packet) {}
 
     public void handlePlaylistSync(PlaylistSyncPacket packet) {}
 

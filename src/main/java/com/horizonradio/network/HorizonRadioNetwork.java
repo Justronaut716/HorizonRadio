@@ -18,6 +18,8 @@ import com.horizonradio.network.packets.ReorderPlaylistPacket;
 import com.horizonradio.network.packets.ResumePacket;
 import com.horizonradio.network.packets.SeekRequestPacket;
 import com.horizonradio.network.packets.SelectRadioStationPacket;
+import com.horizonradio.network.packets.ServerSettingsPacket;
+import com.horizonradio.network.packets.ServerSettingsRequestPacket;
 import com.horizonradio.network.packets.ShuffleStatePacket;
 import com.horizonradio.network.packets.SkipTrackPacket;
 import com.horizonradio.network.packets.StopRadioPacket;
@@ -129,6 +131,16 @@ public final class HorizonRadioNetwork {
             ClientboundMessageHandlers.ClockSyncResponseHandler.class,
             ClockSyncResponsePacket.class,
             34,
+            Side.CLIENT);
+        CHANNEL.registerMessage(
+            ServerMessageHandlers.ServerSettingsHandler.class,
+            ServerSettingsRequestPacket.class,
+            38,
+            Side.SERVER);
+        CHANNEL.registerMessage(
+            ClientboundMessageHandlers.ServerSettingsHandler.class,
+            ServerSettingsPacket.class,
+            39,
             Side.CLIENT);
         registered = true;
     }

@@ -433,6 +433,39 @@ public class PlaylistManagerTest {
     }
 
     @Test
+    public void removingCurrentRadioRemovesItAndStartsTheNextSong() throws Exception {
+        PlaylistManager manager = manager();
+        try {
+            EntityPlayerMP player = testPlayer();
+            manager.handleSelectRadio(player, "station-id");
+            manager.handleAddToPlaylist(player, VIDEO_ID, 60000L);
+            manager.handleRemoveFromPlaylist(player, "station-id");
+            assertEquals(-1, state(manager).findIndex(MediaSourceType.RADIO, "station-id"));
+            assertEquals(1, state(manager).size());
+            assertEquals(MediaSourceType.YOUTUBE, state(manager).getCurrentSourceType());
+            assertTrue(state(manager).isPlaying());
+        } finally {
+            manager.shutdown();
+        }
+    }
+
+    @Test
+    public void removingFinalRadioBroadcastsStopAndEmptiesQueue() throws Exception {
+        RecordingPacketBroadcaster broadcaster = new RecordingPacketBroadcaster();
+        PlaylistManager manager = manager(broadcaster);
+        try {
+            EntityPlayerMP player = testPlayer();
+            manager.handleSelectRadio(player, "station-id");
+            long generation = playbackGeneration(manager);
+            manager.handleRemoveFromPlaylist(player, "station-id");
+            assertEquals(0, state(manager).size());
+            assertStoppedAtNewGeneration(manager, broadcaster, generation + 1L);
+        } finally {
+            manager.shutdown();
+        }
+    }
+
+    @Test
     public void removingTheFinalFiniteTrackBroadcastsAStopTransition() throws Exception {
         RecordingPacketBroadcaster broadcaster = new RecordingPacketBroadcaster();
         PlaylistManager manager = manager(broadcaster);
@@ -506,6 +539,62 @@ public class PlaylistManagerTest {
                     .getSourceId());
             assertEquals(-1, state(manager).findIndex(MediaSourceType.YOUTUBE, VIDEO_ID));
             assertTrue(scheduledAdvance.isCancelled());
+        } finally {
+            manager.shutdown();
+        }
+    }
+
+    @Test
+    public void emptyServerPausesSongsAndCancelsAutomaticAdvancement() throws Exception {
+        PlaylistManager manager = manager();
+        try {
+            EntityPlayerMP player = testPlayer();
+            manager.handleAddToPlaylist(player, VIDEO_ID, 60000L);
+            manager.handleAddToPlaylist(player, SECOND_VIDEO_ID, 60000L);
+            ScheduledFuture<?> advance = advanceFuture(manager);
+            manager.pauseWhenServerEmpty(1);
+            assertFalse(state(manager).isPaused());
+            assertFalse(advance.isCancelled());
+            manager.onPlayerLoggedOut();
+            assertTrue(state(manager).isPaused());
+            assertTrue(advance.isCancelled());
+            assertNull(advanceFuture(manager));
+            assertEquals(2, state(manager).size());
+            java.lang.reflect.Method completion = PlaylistManager.class
+                .getDeclaredMethod("advanceAfterCompletion", long.class);
+            completion.setAccessible(true);
+            completion.invoke(manager, playbackGeneration(manager));
+            assertEquals(2, state(manager).size());
+            long position = state(manager).getPausedPositionMs();
+            manager.onPlayerLoggedOut();
+            manager.syncToPlayer(player);
+            assertTrue(state(manager).isPaused());
+            assertEquals(position, state(manager).getPausedPositionMs());
+            manager.handleTogglePlayback(player);
+            assertFalse(state(manager).isPaused());
+        } finally {
+            manager.shutdown();
+        }
+    }
+
+    @Test
+    public void emptyServerStopsRadioButKeepsItQueuedForResuming() throws Exception {
+        PlaylistManager manager = manager();
+        try {
+            EntityPlayerMP player = testPlayer();
+            manager.handleSelectRadio(player, "station-id");
+            manager.handleAddToPlaylist(player, VIDEO_ID, 60000L);
+            manager.pauseWhenServerEmpty(1);
+            assertTrue(state(manager).isPlaying());
+            manager.onPlayerLoggedOut();
+            assertFalse(state(manager).isPlaying());
+            assertEquals(2, state(manager).size());
+            assertEquals("station-id", current(manager).getSourceId());
+            manager.syncToPlayer(player);
+            assertFalse(state(manager).isPlaying());
+            manager.handleSelectRadio(player, "station-id");
+            assertTrue(state(manager).isPlaying());
+            assertEquals(2, state(manager).size());
         } finally {
             manager.shutdown();
         }

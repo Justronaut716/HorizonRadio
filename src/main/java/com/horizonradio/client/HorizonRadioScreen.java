@@ -17,6 +17,7 @@ import net.minecraft.util.ResourceLocation;
 import org.lwjgl.input.Keyboard;
 import org.lwjgl.input.Mouse;
 import org.lwjgl.opengl.GL11;
+import org.lwjgl.opengl.GL13;
 
 import com.horizonradio.core.model.DurationParser;
 import com.horizonradio.core.model.MediaSourceType;
@@ -67,8 +68,8 @@ public class HorizonRadioScreen extends GuiScreen {
     private static final int BODY_BOTTOM_OFFSET = 245;
     private static final int FOOTER_TOP_OFFSET = 251;
     private static final int VOLUME_TOP_OFFSET = 328;
-    private static final int SONGS_TAB_X = 282;
-    private static final int RADIO_TAB_X = 318;
+    private static final int SONGS_TAB_X = 262;
+    private static final int RADIO_TAB_X = 298;
     private static final int MODE_SEARCH_X = 13;
     private static final int MODE_CHARTS_X = 49;
     private static final int MODE_PLAYLISTS_X = 85;
@@ -120,6 +121,9 @@ public class HorizonRadioScreen extends GuiScreen {
     private static final ResourceLocation ICON_NEXT = new ResourceLocation("horizonradio", "textures/gui/Next.png");
     private static final ResourceLocation ICON_LOOP = new ResourceLocation("horizonradio", "textures/gui/Repeat.png");
     private static final ResourceLocation ICON_PAUSE = new ResourceLocation("horizonradio", "textures/gui/Pause.png");
+    private static final ResourceLocation ICON_SETTINGS = new ResourceLocation(
+        "horizonradio",
+        "textures/gui/Settings.png");
     private static final ResourceLocation ICON_SEARCH = new ResourceLocation("horizonradio", "textures/gui/Search.png");
     private static final ResourceLocation ICON_FAVORITE = new ResourceLocation(
         "horizonradio",
@@ -143,7 +147,6 @@ public class HorizonRadioScreen extends GuiScreen {
     private static final int RESULT_SCROLLBAR_WIDTH = 3;
     private static final int RESULT_SCROLLBAR_LEFT_OFFSET = 0;
     private static final int RESULT_SCROLLBAR_MIN_THUMB_HEIGHT = 10;
-    private static final int QUEUE_DISPLAY_LIMIT = 50;
     private static final long SEARCH_PROGRESS_ESTIMATE_MILLIS = 1500L;
     private static final long CHART_PROGRESS_ESTIMATE_MILLIS = 1000L;
     private static final long RADIO_PROGRESS_ESTIMATE_MILLIS = 400L;
@@ -171,6 +174,7 @@ public class HorizonRadioScreen extends GuiScreen {
     private String searchError = "";
     private List<SearchResult> playlistResults = new ArrayList<SearchResult>();
     private boolean playlistSearchStarted;
+    private boolean playlistSearchMode;
     private boolean playlistLoading;
     private String playlistError = "";
     private String playlistTitle = "";
@@ -255,6 +259,7 @@ public class HorizonRadioScreen extends GuiScreen {
         chartSearchStarted = !chartResults.isEmpty();
         chartRegionCode = normalizeChartRegionCode(HorizonRadioClient.getCachedChartRegionCode());
         playlistResults = HorizonRadioClient.getCachedPlaylistResults();
+        playlistSearchMode = false;
         playlistTitle = HorizonRadioClient.getCachedPlaylistTitle();
         playlistSearchStarted = !playlistResults.isEmpty();
         playlist = HorizonRadioClient.getCachedPlaylist();
@@ -332,7 +337,14 @@ public class HorizonRadioScreen extends GuiScreen {
             "+");
         bulkAddButton.setGreenActive(true);
         addButton(bulkAddButton);
-        settingsButton = null;
+        settingsButton = new ControlButton(
+            BUTTON_SETTINGS,
+            panelLeft + 335,
+            panelTop + TAB_BUTTON_Y,
+            17,
+            17,
+            ICON_SETTINGS);
+        addButton(settingsButton);
         queueClearButton = new ControlButton(
             BUTTON_QUEUE_CLEAR,
             panelLeft + QUEUE_LEFT_INSET + QUEUE_WIDTH - QUEUE_BUTTON_WIDTH - 6,
@@ -683,14 +695,15 @@ public class HorizonRadioScreen extends GuiScreen {
             int labelLeft = contentLeft(left) + 5;
             drawUiString(
                 truncateUi(
-                    playlistTitle.isEmpty() ? "YouTube Playlist" : playlistTitle,
+                    playlistSearchMode ? "Playlists" : playlistTitle.isEmpty() ? "YouTube Playlist" : playlistTitle,
                     queueButtonLeft(left) - labelLeft - 5),
                 labelLeft,
                 top + CONTENT_LABEL_Y_OFFSET + CHART_CONTENT_Y_OFFSET,
                 0xFFF0F0F0);
         }
-        String emptyMessage = resultsLoading ? "Loading playlist..."
-            : (playlistError.length() > 0 ? playlistError : (playlistSearchStarted ? "No songs found" : ""));
+        String emptyMessage = resultsLoading ? (playlistSearchMode ? "Searching playlists..." : "Loading playlist...")
+            : (playlistError.length() > 0 ? playlistError
+                : (playlistSearchStarted ? (playlistSearchMode ? "No playlists found" : "No songs found") : ""));
         drawResultList(
             resultsLoading ? Collections.<SearchResult>emptyList() : results,
             playlistScrollOffset,
@@ -712,7 +725,11 @@ public class HorizonRadioScreen extends GuiScreen {
         int rowTop = top + QUEUE_LIST_TOP_OFFSET;
         int queueCount = playlist.size() + (hasStandaloneRadioRow() ? 1 : 0);
         drawUiString("QUEUE", queueLeft + 7, headerTop + 3, 0xFFF2F2F2);
-        drawUiString("(" + queueCount + "/" + QUEUE_DISPLAY_LIMIT + ")", queueLeft + 45, headerTop + 3, 0xFF8F9A91);
+        drawUiString(
+            "(" + queueCount + "/" + HorizonRadioClient.queueLimit() + ")",
+            queueLeft + 45,
+            headerTop + 3,
+            0xFF8F9A91);
         drawRect(
             queueLeft + 5,
             headerTop + TAB_BUTTON_HEIGHT + 2,
@@ -1016,6 +1033,15 @@ public class HorizonRadioScreen extends GuiScreen {
                 contentRight,
                 y + ROW_HEIGHT - 1,
                 active ? 0xFF315B38 : (hovered ? 0xFF343434 : 0xFF292929));
+            if (currentTab == PLAYLIST_DISCOVERY_TAB && playlistSearchMode) {
+                int textLeft = contentLeft + 10;
+                drawUiString(truncateUi(result.title, contentRight - textLeft - 22), textLeft, y + 3, 0xFFF2F2F2);
+                String detail = result.channel + (result.channel.isEmpty() || result.duration.isEmpty() ? "" : " - ")
+                    + result.duration;
+                drawUiString(truncateUi(detail, contentRight - textLeft - 22), textLeft, y + 13, 0xFFAAAAAA);
+                drawUiString(">", contentRight - 12, y + 7, 0xFFCCCCCC);
+                continue;
+            }
             int queueButtonLeft = queueButtonLeft(left);
             int durationLeft = queueButtonLeft - 5 - uiTextWidth(fontRendererObj.getStringWidth(result.duration));
             int textRight = durationLeft - 5;
@@ -1057,7 +1083,7 @@ public class HorizonRadioScreen extends GuiScreen {
     private void drawPlaylistTab(int left, int top, int mouseX, int mouseY) {
         int listTop = playlistListTop(top);
         drawUiString(
-            "Queue (" + playlist.size() + " von " + QUEUE_DISPLAY_LIMIT + ")",
+            "Queue (" + playlist.size() + " von " + HorizonRadioClient.queueLimit() + ")",
             left + 10,
             top + PLAYLIST_TITLE_Y_OFFSET,
             0xFFE0E0E0);
@@ -1360,7 +1386,9 @@ public class HorizonRadioScreen extends GuiScreen {
     }
 
     void updateAutoSearch(long now) {
-        GuiTextField field = currentTab == PLAYLIST_DISCOVERY_TAB ? playlistUrlField : searchField;
+        GuiTextField field = currentTab == PLAYLIST_DISCOVERY_TAB && playlistUrlField != null
+            && playlistUrlField.isFocused()
+            && !searchField.isFocused() ? playlistUrlField : searchField;
         if (field == null) {
             return;
         }
@@ -1372,6 +1400,11 @@ public class HorizonRadioScreen extends GuiScreen {
         }
         if (!text.equals(observedSearchText)) {
             observedSearchText = text;
+            if (currentTab == PLAYLIST_DISCOVERY_TAB) {
+                HorizonRadioClient.cancelPendingPlaylistDiscovery();
+                playlistLoading = false;
+                playlistResultsRevealPending = false;
+            }
             if (currentTab == SEARCH_TAB) {
                 HorizonRadioClient.cancelPendingSongSearch();
                 searchResults.clear();
@@ -1384,7 +1417,9 @@ public class HorizonRadioScreen extends GuiScreen {
                 .isEmpty()) {
                 autoSearchAt = -1L;
             } else {
-                autoSearchAt = now + 500L;
+                autoSearchAt = HorizonRadioClient.uiSettings().autoSearch
+                    ? now + HorizonRadioClient.uiSettings().searchDelay
+                    : -1L;
             }
         }
         if (autoSearchAt >= 0L && now >= autoSearchAt) {
@@ -1393,9 +1428,8 @@ public class HorizonRadioScreen extends GuiScreen {
             }
             autoSearchAt = -1L;
             if (currentTab == PLAYLIST_DISCOVERY_TAB) {
-                if (looksLikePlaylistUrl(text.trim())) {
-                    performPlaylistImport();
-                }
+                if (field == playlistUrlField && looksLikePlaylistUrl(text.trim())) performPlaylistImport();
+                else performSearch();
             } else {
                 performSearch();
             }
@@ -1495,7 +1529,8 @@ public class HorizonRadioScreen extends GuiScreen {
             && !(currentTab == PLAYLIST_DISCOVERY_TAB && isPlaylistResultsLoading())) {
             boolean charts = currentTab == CHARTS_TAB;
             boolean playlistDiscovery = currentTab == PLAYLIST_DISCOVERY_TAB;
-            if ((charts || playlistDiscovery) && isChartsBulkButtonAt(panelLeft(), panelTop(), mouseX, mouseY)) {
+            if ((charts || (playlistDiscovery && !playlistSearchMode))
+                && isChartsBulkButtonAt(panelLeft(), panelTop(), mouseX, mouseY)) {
                 performBulkAdd();
                 return;
             }
@@ -1523,6 +1558,15 @@ public class HorizonRadioScreen extends GuiScreen {
             int row = rowAt(mouseX, mouseY, listTop);
             if (row >= 0 && row < results.size() - scrollOffset) {
                 SearchResult result = results.get(scrollOffset + row);
+                if (playlistDiscovery && playlistSearchMode) {
+                    String url = "https://www.youtube.com/playlist?list=" + result.videoId;
+                    searchField.setText(url);
+                    playlistUrlField.setText(url);
+                    observedSearchText = url;
+                    autoSearchAt = -1L;
+                    HorizonRadioClient.sendPlaylistImport(url);
+                    return;
+                }
                 int rowTop = listTop + row * ROW_HEIGHT;
                 int glyphLeft = contentLeft(panelLeft()) + RESULT_GLYPH_LEFT_INSET;
                 if (mouseX >= glyphLeft && mouseX < glyphLeft + RESULT_GLYPH_AREA_WIDTH) {
@@ -1607,10 +1651,18 @@ public class HorizonRadioScreen extends GuiScreen {
             seekProgress = seekProgressAt(mouseX);
             return;
         }
-        if (usesSharedSearchField() && searchField != null) {
-            searchField.mouseClicked(mouseX, mouseY, button);
-        } else if (currentTab == PLAYLIST_DISCOVERY_TAB && playlistUrlField != null) {
-            playlistUrlField.mouseClicked(mouseX, mouseY, button);
+        GuiTextField field = usesSharedSearchField() ? searchField
+            : currentTab == PLAYLIST_DISCOVERY_TAB ? playlistUrlField : null;
+        if (field != null) {
+            if (button == 0
+                && isMouseOver(field.xPosition, field.yPosition, field.width, field.height, mouseX, mouseY)) {
+                field.setText("");
+                if (currentTab == PLAYLIST_DISCOVERY_TAB && playlistUrlField != null) playlistUrlField.setText("");
+                field.setFocused(true);
+                updateAutoSearch(System.currentTimeMillis());
+                return;
+            }
+            field.mouseClicked(mouseX, mouseY, button);
         }
         super.mouseClicked(mouseX, mouseY, button);
     }
@@ -1642,7 +1694,7 @@ public class HorizonRadioScreen extends GuiScreen {
         int rowTop = listTop + row * ROW_HEIGHT;
         if (isMouseOver(removeLeft, queueButtonTop(rowTop), QUEUE_BUTTON_WIDTH, QUEUE_BUTTON_HEIGHT, mouseX, mouseY)) {
             if (isActiveRadioQueueRow(row)) {
-                HorizonRadioClient.sendStopRadio();
+                HorizonRadioClient.sendRemove(radioState.getStationUuid());
             } else {
                 int playlistIndex = queueIndexAtRow(row);
                 if (playlistIndex >= 0 && playlistIndex < playlist.size()) {
@@ -1829,6 +1881,8 @@ public class HorizonRadioScreen extends GuiScreen {
                     playlistUrlField.setText(query);
                     performPlaylistImport();
                 }
+            } else if (!query.isEmpty()) {
+                HorizonRadioClient.sendPlaylistSearch(query);
             } else {
                 playlistScrollOffset = 0;
             }
@@ -2097,7 +2151,23 @@ public class HorizonRadioScreen extends GuiScreen {
         updateChartRefreshButtonState();
     }
 
+    public void beginPlaylistSearch() {
+        beginPlaylistLoading();
+        playlistSearchMode = true;
+    }
+
+    public void updatePlaylistSearchResults(List<com.horizonradio.core.model.PlaylistSearchResult> results) {
+        List<SearchResult> rows = new ArrayList<SearchResult>();
+        if (results != null) for (com.horizonradio.core.model.PlaylistSearchResult result : results) {
+            rows.add(new SearchResult(result.id, result.title, result.author, result.videoCount, ""));
+        }
+        updatePlaylistResults(rows, "Playlists");
+        playlistSearchMode = true;
+        updateChartControlVisibility();
+    }
+
     public void beginPlaylistLoading() {
+        playlistSearchMode = false;
         playlistSearchStarted = true;
         playlistResultsRevealPending = false;
         playlistResults.clear();
@@ -2114,6 +2184,7 @@ public class HorizonRadioScreen extends GuiScreen {
     }
 
     public void updatePlaylistResults(List<SearchResult> results, String title) {
+        playlistSearchMode = false;
         playlistTitle = title == null ? "" : title;
         boolean requestWasLoading = playlistLoading;
         playlistResults = results == null ? new ArrayList<SearchResult>() : new ArrayList<SearchResult>(results);
@@ -2261,12 +2332,15 @@ public class HorizonRadioScreen extends GuiScreen {
                 }
             }
             observedSearchTab = currentTab;
-            GuiTextField field = currentTab == PLAYLIST_DISCOVERY_TAB ? playlistUrlField : searchField;
+            GuiTextField field = currentTab == PLAYLIST_DISCOVERY_TAB && playlistUrlField != null
+                && playlistUrlField.isFocused()
+                && !searchField.isFocused() ? playlistUrlField : searchField;
             observedSearchText = field == null ? "" : field.getText();
             autoSearchAt = -1L;
         }
         boolean showChartControls = currentTab == CHARTS_TAB && hasVisibleChartResults();
-        boolean showPlaylistControls = currentTab == PLAYLIST_DISCOVERY_TAB && hasVisiblePlaylistResults();
+        boolean showPlaylistControls = currentTab == PLAYLIST_DISCOVERY_TAB && !playlistSearchMode
+            && hasVisiblePlaylistResults();
         setVisible(refreshChartsButton, showChartControls);
         setVisible(bulkAddButton, showChartControls || showPlaylistControls);
     }
@@ -2919,6 +2993,34 @@ public class HorizonRadioScreen extends GuiScreen {
             }
             minecraft.getTextureManager()
                 .bindTexture(iconTexture);
+            if (id == BUTTON_SETTINGS) {
+                // Use the supplied icon's alpha mask with the current white/disabled tint.
+                GL11.glPushAttrib(GL11.GL_TEXTURE_BIT);
+                try {
+                    GL11.glTexEnvi(GL11.GL_TEXTURE_ENV, GL11.GL_TEXTURE_ENV_MODE, GL13.GL_COMBINE);
+                    GL11.glTexEnvi(GL11.GL_TEXTURE_ENV, GL13.GL_COMBINE_RGB, GL11.GL_REPLACE);
+                    GL11.glTexEnvi(GL11.GL_TEXTURE_ENV, GL13.GL_SOURCE0_RGB, GL13.GL_PRIMARY_COLOR);
+                    GL11.glTexEnvi(GL11.GL_TEXTURE_ENV, GL13.GL_OPERAND0_RGB, GL11.GL_SRC_COLOR);
+                    GL11.glTexEnvi(GL11.GL_TEXTURE_ENV, GL13.GL_COMBINE_ALPHA, GL11.GL_REPLACE);
+                    GL11.glTexEnvi(GL11.GL_TEXTURE_ENV, GL13.GL_SOURCE0_ALPHA, GL11.GL_TEXTURE);
+                    GL11.glTexEnvi(GL11.GL_TEXTURE_ENV, GL13.GL_OPERAND0_ALPHA, GL11.GL_SRC_ALPHA);
+                    // Odd-sized icon gives equal pixel margins inside the 17px button.
+                    Gui.func_152125_a(
+                        xPosition + (width - 13) / 2,
+                        yPosition + (height - 13) / 2,
+                        0,
+                        0,
+                        CONTROL_ICON_TEXTURE_SIZE,
+                        CONTROL_ICON_TEXTURE_SIZE,
+                        13,
+                        13,
+                        CONTROL_ICON_TEXTURE_SIZE,
+                        CONTROL_ICON_TEXTURE_SIZE);
+                } finally {
+                    GL11.glPopAttrib();
+                }
+                return;
+            }
             Gui.func_152125_a(
                 xPosition + (width - CONTROL_ICON_SIZE) / 2,
                 yPosition + (height - CONTROL_ICON_SIZE) / 2,

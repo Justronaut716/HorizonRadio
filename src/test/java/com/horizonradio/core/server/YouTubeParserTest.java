@@ -96,7 +96,7 @@ public class YouTubeParserTest {
     }
 
     @Test
-    public void playlistImportSkipsMalformedElementsAndCapsAtFiftyValidResults() {
+    public void playlistImportSkipsMalformedElementsWithoutTruncatingValidResults() {
         StringBuilder json = new StringBuilder("{\"entries\":[null,7,\"unavailable\",");
         json.append("{\"id\":\"duplicate\",\"title\":\"First duplicate\",\"duration\":60},");
         json.append("{\"id\":\"duplicate\",\"title\":\"Second duplicate\",\"duration\":60},");
@@ -115,14 +115,14 @@ public class YouTubeParserTest {
 
         List<SearchResult> results = PlaylistImportService.parse(json.toString());
 
-        assertEquals(50, results.size());
+        assertEquals(52, results.size());
         assertEquals(
             "duplicate",
             results.get(0)
                 .getVideoId());
         assertEquals(
-            "valid-49",
-            results.get(49)
+            "valid-51",
+            results.get(51)
                 .getVideoId());
     }
 

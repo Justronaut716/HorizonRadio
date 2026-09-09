@@ -255,7 +255,7 @@ public class HorizonRadioClientDiscoveryTest {
     }
 
     @Test
-    public void playlistImportPublishesFirstFiftyValidUniqueResultsOnly() throws Exception {
+    public void playlistImportPublishesAllValidUniqueResults() throws Exception {
         DeferredProvider provider = new DeferredProvider();
         CompletableFuture<String> importPlaylist = provider.deferPlaylist();
         HorizonRadioClient.setClientMediaService(new ClientMediaService(provider));
@@ -267,10 +267,75 @@ public class HorizonRadioClientDiscoveryTest {
 
             List<HorizonRadioScreen.SearchResult> cached = HorizonRadioClient.getCachedPlaylistResults();
 
-            assertEquals(50, cached.size());
+            assertEquals(70, cached.size());
             assertEquals("fixture-01", cached.get(0).videoId);
-            assertEquals("fixture-52", cached.get(49).videoId);
+            assertEquals("fixture-72", cached.get(69).videoId);
             assertEquals(0, transport.discoveryCallCount);
+        } finally {
+            HorizonRadioScreen.clearActiveScreen(screen);
+        }
+    }
+
+    @Test
+    public void playlistDisplayExcludesSongsAtOrAboveDurationLimitAndInvalidDurations() throws Exception {
+        DeferredProvider provider = new DeferredProvider();
+        CompletableFuture<String> imported = provider.deferPlaylist();
+        HorizonRadioClient.setClientMediaService(new ClientMediaService(provider));
+        HorizonRadioScreen screen = new HorizonRadioScreen();
+        HorizonRadioScreen.setActiveScreen(screen);
+        try {
+            int limit = com.horizonradio.core.config.HorizonRadioConfig.DEFAULT_MAX_TRACK_DURATION_MINUTES * 60;
+            HorizonRadioClient.sendPlaylistImport("https://www.youtube.com/playlist?list=PLduration");
+            imported.complete(
+                "{\"entries\":[" + "{\"id\":\"short\",\"title\":\"Allowed\",\"duration\":"
+                    + (limit - 1)
+                    + "},"
+                    + "{\"id\":\"equal\",\"title\":\"At limit\",\"duration\":"
+                    + limit
+                    + "},"
+                    + "{\"id\":\"long\",\"title\":\"Too long\",\"duration\":"
+                    + (limit + 1)
+                    + "},"
+                    + "{\"id\":\"zero\",\"title\":\"Zero\",\"duration_string\":\"0:00\"},"
+                    + "{\"id\":\"unknown\",\"title\":\"Unknown\",\"duration_string\":\"--:--\"}]}");
+            assertEquals(
+                1,
+                HorizonRadioClient.getCachedPlaylistResults()
+                    .size());
+            assertEquals(
+                "short",
+                HorizonRadioClient.getCachedPlaylistResults()
+                    .get(0).videoId);
+            assertEquals(1, playlistResults(screen).size());
+        } finally {
+            HorizonRadioScreen.clearActiveScreen(screen);
+        }
+    }
+
+    @Test
+    public void playlistQueueNotificationUsesImportedTitleBeforeQueueMetadataArrives() throws Exception {
+        DeferredProvider provider = new DeferredProvider();
+        CompletableFuture<String> imported = provider.deferPlaylist();
+        HorizonRadioClient.setClientMediaService(new ClientMediaService(provider));
+        HorizonRadioScreen screen = new HorizonRadioScreen();
+        HorizonRadioScreen.setActiveScreen(screen);
+        try {
+            HorizonRadioClient.sendPlaylistImport("https://www.youtube.com/playlist?list=PLfixture");
+            imported
+                .complete("{\"entries\":[{\"id\":\"J414kTfsozU\",\"title\":\"Actual song title\",\"duration\":120}]}");
+            NotificationCenter center = new NotificationCenter();
+            center.observe(HorizonRadioClient.notificationSnapshot(), 0L);
+            HorizonRadioClient.updatePlaylist(
+                java.util.Collections.singletonList(
+                    new HorizonRadioScreen.PlaylistEntry(
+                        MediaSourceType.YOUTUBE,
+                        "J414kTfsozU",
+                        "tester",
+                        null,
+                        null)));
+            center.observe(HorizonRadioClient.notificationSnapshot(), 100L);
+            assertEquals("Added to queue", center.current(100L).title);
+            assertEquals("Actual song title", center.current(100L).detail);
         } finally {
             HorizonRadioScreen.clearActiveScreen(screen);
         }
@@ -833,7 +898,7 @@ public class HorizonRadioClientDiscoveryTest {
 
     private static String buildPlaylistImportJsonFixture() {
         StringBuilder json = new StringBuilder("{\"entries\":[");
-        for (int index = 1; index <= 52; index++) {
+        for (int index = 1; index <= 72; index++) {
             if (index > 1) {
                 json.append(',');
             }

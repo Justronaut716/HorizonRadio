@@ -170,6 +170,21 @@ public final class HorizonRadioConfig {
         }
     }
 
+    public static boolean validLimits(int queueLimit, int durationMinutes) {
+        return queueLimit > 0 && queueLimit <= MAX_PLAYLIST_SIZE && durationMinutes > 0;
+    }
+
+    public HorizonRadioConfig withLimits(int queueLimit, int durationMinutes) {
+        if (!validLimits(queueLimit, durationMinutes)) throw new IllegalArgumentException("Invalid server limits");
+        return new HorizonRadioConfig(
+            queueLimit,
+            durationMinutes,
+            downloadDir,
+            youtubeCookiesFromBrowser,
+            youtubeCookiesFile,
+            serverDebugChat);
+    }
+
     public int getMaxPlaylistSize() {
         return maxPlaylistSize;
     }

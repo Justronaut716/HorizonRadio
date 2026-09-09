@@ -32,6 +32,12 @@ public final class HorizonRadioClientConfig {
     private static final Logger LOGGER = Logger.getLogger(HorizonRadioClientConfig.class.getName());
     private static final Gson GSON = new Gson();
 
+    private ClientUiSettings uiSettings = new ClientUiSettings();
+
+    ClientUiSettings getUiSettings() {
+        return uiSettings;
+    }
+
     private final File configFile;
     private final float volume;
     private final ClientFavorites favorites;
@@ -62,12 +68,16 @@ public final class HorizonRadioClientConfig {
             new InputStreamReader(new FileInputStream(configFile), StandardCharsets.UTF_8))) {
             JsonObject object = GSON.fromJson(reader, JsonObject.class);
             if (object != null) {
-                return new HorizonRadioClientConfig(
+                HorizonRadioClientConfig loaded = new HorizonRadioClientConfig(
                     configFile,
                     readVolume(object),
                     readFavorites(object),
                     readPlaybackMode(object),
                     readYoutubeAudioEnabled(object));
+                if (object.has("uiSettings") && object.get("uiSettings")
+                    .isJsonObject())
+                    loaded.uiSettings = ClientUiSettings.fromJson(object.getAsJsonObject("uiSettings"));
+                return loaded;
             }
         } catch (IOException exception) {
             LOGGER.log(Level.WARNING, "Could not load HorizonRadio client configuration", exception);
@@ -127,6 +137,7 @@ public final class HorizonRadioClientConfig {
         File temporaryFile = new File(configFile.getPath() + ".tmp");
         JsonObject object = new JsonObject();
         object.addProperty("volume", normalize(value));
+        object.add("uiSettings", uiSettings.toJson());
         ClientFavorites safeFavorites = favoriteState == null ? new ClientFavorites() : favoriteState;
         object.add("favoriteSongs", songArray(safeFavorites));
         object.add("favoriteRadios", radioArray(safeFavorites));

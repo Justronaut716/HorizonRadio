@@ -18,8 +18,6 @@ import com.horizonradio.core.model.SearchResult;
 /** Parses metadata returned by the embedded Java YouTube resolver for playlist imports. */
 public final class PlaylistImportService {
 
-    static final int MAX_IMPORT_ENTRIES = 50;
-
     private PlaylistImportService() {}
 
     public static boolean isPlaylistUrl(String value) {
@@ -98,9 +96,6 @@ public final class PlaylistImportService {
             }
             JsonArray entries = entriesElement.getAsJsonArray();
             for (JsonElement element : entries) {
-                if (results.size() >= MAX_IMPORT_ENTRIES) {
-                    break;
-                }
                 if (element == null || !element.isJsonObject()) {
                     continue;
                 }

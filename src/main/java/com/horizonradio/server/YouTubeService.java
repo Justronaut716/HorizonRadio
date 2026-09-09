@@ -69,16 +69,34 @@ public class YouTubeService {
         this.executor = executor;
     }
 
+    public CompletableFuture<List<com.horizonradio.core.model.PlaylistSearchResult>> searchPlaylists(String query) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                return new PlaylistSearchService().search(query);
+            } catch (IOException failure) {
+                throw new java.util.concurrent.CompletionException(failure);
+            }
+        }, executor);
+    }
+
     public CompletableFuture<List<SearchResult>> search(final String query) {
         return search(query, -1L);
     }
 
     public CompletableFuture<List<SearchResult>> search(final String query, final long maxTrackDurationMs) {
+        return search(
+            query,
+            maxTrackDurationMs,
+            maxTrackDurationMs > 0L ? TARGET_SEARCH_RESULTS : MAX_RAW_SEARCH_RESULTS);
+    }
+
+    public CompletableFuture<List<SearchResult>> search(final String query, final long maxTrackDurationMs,
+        final int limit) {
         return CompletableFuture.supplyAsync(new java.util.function.Supplier<List<SearchResult>>() {
 
             @Override
             public List<SearchResult> get() {
-                return searchPages(query, maxTrackDurationMs);
+                return searchPages(query, maxTrackDurationMs, Math.max(1, Math.min(MAX_RAW_SEARCH_RESULTS, limit)));
             }
         }, executor);
     }
@@ -105,7 +123,7 @@ public class YouTubeService {
         }, executor);
     }
 
-    private List<SearchResult> searchPages(String query, long maxTrackDurationMs) {
+    private List<SearchResult> searchPages(String query, long maxTrackDurationMs, int limit) {
         List<SearchResult> results = new ArrayList<SearchResult>();
         Set<String> seenIds = new HashSet<String>();
         String continuation = null;
@@ -138,7 +156,7 @@ public class YouTubeService {
                     continue;
                 }
                 results.add(result);
-                if (maxTrackDurationMs > 0L && results.size() >= TARGET_SEARCH_RESULTS) {
+                if (results.size() >= limit) {
                     return results;
                 }
                 if (maxTrackDurationMs <= 0L && results.size() >= MAX_RAW_SEARCH_RESULTS) {
