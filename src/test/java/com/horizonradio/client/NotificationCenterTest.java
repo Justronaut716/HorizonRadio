@@ -7,6 +7,42 @@ import org.junit.Test;
 public class NotificationCenterTest {
 
     @Test
+    public void queueAdditionWaitsForTitleAndIsAnnouncedOnlyOnce() {
+        NotificationCenter center = new NotificationCenter();
+        center.observe(new NotificationCenter.Snapshot(), 0L);
+        NotificationCenter.Snapshot loading = new NotificationCenter.Snapshot();
+        loading.queue.put("song", null);
+        center.observe(loading, 100L);
+        assertNull(center.current(100L));
+        NotificationCenter.Snapshot loaded = new NotificationCenter.Snapshot();
+        loaded.queue.put("song", "Actual song title");
+        center.observe(loaded, 2000L);
+        assertEquals("Added to queue", center.current(2000L).title);
+        assertEquals("Actual song title", center.current(2000L).detail);
+        center.observe(loaded, 6100L);
+        assertNull(center.current(6100L));
+    }
+
+    @Test
+    public void removedUnresolvedAdditionsAndInitialQueueAreNotAnnouncedLater() {
+        NotificationCenter center = new NotificationCenter();
+        NotificationCenter.Snapshot loading = new NotificationCenter.Snapshot();
+        loading.queue.put("song", null);
+        center.observe(loading, 0L);
+        NotificationCenter.Snapshot loaded = new NotificationCenter.Snapshot();
+        loaded.queue.put("song", "Title");
+        center.observe(loaded, 100L);
+        assertNull(center.current(100L));
+        center.clear();
+        center.observe(new NotificationCenter.Snapshot(), 200L);
+        center.observe(loading, 300L);
+        center.observe(new NotificationCenter.Snapshot(), 400L);
+        assertNull(center.current(400L));
+        center.observe(new NotificationCenter.Snapshot(), 5000L);
+        assertNull(center.current(5000L));
+    }
+
+    @Test
     public void positionPreviewWorksWithNotificationsDisabledAndExpires() {
         NotificationCenter center = new NotificationCenter();
         ClientUiSettings settings = new ClientUiSettings();

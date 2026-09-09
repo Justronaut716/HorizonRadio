@@ -61,6 +61,7 @@ public final class HorizonRadioClient {
 
     private static final List<HorizonRadioScreen.PlaylistEntry> CACHED_PLAYLIST = new ArrayList<HorizonRadioScreen.PlaylistEntry>();
     private static final List<HorizonRadioScreen.SearchResult> CACHED_CHARTS = new ArrayList<HorizonRadioScreen.SearchResult>();
+    private static final List<HorizonRadioScreen.SearchResult> CACHED_SEARCH_RESULTS = new ArrayList<HorizonRadioScreen.SearchResult>();
     private static final List<HorizonRadioScreen.SearchResult> CACHED_PLAYLIST_RESULTS = new ArrayList<HorizonRadioScreen.SearchResult>();
     private static String cachedPlaylistTitle = "";
     private static final List<RadioStation> CACHED_RADIO_RESULTS = new ArrayList<RadioStation>();
@@ -507,6 +508,9 @@ public final class HorizonRadioClient {
         if (entry.localVideoMetadata != null && isKnownSongTitle(entry.localVideoMetadata.title, id)) {
             return entry.localVideoMetadata.title;
         }
+        for (HorizonRadioScreen.SearchResult result : CACHED_SEARCH_RESULTS) {
+            if (Objects.equals(id, result.videoId) && isKnownSongTitle(result.title, id)) return result.title;
+        }
         for (HorizonRadioScreen.SearchResult result : CACHED_PLAYLIST_RESULTS) {
             if (Objects.equals(id, result.videoId) && isKnownSongTitle(result.title, id)) return result.title;
         }
@@ -519,7 +523,7 @@ public final class HorizonRadioClient {
             if (Objects.equals(id, favorite.getVideoId()) && isKnownSongTitle(favorite.getTitle(), id))
                 return favorite.getTitle();
         }
-        return "YouTube song";
+        return null;
     }
 
     private static boolean isKnownSongTitle(String title, String id) {
@@ -1521,6 +1525,11 @@ public final class HorizonRadioClient {
     }
 
     public static synchronized void updateSearchResults(List<HorizonRadioScreen.SearchResult> results) {
+        CACHED_SEARCH_RESULTS.clear();
+        if (results != null) {
+            for (HorizonRadioScreen.SearchResult result : results)
+                if (result != null) CACHED_SEARCH_RESULTS.add(result);
+        }
         NotificationOverlay
             .post("search-songs", "Song search finished", (results == null ? 0 : results.size()) + " results");
         HorizonRadioScreen screen = getOpenScreen();
@@ -2023,6 +2032,7 @@ public final class HorizonRadioClient {
         cancelActiveTrackDownload();
         CACHED_PLAYLIST.clear();
         CACHED_CHARTS.clear();
+        CACHED_SEARCH_RESULTS.clear();
         CACHED_PLAYLIST_RESULTS.clear();
         cachedPlaylistTitle = "";
         CACHED_RADIO_RESULTS.clear();

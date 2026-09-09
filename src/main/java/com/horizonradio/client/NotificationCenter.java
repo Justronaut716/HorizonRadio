@@ -3,10 +3,13 @@ package com.horizonradio.client;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 /** Minecraft-independent notification lifetime and confirmed-state change detection. */
 final class NotificationCenter {
@@ -14,6 +17,7 @@ final class NotificationCenter {
     static final long DISPLAY_MILLIS = 4000L;
     static final int MAX_PENDING = 5;
     private final Deque<Notice> pending = new ArrayDeque<Notice>();
+    private final Set<String> awaitingQueueTitles = new LinkedHashSet<String>();
     private Notice active;
     private Notice preview;
     private Snapshot previous;
@@ -21,6 +25,7 @@ final class NotificationCenter {
 
     synchronized void configure(ClientUiSettings settings) {
         this.settings = settings;
+        if (!settings.allows("queue-add")) awaitingQueueTitles.clear();
         pending.removeIf(notice -> !settings.allows(notice.key));
         if (active != null && !settings.allows(active.key)) active = null;
     }
@@ -101,6 +106,7 @@ final class NotificationCenter {
     synchronized void clear() {
         preview = null;
         active = null;
+        awaitingQueueTitles.clear();
         pending.clear();
         previous = null;
     }
@@ -124,11 +130,30 @@ final class NotificationCenter {
         }
         List<String> added = difference(state.queue, previous.queue, "");
         List<String> removed = difference(previous.queue, state.queue, trackChanged ? previous.trackId : "");
-        if (!added.isEmpty()) post("queue-add", "Added to queue", describe(added, "entries added"), now);
-        if (!removed.isEmpty()) post(
+        if (settings.allows("queue-add")) {
+            for (String id : state.queue.keySet()) {
+                if (!previous.queue.containsKey(id)) awaitingQueueTitles.add(id);
+            }
+        } else {
+            awaitingQueueTitles.clear();
+        }
+        awaitingQueueTitles.retainAll(state.queue.keySet());
+        List<String> resolvedTitles = new ArrayList<String>();
+        for (Iterator<String> ids = awaitingQueueTitles.iterator(); ids.hasNext();) {
+            String title = state.queue.get(ids.next());
+            if (hasTitle(title)) {
+                resolvedTitles.add(title);
+                ids.remove();
+            }
+        }
+        if (!resolvedTitles.isEmpty())
+            post("queue-add", "Added to queue", describe(resolvedTitles, "entries added"), now);
+        List<String> removedTitles = new ArrayList<String>(removed);
+        removedTitles.removeIf(title -> !hasTitle(title));
+        if (!removedTitles.isEmpty()) post(
             "queue-remove",
             state.queue.isEmpty() ? "Queue cleared" : "Removed from queue",
-            describe(removed, "entries removed"),
+            describe(removedTitles, "entries removed"),
             now);
         if (added.isEmpty() && removed.isEmpty()
             && !trackChanged
@@ -169,6 +194,11 @@ final class NotificationCenter {
                 result.add(entry.getValue());
         }
         return result;
+    }
+
+    private static boolean hasTitle(String title) {
+        return title != null && !title.trim()
+            .isEmpty();
     }
 
     private static String describe(List<String> names, String plural) {

@@ -313,6 +313,22 @@ public class HorizonRadioClientDiscoveryTest {
     }
 
     @Test
+    public void queueNotificationUsesSearchTitleAndNeverSubstitutesYoutubeSong() {
+        NotificationCenter center = new NotificationCenter();
+        center.observe(HorizonRadioClient.notificationSnapshot(), 0L);
+        HorizonRadioClient.updatePlaylist(
+            Collections.singletonList(
+                new HorizonRadioScreen.PlaylistEntry(MediaSourceType.YOUTUBE, "J414kTfsozU", "tester", null, null)));
+        center.observe(HorizonRadioClient.notificationSnapshot(), 100L);
+        assertNull(center.current(100L));
+        HorizonRadioClient.updateSearchResults(
+            Collections.singletonList(
+                new HorizonRadioScreen.SearchResult("J414kTfsozU", "Actual search title", "Artist", "2:00", "")));
+        center.observe(HorizonRadioClient.notificationSnapshot(), 200L);
+        assertEquals("Actual search title", center.current(200L).detail);
+    }
+
+    @Test
     public void playlistQueueNotificationUsesImportedTitleBeforeQueueMetadataArrives() throws Exception {
         DeferredProvider provider = new DeferredProvider();
         CompletableFuture<String> imported = provider.deferPlaylist();
