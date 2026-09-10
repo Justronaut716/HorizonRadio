@@ -1,223 +1,101 @@
-# HorizonRadio for Forge 1.7.10
+<p align="center">
+  <img src="src/main/resources/assets/horizonradio/textures/gui/HorizonRadioLogoClean.png" alt="HorizonRadio" width="420">
+</p>
 
-HorizonRadio is a server-authoritative shared queue for client-side YouTube
-music and live radio playback in Minecraft 1.7.10. This repository is a Forge
-port that runs in standalone Forge installations and alongside GregTech: New
-Horizons (GTNH). It has no required GTNHLib or GregTech dependency and adds no
-world content.
+# Your Minecraft world. Your soundtrack.
 
-## Features
+**HorizonRadio brings YouTube music and live internet radio into Minecraft 1.7.10.**
+Find a song, discover a playlist, or tune in to a station without leaving the game.
+Build a shared queue with friends and let the music follow your next mining trip,
+factory expansion, or evening at the base.
 
-- Shared server playlist with add/remove ownership checks.
-- Drag-and-drop reordering of queued songs in the Playlist tab.
-- Separate Charts tab with client-local weekly Top-50 discovery for all ISO
-  countries, multilingual region search, and bulk queueing.
-- Client-side YouTube search, chart lookup, playlist/video import, metadata
-  resolution, download, decoding, normalization, WAV cache, and playback.
-- Empty Charts tab until a country is searched; country aliases and ISO codes
-  can be searched in multiple languages.
-- Queue mutations send a source ID and a positive finite duration only; the
-  server validates and orders them without looking up YouTube metadata.
-- Client-side Radio Browser search and station lookup; each client opens the
-  selected station's live stream directly.
-- Forge `SimpleNetworkWrapper` snapshots/deltas with queue revisions and
-  source-aware playback synchronization. Finite YouTube tracks use the shared
-  server clock; radio carries station UUID plus generation and starts at the
-  local live edge.
-- WebPrototype-aligned, responsive two-column client GUI with Songs/Radio tabs,
-  Charts/Search/Playlists modes, a persistent queue, scrolling, drag reorder,
-  playback controls, progress, and volume control. The prototype's Client,
-  Server, and Group scope controls are intentionally omitted for now.
-- Client-local Java Sound playback.
+Made for **Forge 1.7.10**, with **GregTech: New Horizons** as an intended target.
+No GregTech or GTNHLib dependency, no extra blocks or recipes, and no external
+media program to install.
 
-There are deliberately no items, blocks, crafting or machine recipes,
-TileEntities, world renderers, mixins, coremods, or GregTech recipe
-integrations. The inactive companion service is not part of this port.
+[Download the latest release](https://github.com/Justronaut716/HorizonRadio/releases/latest)
+ · [Report a problem](https://github.com/Justronaut716/HorizonRadio/issues)
 
-## Requirements
+## What you can do
 
-- Java 25 for development and release builds. This is a build requirement,
-  not the game runtime requirement.
-- Ordinary Forge 1.7.10 targets a Java 8-compatible runtime. GTNH targets Java
-  17 or newer; runtime smoke tests remain pending.
-- Minecraft 1.7.10 with Forge `10.13.4.1614`.
-- Either standalone Forge 1.7.10 or a GTNH installation for deployment. The
-  same plain reobfuscated JAR works for both, with no hard GTNHLib or GregTech
-  dependency.
-- The server needs no outbound access to YouTube, Radio Browser, or station
-  streams for normal operation. Each client needs outbound HTTP(S) access to
-  YouTube, Radio Browser, and the selected station stream. The mod JAR includes
-  its Java media decoders; no separately installed media program or native media
-  library is required.
-- A usable Java Sound line on each client for audible playback. The client
-  remains usable when a sound device is unavailable, but playback cannot work.
+| Feature | In the game |
+| --- | --- |
+| **Find your next song** | Search YouTube, open video links, discover playlists, and import their tracks. |
+| **Explore the charts** | Browse weekly Top 50 songs by country; search regions using names or ISO codes such as `Deutschland`, `Germany`, or `DE`. |
+| **Listen together** | Add songs to the shared server queue, drag them into order, or play a selected track immediately. Song playback follows the server's shared timeline. |
+| **Tune in to live radio** | Browse and search Radio Browser stations, then start their live streams directly in Minecraft. |
+| **Keep your favorites close** | Save favorite songs and stations locally for quick access. |
+| **Control the soundtrack** | Use play/pause, previous/next, shuffle, repeat, seeking, and your own volume slider for songs. Live radio has play/stop controls. |
+| **Stay informed** | In-game notifications show queue activity and playback feedback; settings let you adjust the interface and notifications. |
+| **Manage your server** | Operators can change queue size and maximum song duration from the in-game settings panel. |
 
-### Embedded media backend
+The interface keeps discovery and the queue side by side, with playback controls
+always within reach. Each player controls their own volume; audio is downloaded
+and decoded on each client, while the server coordinates the shared queue.
 
-YouTube discovery/metadata, finite audio, Radio Browser lookup, and direct
-radio decoding run in the embedded Java media backend on each client. The
-decoder registry supports MP3, ADTS/AAC,
-WAV/PCM, M4A/MP4 AAC, Ogg Vorbis, Ogg Opus, and WebM/Opus. The direct radio
-acceptance path covers MP3, ADTS/AAC, Ogg Vorbis, and Ogg Opus. Finite audio is
-normalized to cached WAV; each client opens live radio directly at its current
-edge.
+## Get started
 
-HLS/M3U8 was intentionally not added because the current acceptance corpus has
-no concrete required HLS URL. Direct HTTP radio remains the default path.
+1. Install **Minecraft 1.7.10 with Forge 10.13.4.1614**.
+2. Download `horizonradio-1.0.0.jar` from the
+   [releases page](https://github.com/Justronaut716/HorizonRadio/releases).
+3. Put the same JAR in the server's and every player's `mods` folder. For a local
+   world, install it in your client's `mods` folder. Use the plain JAR.
+4. Join a world and press **N** to open HorizonRadio.
+5. Search for music in **Songs**, explore **Charts** or **Playlists**, or switch
+   to **Radio** to choose a station. Add favorites and build your queue.
 
-## Build
+Each client needs internet access to the media services it uses and a working
+Java Sound device. The server does not need to connect to YouTube or radio
+stations and does not relay audio. The media decoders are included in the JAR.
 
-The project uses the GTNH convention build and its Gradle `9.3.1` wrapper.
-With Java 25 active, the normal development build is:
+**Runtime targets:** ordinary Forge with a Java 8-compatible runtime, and GTNH
+with Java 17 or newer. These are intended targets; standalone Forge and GTNH
+runtime smoke tests are still pending. See the
+[compatibility notes](docs/COMPATIBILITY.md) for verification details.
+
+## Settings and storage
+
+Open the in-game settings panel to customize interface preferences and
+notifications. Server operators also have **OP Settings** for queue capacity
+and the maximum song duration. Defaults are **50 entries** and **15 minutes**;
+changes apply to new entries, so reducing a limit keeps existing songs.
+
+Server settings live in `config/horizonradio.json`. Personal volume is saved
+in `config/horizonradio-client.json`. Songs are cached locally as WAV files in
+`horizonradio-audio`; this temporary cache is cleared on client startup and exit
+and pruned around the current playback position during a session.
+
+## A few things to know
+
+- Everyone needs the same mod version. The shared queue is kept in memory and
+  does not survive a server restart.
+- YouTube, Radio Browser, and station streams are external services; availability
+  and playable tracks can vary.
+- Each listener connects to live radio independently, so radio may have a small
+  timing difference between players. Live streams cannot be paused or seeked.
+- Downloading and decoding songs uses client bandwidth, memory, and disk space.
+  Playback may take a moment to start on slower connections.
+- Direct radio streams are supported; HLS/M3U8 playback is not supported.
+
+## Build and contribute
+
+Development and release builds require **Java 25** and use the included Gradle
+wrapper. Java 25 is a build requirement, not the game's runtime requirement.
 
 ```bash
 ./gradlew build
 ```
 
-The `build` lifecycle task runs the checks/tests and assembles the JAR. The
-repository’s `.java-version` file contains `25`; if your shell does not load
-that file automatically, select a Java 25 installation before invoking the
-wrapper. Use `./gradlew clean` separately only when you intentionally need a
-fresh Forge/decompilation build. CI keeps that clean step separate from
-`test build` because first-time parallel dependency downloads write under
-`build/`.
+This runs checks, tests, packaging audits, and JAR assembly. To build the release
+version explicitly:
 
-The convention build owns Forge setup, resource expansion, and the Java 8
-portable-runtime compatibility path. See
-[`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md) for the verified local build
-and pending runtime matrix.
-
-For version bumps, remote releases, artifact selection, checksums, and recovery,
-see the [`release guide`](docs/RELEASE.md).
-
-## Installation
-
-1. For a local development build, run `./gradlew build` with Java 25. For a
-   versioned release, use the process in [`docs/RELEASE.md`](docs/RELEASE.md);
-   it sets `VERSION=<version>` and publishes the plain reobfuscated
-   `horizonradio-<version>.jar`.
-2. Install that same `horizonradio-<version>.jar` in the Forge `mods` directory
-   on the server and every connecting client. Do not install `-dev` or
-   `-sources` outputs. This one JAR is for ordinary Forge 1.7.10 and GTNH
-   Java 17+; Java 25 is only required to build it.
-3. Start the server once. HorizonRadio creates `config/horizonradio.json` defaults.
-   Finite-track WAV files are cached per client in `horizonradio-audio` at the
-   game root (`.minecraft`); the server-side `downloadDir` remains for
-   configuration compatibility only.
-4. Keep the server and every client on the same Forge 1.7.10 port build. The
-   current protocol uses the versioned `horizonradio_1_0` channel.
-
-## 1.0 migration boundary
-
-This is a breaking boundary. Pre-1.0 clients cannot connect after the channel
-change, and old configurations are not automatically reinterpreted. Before
-upgrading, back up `config/horizonradio.json` and the configured download
-directory.
-
-Example configuration:
-
-```json
-{
-  "maxPlaylistSize": 50,
-  "maxTrackDurationMinutes": 15,
-  "downloadDir": "./horizonradio-downloads",
-  "youtubeCookiesFromBrowser": "",
-  "youtubeCookiesFile": "",
-  "serverDebugChat": false
-}
+```bash
+VERSION=1.0.0 ./gradlew spotlessCheck test packagingTest build
 ```
 
-Server operators can also change these two limits in the in-game settings panel
-under **OP Settings**. Enter the queue size (1–1024) and song duration limit in
-whole minutes, then click **Apply**. The server checks OP permission, saves the
-values in `config/horizonradio.json`, and applies them to new entries immediately.
-Existing queue entries are kept when reducing the limits. Both clients and the
-server need the version containing this tab and its settings packets.
+Install `build/libs/horizonradio-1.0.0.jar`; the `-dev` and `-sources` outputs are
+for development. Run `./gradlew clean` separately if you need a fresh build.
 
-`maxPlaylistSize` limits the total number of entries in the shared playlist;
-additional songs are rejected once the configured maximum is reached.
-`maxTrackDurationMinutes` limits the finite duration that the server accepts
-for a queue mutation; clients use the same bound for local discovery. YouTube
-metadata and finite audio use the client-local embedded Java resolver/backend.
-The legacy cookie fields remain readable for configuration compatibility, but
-the embedded resolver does not use them; they can be left empty.
-`serverDebugChat` is disabled by default; set it to `true` only to mirror
-server diagnostics into Minecraft chat.
-
-The JSON above is the server/common configuration. Client audio settings and
-the finite-track cache are kept separately: the volume slider stores its value
-in `config/horizonradio-client.json`, while downloaded WAV files live in
-`horizonradio-audio` at the game root. The cache is session-scoped: it is
-deleted in full when the client starts and when it exits, and while playing it
-is pruned to the playback window - the current track, the last two finished
-tracks, and the next two queued tracks - so skipping or going back still finds
-cached audio.
-
-## Use
-
-Join a server or load a client world with a player, then press `N` to open the
-HorizonRadio screen. The Charts tab starts empty. Its search field accepts ISO
-codes and country/region names such as `Germany`, `Deutschland`, `America`, or
-`Amerika`; the last successfully searched country remains selected when the
-tab is revisited. Charts, search, and imports run directly on the client; their
-titles, channels, thumbnails, and durations remain local. `Refresh` updates
-the selected region, and the `+`/`-` button adds or removes all displayed chart
-songs. A finite add sends only a video ID and positive duration to the server.
-Unknown or ambiguous region names keep the current list and show an error.
-Search remains separate. The server still allows every player to remove entries.
-The volume slider is local to the client and persists in
-`config/horizonradio-client.json` across restarts and rejoins. The server
-controls queue ordering and finite-track playback synchronization.
-
-The Radio tab initially shows popular working Radio Browser stations and uses
-the same field to search by station name. Selecting a station sends only its
-UUID to the server; every client looks up the UUID and opens the station stream
-locally. Radio is live rather than seekable: the synchronization packet contains
-only the station UUID and playback generation, with no `startAt`, position, or
-late-join catch-up. It starts at each client's current live edge. Its standard
-control center remains visible, but shuffle, previous, next, repeat, pause, and
-seek are unavailable. The center play/stop button ends the current radio and
-starts the same station again when pressed once more. The station name remains
-visible while stopped. Starting radio stops finite-track playback without
-changing the queue, and Play Now stops radio and starts the selected song.
-
-For GUI verification, the client must already have a loaded world and a
-non-null player (`Minecraft.getMinecraft().theWorld != null` and
-`Minecraft.getMinecraft().thePlayer != null`). The title screen and a
-player-null client are not valid GUI test states.
-
-## Architecture
-
-The server owns queue order, accepted mutations, playback generation, controls,
-and finite-track timing. It receives source IDs plus positive finite durations
-for finite mutations, sends revisioned snapshots/deltas containing source type,
-source ID, and adder only, and sends source-aware sync. For a finite track,
-`TrackSyncPacket` contains the video ID, generation, absolute start timestamp,
-position, and pause state; clients download/decode their cached WAV locally and
-late clients catch up from the shared server clock. For radio it contains only
-station UUID plus generation, so every client joins its own live edge. The
-server performs no YouTube/Radio Browser lookup and relays no metadata or audio.
-
-The current source registers 24 Forge messages once from common initialization:
-16 C2S and 8 S2C, including clientbound `PlaylistDeltaPacket` ID 36 and
-serverbound `PlaylistResyncRequestPacket` ID 37. Legacy result and relay packet
-serializers remain only for compatibility tests; they are not production
-registrations. `ClientProxy` schedules GUI/audio mutations and local discovery
-completion on the client thread; common, server, and network code never imports
-client classes.
-
-See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the packet table,
-audio state machine, port decisions, and omitted systems.
-
-## Known limitations
-
-YouTube's InnerTube endpoint, the Radio Browser directory, and selected station
-streams are external services and may change or be unreachable. Every client
-must be able to reach the services it uses; the server is intentionally not a
-proxy. Finite WAV conversion is bandwidth- and memory-intensive locally.
-Independent radio connections cannot be sample-accurately synchronized: clients
-join the live edge without a position or catch-up. Clients still require a
-usable Java Sound line; a headless client or unavailable audio device cannot
-produce audible playback. The playlist is in memory and is not persisted to NBT
-or a database. Search thumbnails remain data-only because the active GUI does
-not render them.
+Further reading: [release guide](docs/RELEASE.md),
+[architecture](docs/ARCHITECTURE.md), and
+[compatibility and test evidence](docs/COMPATIBILITY.md).

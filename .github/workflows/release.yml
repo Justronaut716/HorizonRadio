@@ -57,4 +57,11 @@ jobs:
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" "build/libs/horizonradio-${VERSION}.jar" "build/libs/horizonradio-${VERSION}.jar.sha256" --verify-tag --generate-notes --title "HorizonRadio ${VERSION}"
+        shell: bash
+        run: |
+          notes_file="docs/releases/${VERSION}.md"
+          notes_args=(--generate-notes)
+          if [[ -f "$notes_file" ]]; then
+            notes_args=(--notes-file "$notes_file")
+          fi
+          gh release create "$GITHUB_REF_NAME" "build/libs/horizonradio-${VERSION}.jar" "build/libs/horizonradio-${VERSION}.jar.sha256" --verify-tag "${notes_args[@]}" --title "HorizonRadio ${VERSION}"

@@ -55,7 +55,8 @@ when those side effects are intended.
 After the tag is pushed, GitHub Actions builds with Java 25, verifies the
 versioned plain JAR, writes its SHA-256 checksum to
 `horizonradio-<version>.jar.sha256`, and creates the GitHub Release with the
-JAR, checksum, and generated release notes. The artifact selection rule is
+JAR, checksum, and release notes from `docs/releases/<version>.md` when present
+(or generated notes otherwise). The artifact selection rule is
 always the plain reobfuscated `horizonradio-<version>.jar`; the checksum file is
 for verification, not a replacement artifact.
 
@@ -95,3 +96,14 @@ build does not prove a game launch or runtime compatibility.
 
 See [`docs/COMPATIBILITY.md`](COMPATIBILITY.md) for the evidence matrix and
 pending verification gates.
+
+## First public release: 1.0.0
+
+The first public release resets the development-only `modVersion=1.5.0` to
+`1.0.0`. GitHub had no releases or remote tags at preparation time. Old local
+development tags are preserved in the development checkout; preparation uses a
+separate clone without those tags. The normal `release` task intentionally
+rejects decreasing versions, so this one-time bootstrap sets the version
+explicitly, runs the same build and artifact checks, commits and pushes the
+release source, and pushes an annotated `v1.0.0` tag to trigger the workflow.
+Subsequent releases use the normal increasing-version task above.
