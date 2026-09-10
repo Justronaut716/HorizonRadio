@@ -33,6 +33,16 @@ The interface keeps discovery and the queue side by side, with playback controls
 always within reach. Each player controls their own volume; audio is downloaded
 and decoded on each client, while the server coordinates the shared queue.
 
+## Screenshots
+
+**Charts, shared queue, and playback controls — all in one screen.**
+
+![HorizonRadio showing country charts, the shared song queue, and playback controls in Minecraft](docs/images/charts-and-queue.png)
+
+**Now-playing notifications keep you updated while you play.**
+
+![HorizonRadio in-game notification showing the currently playing song](docs/images/now-playing-notification.png)
+
 ## Get started
 
 1. Install **Minecraft 1.7.10 with Forge 10.13.4.1614**.
